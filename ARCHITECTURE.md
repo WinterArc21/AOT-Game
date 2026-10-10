@@ -9,7 +9,7 @@ Every module does `import * as THREE from 'three';` — pages map it with an imp
 (path relative to the page; `aot/index.html` uses `./vendor/three.module.min.js`, pages in `aot/dev/` use `../vendor/...`).
 
 Serve the repo root (`npx http-server . -p 8080 -c-1`) and open `/aot/`.
-Headless check: `node aot/tools/shot.mjs aot/dev/<page>.html /path/out.png 6000 1280x720` (prints page errors, saves PNG).
+Headless check: `node tools/shot.mjs aot/dev/<page>.html /path/out.png 6000 1280x720` (prints page errors, saves PNG).
 
 ## Units and world layout
 

@@ -6,7 +6,7 @@ the Forest of Giant Trees, titans that want to eat you, and the Colossal Titan. 
 
 **Play:** open [`dist/wings-of-freedom.html`](dist/wings-of-freedom.html) in Chrome, Edge or Firefox. It is a
 single file, so double-clicking it works. For development, serve the repo root
-(`npx http-server . -p 8080 -c-1`) and open `http://localhost:8080/aot/`.
+(`npx http-server . -p 8080 -c-1`) and open `http://localhost:8080/`.
 
 ## Controls
 
@@ -84,14 +84,14 @@ hand that holds them, or kill the titan, within about five seconds.
 * **Damage:** a slash deals `(40 + relative speed × 12.5) × blade sharpness`. Small titans need about 25 m/s at
   the nape, 15 m titans about 45 m/s, and the Colossal takes several fast cuts.
 
-`node aot/tools/physics-bench.mjs` runs the real player code headless through a free swing, zips, an orbit, a
+`node tools/physics-bench.mjs` runs the real player code headless through a free swing, zips, an orbit, a
 fall, a run, a wall climb, rope auto-targeting, wire payout and keyboard turning, and checks the numbers.
-`node aot/tools/keyboard-bench.mjs 40` lets a keyboard-only bot (↑, alternating X and Z, some Shift) fly the
+`node tools/keyboard-bench.mjs 40` lets a keyboard-only bot (↑, alternating X and Z, some Shift) fly the
 real forest and reports distance, altitude, how often ropes catch and stalls.
-`node aot/tools/combat-bench.mjs 90` lets a keyboard-only bot fight the Expedition and reports kills, nape hits,
+`node tools/combat-bench.mjs 90` lets a keyboard-only bot fight the Expedition and reports kills, nape hits,
 grabs and deaths.
-`node aot/tools/play-bench.mjs "play=free"` drives the real game in headless Chromium and screenshots a flight.
-`node aot/tools/forest-bench.mjs 60` flies AI soldiers through the real forest for a minute and reports altitude,
+`node tools/play-bench.mjs "play=free"` drives the real game in headless Chromium and screenshots a flight.
+`node tools/forest-bench.mjs 60` flies AI soldiers through the real forest for a minute and reports altitude,
 speed, canopy passes and tunnelling (none). URL flags for testing: `?play=free|expedition`, `?notitans`, `?noallies`,
 `?allies=N`, `?noaudio`, `?norender`, `?testworld`, `?sens=1.5`, `?invert`.
 
