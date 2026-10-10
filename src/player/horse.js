@@ -83,14 +83,23 @@ export class Horse {
       piece(new THREE.TorusGeometry(0.115, 0.012, 4, 12), leather, { p: [0, -0.05, 0.47] }),                         // noseband
     ], this.head, 0.014);
 
-    // tail
+    // tail: a dock and a chain of hair segments that hang, stream back with speed and swish, each lagging the last
     this.tail = new THREE.Group(); this.tail.position.set(0, 0.3, -1.08); this.trunk.add(this.tail);
-    mesh([piece(new THREE.ConeGeometry(0.12, 0.95, 7), dark, { p: [0, -0.45, -0.05], r: [Math.PI, 0, 0] })], this.tail);
+    mesh([piece(new THREE.CylinderGeometry(0.075, 0.05, 0.26, 7), coat, { p: [0, -0.1, -0.03], r: [0.35, 0, 0] })], this.tail);
+    this.tailSegs = [];
+    let parent = this.tail, y = -0.22;
+    for (let i = 0; i < 4; i++) {
+      const seg = new THREE.Group(); seg.position.set(0, y, i ? 0 : -0.06); parent.add(seg);
+      const r0 = 0.1 - i * 0.012, r1 = 0.11 - (i + 1) * 0.02, len = 0.24;
+      mesh([piece(new THREE.CylinderGeometry(r0, Math.max(0.025, r1), len, 7), dark, { p: [0, -len / 2, 0], s: [1, 1, 0.75] })], seg);
+      this.tailSegs.push(seg); parent = seg; y = -len * 0.92;
+    }
 
-    // legs: forearm/gaskin + cannon, knee/hock, fetlock and hoof; hind legs carry the backward hock angle
+    // legs: forearm/gaskin + cannon, knee/hock, fetlock and hoof; hind legs carry the backward hock angle. They hang
+    // from the trunk, so they rise, fall and pitch with the body; each hoof is planted by _legs()
     this.legs = [];
     for (const [x, z, front] of [[-0.24, 0.62, 1], [0.24, 0.62, 1], [-0.25, -0.72, 0], [0.25, -0.72, 0]]) {
-      const hip = new THREE.Group(); hip.position.set(x, front ? 1.1 : 1.26, z); g.add(hip);
+      const hip = new THREE.Group(); hip.position.set(x, (front ? 1.1 : 1.26) - 1.32, z); this.trunk.add(hip);
       mesh([
         piece(new THREE.CylinderGeometry(front ? 0.1 : 0.15, 0.075, front ? 0.55 : 0.62, 8), coat, { p: [0, front ? -0.27 : -0.3, front ? 0 : 0.06], r: [front ? 0 : -0.25, 0, 0] }),
       ], hip);
@@ -100,14 +109,21 @@ export class Horse {
         piece(new THREE.SphereGeometry(0.065, 7, 5), sock, { p: [0, -0.5, front ? 0 : -0.09] }),                    // fetlock
         piece(new THREE.CylinderGeometry(0.06, 0.08, 0.1, 8), hoof, { p: [0, -0.58, front ? 0.02 : -0.07] }),
       ], knee);
-      this.legs.push({ hip, knee, front, side: x < 0 ? 0 : 1 });
+      // segment lengths and rest angles (from straight down, + = backward) for the solver; the hoof's sole is the
+      // planted point: hip → knee, knee → sole
+      const k0 = knee.position, sole = new THREE.Vector3(0, -0.63, front ? 0.02 : -0.07);
+      this.legs.push({ hip, knee, front, side: x < 0 ? 0 : 1, rest: new THREE.Vector3(x, 0, z),
+        L1: Math.hypot(k0.y, k0.z), r1: Math.atan2(-k0.z, -k0.y), L2: Math.hypot(sole.y, sole.z), r2: Math.atan2(-sole.z, -sole.y),
+        plant: new THREE.Vector3(), from: new THREE.Vector3(), to: new THREE.Vector3(), cur: new THREE.Vector3(),
+        swing: false, u: 0, u0: 0, init: false });
     }
     game.scene.add(g);
   }
 
   /** The rider's collision-centre position: seated in the saddle (stand = 0) or standing on it (stand = 1). */
   saddle(out, stand = 0) {
-    return out.set(0, 1.5 + this.bob - this._dip() + stand * 0.86, -0.08)
+    return out.set(0, 1.5 + this.bob - this._dip() - (this.legDrop || 0) + stand * 0.86, -0.08)
+      .applyAxisAngle(_w.set(1, 0, 0), -(this.pitch || 0))      // and with the slope it's on
       .applyAxisAngle(_w.set(0, 0, 1), this.lean || 0)          // the saddle tilts with the horse's bank
       .applyAxisAngle(_w.set(0, 1, 0), this.yaw).add(this.pos);
   }
@@ -119,7 +135,7 @@ export class Horse {
   call(who) { this.caller = who; this.callT = 25; this.state = 'walk'; }
 
   /** The horse's up vector (banked), for the rider. */
-  up(out) { return out.set(0, 1, 0).applyAxisAngle(_w.set(0, 0, 1), this.lean || 0).applyAxisAngle(_w.set(0, 1, 0), this.yaw); }
+  up(out) { return out.set(0, 1, 0).applyAxisAngle(_w.set(1, 0, 0), -(this.pitch || 0)).applyAxisAngle(_w.set(0, 0, 1), this.lean || 0).applyAxisAngle(_w.set(0, 1, 0), this.yaw); }
 
   fixedUpdate(dt) {
     const col = this.game.collision;
@@ -177,13 +193,22 @@ export class Horse {
       if (this.speed > 6) this.speed *= head > 0.7 ? 0.3 : 0.9;
     }
     this.pos.y = col.groundHeight(this.pos.x, this.pos.z);
+    // the body lies along the slope: the ground under the forehand vs under the hindquarters
+    {
+      const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
+      const gF = col.groundHeight(this.pos.x + fx * 0.67, this.pos.z + fz * 0.67), gH = col.groundHeight(this.pos.x - fx * 0.72, this.pos.z - fz * 0.72);
+      const pt = Math.atan2(gF - gH, 1.39);
+      this.pitch = (this.pitch ?? pt) + (pt - (this.pitch ?? pt)) * Math.min(1, dt * 10);
+      this.pos.y = Math.min(this.pos.y, (gF + gH) * 0.5 + 0.02);
+    }
     this.pos.x = THREE.MathUtils.clamp(this.pos.x, -1050, 1050);
     this.pos.z = THREE.MathUtils.clamp(this.pos.z, -620, 1020);
     if (this.pos.z > -7 && this.pos.z < 7 && Math.abs(this.pos.x) > 7) this.pos.z = this.pos.z < 0 ? -7 : 7;   // the wall
     // gait phase and the body's rise and fall (the rider moves with it)
     const s = this.speed;
     this.gallop = THREE.MathUtils.smoothstep(s, 6, 12);
-    this.phase += dt * (s < 0.2 ? 0 : s < 6 ? 0.55 + s * 0.22 : 1.9 + s * 0.035);
+    this._cadence = s < 0.2 ? 0 : s < 6 ? 0.55 + s * 0.22 : 1.9 + s * 0.035;    // strides per second
+    this.phase += dt * this._cadence;
     const P = this.phase * TAU;
     this.bob = this.gallop * 0.11 * Math.sin(P * 1) + (1 - this.gallop) * Math.min(1, s / 4) * 0.035 * Math.sin(P * 2);
   }
@@ -195,26 +220,25 @@ export class Horse {
     const P = this.phase * TAU;
     // gallop: a transverse four-beat (hind L, hind R, fore L, fore R) with a gathered suspension phase;
     // walk/trot: diagonal pairs
-    const offsG = [0.42, 0.52, 0.0, 0.1], offsW = [0.5, 0.0, 0.0, 0.5];
-    const amp = Math.min(1, s / 5);
-    this.legs.forEach((l, i) => {
-      const off = THREE.MathUtils.lerp(offsW[i], offsG[i], ga);
-      const ph = P + off * TAU;
-      const sw = Math.sin(ph) * amp * (0.32 + ga * 0.38);          // + = reaching forward
-      const lift = Math.max(0, Math.cos(ph)) * amp * (0.35 + ga * 0.9); // the leg folds while it swings forward
-      l.hip.rotation.x = -sw;
-      l.knee.rotation.x = l.front ? lift * 1.2 : -lift * 0.9;        // fore knee folds back, hind hock folds forward
-    });
     const dip = this._dip();
-    this.trunk.position.y = 1.32 + this.bob - dip;
-    this.trunk.rotation.x = ga * 0.07 * Math.sin(P + 1.2) + dip * 0.35;           // rocking: forehand up, then hindquarters up
+    this.trunk.position.y = 1.32 + this.bob - dip - (this.legDrop || 0);
+    // rocking (forehand up, then hindquarters up) on top of the slope it stands on
+    this.trunk.rotation.x = ga * 0.07 * Math.sin(P + 1.2) + dip * 0.35 - (this.pitch || 0);
     g.rotation.z = this.lean || 0;   // banked into the turn
+    this._legs(dt);
     const graze = this.state === 'graze' && s < 0.4 && !this.rider;
     const nodT = graze ? 1.85 : 0.72 + ga * (0.18 + 0.12 * Math.sin(P + 2.2)) + (1 - ga) * 0.04 * Math.sin(P * 2);
     this.neck.rotation.x += (nodT - this.neck.rotation.x) * Math.min(1, dt * (graze ? 1.5 : 8));
     this.head.rotation.x = (graze ? -0.3 : 0.05 - ga * 0.12) - this._dip() * 2.4;   // tosses its head when you land on it
-    this.tail.rotation.x = 0.25 + ga * 0.75 + Math.sin(this.phase * 3.1) * 0.12;
-    this.tail.rotation.z = Math.sin(this.phase * 1.7) * 0.15 * (0.4 + ga);
+    this.tail.rotation.x = 0.25 + ga * 0.6 + Math.sin(this.phase * 3.1) * 0.08;
+    this.tail.rotation.z = Math.sin(this.phase * 1.7) * 0.12 * (0.4 + ga);
+    // the hair: lifted by the run, a swish travelling down it (an idle flick at the flies when standing)
+    const tt = (this._tt = (this._tt || 0) + dt);
+    const flick = s < 0.5 ? Math.max(0, Math.sin(tt * 0.9)) ** 8 : 0;
+    this.tailSegs.forEach((seg, i) => {
+      seg.rotation.x = Math.min(1, s / 12) * 0.22 + Math.sin(P * 2 - i * 0.9) * (0.05 + 0.1 * ga);
+      seg.rotation.z = Math.sin(tt * 2.1 - i * 0.7) * (0.06 + 0.08 * ga) + flick * Math.sin(tt * 9 - i) * 0.35;
+    });
     // mane streams back with speed and ripples down the crest
     const stream = Math.min(1, s / 15);
     this.mane.forEach((m, i) => {
@@ -223,6 +247,101 @@ export class Horse {
     });
   }
 }
+
+// gait footfall timing per leg [fore L, fore R, hind L, hind R]: walk / trot in diagonal pairs, the gallop a
+// transverse four-beat (hind L, hind R, fore L, fore R) with a gathered suspension
+const OFFS_W = [0.5, 0.0, 0.0, 0.5], OFFS_G = [0.42, 0.52, 0.0, 0.1];
+const _lp = new THREE.Vector3(), _lq = new THREE.Vector3(), _lm = new THREE.Matrix4();
+const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+/**
+ * Planted hooves. The gait clock (this.phase, a cycle per stride) gives each leg its stance; a hoof in stance stays
+ * pinned to its spot on the ground (zero world velocity), a swinging hoof folds up and arcs to its next foothold,
+ * placed under its hip where the body will be at touchdown. Each leg is then a two-bone solve in the trunk frame
+ * (fore knees fold back, hind hocks forward). The trunk sinks a little if a planted hoof would be out of reach.
+ */
+Horse.prototype._legs = function (dt) {
+  const s = this.speed, ga = this.gallop || 0, col = this.game.collision;
+  const stride = s / Math.max(0.05, this._cadence || 1);
+  // ground covered by a planted hoof: a long stance walking, a short one at the gallop
+  const duty = s < 0.2 ? 1 : THREE.MathUtils.clamp(Math.min(THREE.MathUtils.lerp(0.65, 0.42, sstep(1.8, 5, s)), 1.15 / Math.max(stride, 0.1)), 0.14, 0.7);
+  const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
+  const moving = s > 0.2;
+  this.root.updateMatrixWorld(true);
+  const ground = (v) => { v.y = col.groundHeight(v.x, v.z); return v; };
+  // where a leg's hoof should come down: under its hip, a share of the stance ahead, where the body will be
+  const foothold = (l, tAhead, out) => {
+    const ahead = moving ? duty * stride * 0.45 : 0;
+    out.set(l.rest.x, 0, l.rest.z + ahead).applyAxisAngle(_lq.set(0, 1, 0), this.yaw).add(this.pos);
+    out.x += fx * s * tAhead; out.z += fz * s * tAhead;
+    return ground(out);
+  };
+  const cyc = 1 / Math.max(0.05, this._cadence || 1);
+  const lift = THREE.MathUtils.lerp(0.12, 0.3, sstep(2, 10, s));
+  let need = 0.03;
+  for (let i = 0; i < 4; i++) {
+    const l = this.legs[i];
+    if (!l.init) { foothold(l, 0, l.plant); l.cur.copy(l.plant); l.init = true; }
+    const off = THREE.MathUtils.lerp(OFFS_W[i], OFFS_G[i], ga);
+    const psi = (((this.phase + off - 0.25) % 1) + 1) % 1;
+    if (moving) {
+      const inStance = psi < duty, u = (psi - duty) / (1 - duty);
+      if (l.swing && inStance && l.u > 0.5) { l.swing = false; l.plant.copy(l.to); }
+      else if (!l.swing && !inStance) { l.swing = true; l.from.copy(l.cur); l.u0 = u; }
+      if (l.swing) {
+        l.u = THREE.MathUtils.clamp((u - l.u0) / Math.max(1e-3, 1 - l.u0), 0, 1);
+        foothold(l, (1 - u) * (1 - duty) * cyc, l.to);
+      }
+    } else if (l.swing) {
+      // pulled up mid-stride: finish the step
+      l.u = Math.min(1, l.u + dt / 0.25); foothold(l, 0, l.to);
+      if (l.u >= 1) { l.swing = false; l.plant.copy(l.to); }
+    } else if (foothold(l, 0, _lp).distanceTo(l.plant) > 0.35) { l.swing = true; l.from.copy(l.cur); l.u = 0; l.u0 = 0; }
+    if (l.swing) {
+      const e = sstep(0, 1, l.u);
+      l.cur.lerpVectors(l.from, l.to, e);
+      l.cur.y += lift * Math.sin(Math.PI * Math.pow(l.u, 0.8)) * (l.front ? 1 : 0.85);
+    } else l.cur.copy(l.plant);
+  }
+  // solve each leg in the trunk frame (hip: flexion x, abduction z; knee: x), and see how far the trunk must sink to
+  // keep the planted hooves in reach. The abduction keeps a hoof planted while the body turns over it.
+  _lm.copy(this.trunk.matrixWorld).invert();
+  for (let pass = 0; pass < 2; pass++) {
+    for (let i = 0; i < 4; i++) {
+      const l = this.legs[i];
+      const tl = _lp.copy(l.cur).applyMatrix4(_lm).sub(l.hip.position);
+      const Lmax = (l.L1 + l.L2) * 0.995;
+      if (pass === 0) { if (!l.swing) need = Math.max(need, Math.hypot(tl.y, tl.z) - Lmax); continue; }
+      const d = _lq.copy(tl);
+      for (let it = 0; it < 3; it++) {
+        const yz = Math.hypot(d.y, d.z) || 1e-4;
+        const hz = Math.atan2(d.x, yz);
+        const D = THREE.MathUtils.clamp(Math.hypot(d.x, d.y, d.z), Math.abs(l.L1 - l.L2) + 0.1, Lmax);
+        const dn = d.x * Math.sin(hz) - d.y * Math.cos(hz);
+        const line = Math.atan2(-d.z, dn);
+        const beta = Math.acos(THREE.MathUtils.clamp((l.L1 * l.L1 + D * D - l.L2 * l.L2) / (2 * l.L1 * D), -1, 1));
+        const gamma = Math.acos(THREE.MathUtils.clamp((l.L1 * l.L1 + l.L2 * l.L2 - D * D) / (2 * l.L1 * l.L2), -1, 1));
+        const bend = l.front ? 1 : -1;                   // fore: knee folds back (upper ahead of the line); hind: hock forward
+        const up = line - bend * beta, low = up + bend * (Math.PI - gamma);
+        const hx = up - l.r1, kx = low - up - l.r2 + l.r1;
+        l.hip.rotation.set(hx, 0, hz); l.knee.rotation.set(kx, 0, 0);
+        if (it === 2) break;
+        // where that actually puts the sole (hip = Rx·Rz, then the knee's Rx), and aim off by the miss
+        const sz = Math.sin(hz), cz = Math.cos(hz), sk = Math.sin(kx + l.r2), ck = Math.cos(kx + l.r2), s1 = Math.sin(l.r1), c1 = Math.cos(l.r1);
+        const lx = (l.L1 * c1 + l.L2 * ck) * sz, ly = -(l.L1 * c1 + l.L2 * ck) * cz, lz = -(l.L1 * s1 + l.L2 * sk);
+        const sx = Math.sin(hx), cx = Math.cos(hx);
+        d.x += tl.x - lx; d.y += tl.y - (ly * cx - lz * sx); d.z += tl.z - (ly * sx + lz * cx);
+      }
+    }
+    if (pass === 0) {
+      need = Math.min(0.35, need);
+      this.legDrop = need > (this.legDrop || 0) ? need : (this.legDrop || 0) + (need - (this.legDrop || 0)) * Math.min(1, dt * 6);
+      this.trunk.position.y = 1.32 + this.bob - this._dip() - this.legDrop;
+      this.trunk.updateMatrixWorld(true);
+      _lm.copy(this.trunk.matrixWorld).invert();
+    }
+  }
+};
 
 /** A few horses near the gate (the Expedition's mounts) and scattered over the field and the forest edge. */
 export class Herd {

@@ -409,7 +409,8 @@ export class Player {
       const d = p.distanceTo(h.anchor);
       _e.subVectors(h.anchor, p).multiplyScalar(1 / Math.max(d, 1e-3));
       const vin = v.dot(_e);
-      if (d > CFG.perch.reach + Math.max(0, vin) * 0.12 || vin > CFG.perch.maxSpeed) continue;
+      // coming in slowly: the whole speed counts (flying away from a fresh anchor at speed is no landing)
+      if (d > CFG.perch.reach + Math.max(0, vin) * 0.12 || v.length() > CFG.perch.maxSpeed || vin < -4) continue;
       const tgt = this._perchTarget(h);
       if (!tgt) continue;
       this._startPerch(tgt.pos, tgt.wall ? tgt.normal : null, h);
@@ -449,27 +450,33 @@ export class Player {
   }
   _startPerch(target, wallN, hook) {
     const d = this.pos.distanceTo(target);
+    const dur = THREE.MathUtils.clamp(d / 13, 0.28, 0.6);
     this.perch = {
-      s: this.pos.clone(), e: target.clone(), wall: wallN ? wallN.clone() : null, t: 0,
-      dur: THREE.MathUtils.clamp(d / 13, 0.28, 0.6),
+      s: this.pos.clone(), e: target.clone(), wall: wallN ? wallN.clone() : null, t: 0, dur,
       c: this.pos.clone().lerp(target, 0.5).add(_e.set(0, 1.1 + d * 0.12 + (wallN ? 0 : Math.max(0, target.y - this.pos.y) * 0.3), 0)),
+      // leaves along the current velocity (no stop on the first frame), capped so the arc stays near the line
+      s1: this.pos.clone().addScaledVector(this.vel, dur / 6),
       mat: hook.collider.material,
     };
     if (wallN) this.perch.c.addScaledVector(wallN, 1.2);
+    _e.subVectors(this.perch.s1, this.perch.s);
+    if (_e.length() > 0.25 * d + 0.2) this.perch.s1.copy(this.perch.s).addScaledVector(_e, (0.25 * d + 0.2) / _e.length());
     this.odm.braking = 0.25;
     this.game.audio?.setGas?.(0.7);
   }
   _perchStep(dt) {
     const P = this.perch;
     P.t += dt;
-    const k = Math.min(1, P.t / P.dur), e = k * k * (3 - 2 * k), u = 1 - e;
-    // quadratic Bezier: start -> over the top -> landing spot (eased); velocity from its derivative
-    this.pos.set(0, 0, 0).addScaledVector(P.s, u * u).addScaledVector(P.c, 2 * u * e).addScaledVector(P.e, e * e);
-    const de = 6 * k * (1 - k) / P.dur;
-    this.vel.set(0, 0, 0).addScaledVector(P.s, -2 * u * de).addScaledVector(P.c, 2 * (u - e) * de).addScaledVector(P.e, 2 * e * de);
+    // cubic Bezier: start -> over the top -> landing spot, on a time warp that leaves at the current velocity (s1 is
+    // a sixth of a flight-time's travel out) and settles onto the spot at zero speed; velocity = its derivative
+    const tau = Math.min(1, P.t / P.dur), k = 1 - (1 - tau) * (1 - tau), u = 1 - k;
+    this.pos.set(0, 0, 0).addScaledVector(P.s, u * u * u).addScaledVector(P.s1, 3 * u * u * k).addScaledVector(P.c, 3 * u * k * k).addScaledVector(P.e, k * k * k);
+    const r = 3 * 2 * (1 - tau) / P.dur;
+    this.vel.set(0, 0, 0).addScaledVector(_e.subVectors(P.s1, P.s), r * u * u).addScaledVector(_e.subVectors(P.c, P.s1), 2 * r * u * k)
+      .addScaledVector(_e.subVectors(P.e, P.c), r * k * k);
     this.launcher(0, this._origins[0]); this.launcher(1, this._origins[1]);
     this.odm.step(dt, this._origins);
-    if (k >= 1) {
+    if (tau >= 1) {
       this.perch = null;
       this.odm.releaseAll(true);
       this.pos.copy(P.e);
@@ -504,7 +511,7 @@ export class Player {
       h.saddle(_e);
       const dxz = (_e.x - this.pos.x) ** 2 + (_e.z - this.pos.z) ** 2;
       // on foot you run right up to the flank before vaulting; from the air the saddle is a bigger target
-      if (_e.distanceToSquared(this.pos) < r * r && (air || dxz < 1.8 * 1.8) && this.vel.y < 2) {
+      if (_e.distanceToSquared(this.pos) < r * r && (air || (dxz < 1.8 * 1.8 && this.wishF > 0)) && this.vel.y < 2) {
         const hs = hypot(this.vel.x, this.vel.z);
         this.riding = h; h.rider = this; h.caller = null; this.lastHorse = h;
         h.speed = Math.max(h.speed, hs * 0.8);
@@ -638,9 +645,15 @@ export class Player {
     if (this.riding) {
       const h = this.riding;
       if (h.crashed > 0) {   // ran into a trunk or wall at a gallop: thrown over its head
+        // The horse stops dead; you keep your momentum, and its neck pitches you up and over: the same speed,
+        // turned upward (no extra shove toward whatever it hit), with a tumble.
         const sp = h.crashed; h.crashed = 0;
-        this._leapOff(5);
-        this.vel.addScaledVector(this._heading(_e), sp * 0.6);
+        this._leapOff(0);
+        const up = 0.62;                                   // ~38° launch
+        this.vel.copy(this._heading(_e)).multiplyScalar(sp * Math.sqrt(1 - up * up));
+        this.vel.y = sp * up;
+        this.flipT = CFG.release.flipTime;
+        this.mountCd = 2.5;
         this.hurt(Math.max(0, sp - 10) * 0.02, 'impact');
         this.cam.trauma = Math.min(1, this.cam.trauma + 0.5);
         return;
@@ -788,13 +801,20 @@ export class Player {
       if (sp > CFG.reel.arrive) {
         const look = (sp * sp) / (2 * CFG.reel.brake) + 3;
         const hit = this.game.collision.raycast(p, _c.copy(v).multiplyScalar(1 / sp), look, { dynamic: false });
-        if (hit && hit.normal.dot(_c) < -0.35) {
+        const cosI = hit ? -hit.normal.dot(_c) : 0;
+        if (hit && cosI > 0.35) {
           const vn = -v.dot(hit.normal);
-          const allowed = CFG.reel.arrive + Math.sqrt(2 * CFG.reel.brake * Math.max(0, hit.distance - CFG.radius - 0.6));
+          // distance to go along the normal before the body sphere touches
+          const dn = Math.max(0.05, hit.distance * cosI - CFG.radius - 0.1);
+          const allowed = CFG.reel.arrive + Math.sqrt(2 * CFG.reel.brake * Math.max(0, dn - 0.5));
           if (vn > allowed) {
-            const b = Math.min(CFG.reel.brakeMax, (vn - allowed) * 12);
-            v.addScaledVector(hit.normal, b * dt);
+            // the deceleration it actually takes to arrive at `arrive` speed: gentle when seen early, hard (up to
+            // brakeHard) when a trunk swings into view close up, so you never slam in at full speed unbraked
+            const need = (vn * vn - CFG.reel.arrive * CFG.reel.arrive) / (2 * dn);
+            const b = Math.min(CFG.reel.brakeHard, Math.max(need, Math.min(CFG.reel.brakeMax, (vn - allowed) * 12)));
+            v.addScaledVector(hit.normal, Math.min(b * dt, vn - CFG.reel.arrive * 0.5));
             this.odm.braking = 0.15;
+            if (b > CFG.reel.brakeMax) this._hardBrake = Math.max(this._hardBrake || 0, b);
           }
         }
       }
@@ -857,7 +877,7 @@ export class Player {
         const vn = v.dot(c.normal);
         if (vn < 0) {
           // impact
-          if (-vn > CFG.impact.safe && this.impactCooldown <= 0) this._impact(-vn, c);
+          if (-vn > CFG.impact.feel && this.impactCooldown <= 0) this._impact(-vn, c);
           v.addScaledVector(c.normal, -vn);
           // surface friction: strong on floors when not anchored, slick on walls (wall-running on a wire)
           const tang = _e.copy(v);
@@ -880,11 +900,15 @@ export class Player {
 
   _impact(speed, contact) {
     this.impactCooldown = 0.35;
-    const s = THREE.MathUtils.clamp((speed - CFG.impact.safe) / 40, 0, 1);
-    this.cam.trauma = Math.min(1, this.cam.trauma + 0.25 + s * 0.6);
-    this.game.audio?.impact?.(s);
+    // feet first onto a floor the legs take a lot; a trunk, wall or roof edge hits the body
+    const floor = contact.normal.y > 0.6;
+    const safe = floor ? CFG.impact.safe : CFG.impact.safeWall;
+    const s = THREE.MathUtils.clamp((speed - CFG.impact.feel) / 40, 0, 1);
+    this.cam.trauma = Math.min(1, this.cam.trauma + 0.1 + s * 0.75);
+    this.game.audio?.impact?.(Math.max(0.15, s));
     this.game.fx?.impact?.(this.pos.clone().addScaledVector(contact.normal, -CFG.radius), contact.normal, contact.collider?.material || 'ground');
-    const dmg = (speed - CFG.impact.safe) * CFG.impact.dmg;
+    if (!floor && speed > CFG.impact.safeWall) this.crouch = Math.max(this.crouch, 0.5);
+    const dmg = (speed - safe) * CFG.impact.dmg;
     if (dmg > 0.02) this.hurt(dmg, 'impact');
     if (speed > CFG.impact.stun) { this.stun = 0.45; this.odm.releaseAll(); }
   }
@@ -930,7 +954,11 @@ export class Player {
   _followHand() {
     const h = this.grabHand;
     if (!h || !this.grabbedBy || this.grabbedBy.alive === false) { this._release(); return; }
-    h.getWorldPosition(this.pos);
+    // held round the waist in the fist: the body runs along the fist, head out of the thumb side
+    const G = this._grip || (this._grip = { on: false, up: new THREE.Vector3(), face: new THREE.Vector3() });
+    G.on = !!this.grabbedBy.gripFrame?.(this.pos, G.up, G.face);
+    if (G.on) this.pos.addScaledVector(G.up, -CFG.modelLift);
+    else h.getWorldPosition(this.pos);
     this.vel.set(0, 0, 0);
     this.struggle = Math.max(0, this.struggle - CFG.combat.grabDecay / CFG.physicsHz);
   }
@@ -1062,7 +1090,9 @@ export class Player {
       this.boostLevel += ((this.boosting || this._dashPuff > 0 ? 1 : 0) - this.boostLevel) * damp(18, dt);
       this.crouch = Math.max(0, this.crouch - dt * 2.6);
       let mf = this.forward, mu = this.bodyUp;
-      if (this.flipT > 0) {
+      if (this.grabbedBy && this._grip?.on) {
+        mf = this.forward.copy(this._grip.face); mu = this.bodyUp.copy(this._grip.up);
+      } else if (this.flipT > 0) {
         this.flipT -= dt;
         const k = 1 - Math.max(0, this.flipT) / CFG.release.flipTime;
         const ang = (k * k * (3 - 2 * k)) * Math.PI * 2;           // eased full forward somersault
@@ -1097,7 +1127,14 @@ export class Player {
       game.fx?.impact?.(_c.copy(this.render).addScaledVector(this.groundN, -CFG.radius), this.groundN, 'ground');
       if (s > 0.4) this.cam.trauma = Math.min(1, this.cam.trauma + s * 0.3);
     }
-    // gas brake vents fire forward
+    // gas brake vents fire forward (an emergency stop in front of a trunk: a full blast, and you feel it)
+    if (this._hardBrake > 0) {
+      const k = Math.min(1, (this._hardBrake - CFG.reel.brakeMax) / (CFG.reel.brakeHard - CFG.reel.brakeMax));
+      this.cam.trauma = Math.min(1, this.cam.trauma + 0.08 + 0.17 * k);
+      this.crouch = Math.max(this.crouch, 0.3);
+      game.audio?.setGas?.(1);
+      this._hardBrake = 0;
+    }
     if (this.odm.braking > 0 && game.fx?.gas) game.fx.gas(_c.copy(this.render).addScaledVector(this.forward, 0.35), this.forward, 0.6);
     // gas puffs
     if ((this.boosting || this._dashPuff > 0) && game.fx?.gas) {
@@ -1225,6 +1262,8 @@ export class Player {
     const t = this.game.time;
     const shx = (Math.sin(t * 47.3) + Math.sin(t * 31.1 + 1.3)) * 0.5 * sh, shy = (Math.sin(t * 53.7 + 2.1) + Math.sin(t * 29.3)) * 0.5 * sh;
 
+    if (this.grabbedBy) { this._grabCamera(dt, shx, shy); return; }
+    this._grabCam = null;
     const yaw = this.yaw + shx * 0.03, pitch = this.pitch + shy * 0.03;
     const cp = Math.cos(pitch), sp = Math.sin(pitch), cy = Math.cos(yaw), sy = Math.sin(yaw);
     const fwd = _a.set(sy * cp, sp, cy * cp);
@@ -1274,6 +1313,37 @@ export class Player {
         cam.quaternion.copy(_q).slerp(_q2, w);
       }
     }
+  }
+
+  /**
+   * Held in a titan's fist: the camera stands off outside it, a little to the side and above, looking back past you
+   * at its face, so you see yourself in the hand and the mouth it's bringing you to.
+   */
+  _grabCamera(dt, shx, shy) {
+    const cam = this.game.camera, c = this.cam, t = this.grabbedBy, me = this.render;
+    const h = t.height || 8;
+    const face = t._headWorld ? t._headWorld(_d) : _d.copy(t.position || me).addScaledVector(UP, h * 0.9);
+    const out = _a.subVectors(me, t.position || face).setY(0);
+    if (out.lengthSq() < 1e-4) out.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)).negate();
+    out.normalize();
+    const side = _b.set(-out.z, 0, out.x);
+    const want = _c.copy(me).addScaledVector(out, 2.4 + 0.16 * h).addScaledVector(side, 0.9 + 0.06 * h).addScaledVector(UP, 0.5 + 0.05 * h);
+    // keep it out of walls and trees
+    const toCam = _e.subVectors(want, me), len = toCam.length();
+    toCam.multiplyScalar(1 / len);
+    const block = this.game.collision.raycast(me, toCam, len + 0.4, { dynamic: false });
+    if (block) want.copy(me).addScaledVector(toCam, Math.max(0.6, block.distance - 0.4));
+    if (!this._grabCam) this._grabCam = { pos: cam.position.clone(), look: me.clone() };
+    const G = this._grabCam, k = damp(5, dt);
+    G.pos.lerp(want, k);
+    G.look.lerp(_d.copy(me).lerp(face, 0.35), damp(8, dt));
+    c.pos.copy(G.pos);
+    cam.position.copy(G.pos).addScaledVector(UP, shy * 0.05);
+    cam.up.copy(UP);
+    cam.lookAt(G.look);
+    cam.rotateZ(shx * 0.02);
+    c.fov += (CFG.cam.fov - c.fov) * damp(4, dt);
+    if (Math.abs(cam.fov - c.fov) > 0.01) { cam.fov = c.fov; cam.updateProjectionMatrix(); }
   }
 
   _audio() {

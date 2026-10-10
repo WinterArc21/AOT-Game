@@ -17,6 +17,7 @@ export const CFG = {
     boostAccel: 72, boostMaxIn: 64, // with the gas trigger held
     near: 7,                        // reel tapers inside this distance (no face-plants)
     arrive: 13, brake: 65, brakeMax: 150, // head-on arrival speed / gas-brake decel
+    brakeHard: 420,                 // late (a trunk swung into view close up): the vents brake as hard as it takes, up to this
     twinShare: 0.62,                // each wire's share when both are anchored
   },
   gas: {
@@ -30,8 +31,11 @@ export const CFG = {
   },
   air: { control: 7, pump: 10 },
   ground: { run: 11, accel: 80, skid: 22, jump: 7.8, coyote: 0.12 },
-  impact: { safe: 30, dmg: 0.022, stun: 48 },
-  wire: { snapSpeed: 7, rebound: 0.08 },   // a wire snapping taut faster than this kicks back a little
+  // feel: shake, dust and a thud above this; damage above safe (feet first onto a floor) or safeWall (anything else)
+  impact: { feel: 11, safe: 30, safeWall: 17, dmg: 0.022, stun: 48 },
+  // a wire snapping taut faster than snapSpeed jolts you; the reel's slip clutch then lets the wire run out, braking
+  // the outward speed at slipDecel instead of stopping it dead in one tick (a point-blank catch at 50 m/s)
+  wire: { snapSpeed: 7, rebound: 0.08, slipFrom: 2.5, slipDecel: 85 },
   modelLift: 0.4,           // the model's body centre sits this far above the collision sphere's centre
   horse: { mountRadius: 2.6, mountTime: 0.72, maxMountSpeed: 24, leap: 9.5, ropeLeap: 5, leapForward: 2 },
   perch: { reach: 6, maxSpeed: 25, clingTime: 1.8 },   // keep holding a rope, come in slowly: land on it

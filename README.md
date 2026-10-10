@@ -59,7 +59,9 @@ hand that holds them, or kill the titan, within about five seconds.
   bark, roofs, branches and titan flesh. On a titan, the anchor rides that limb.
 * **The wire is a one-sided distance constraint.** It can go slack but never stretch. When it is taut, only the
   outward velocity is removed, so the tangential speed survives. A free swing conserves energy (the bench
-  measures under 1 % drift over 12 s).
+  measures under 1 % drift over 12 s). A wire that goes taut while you fly away from its anchor (a point-blank
+  catch, slack snapping tight) slips through the reel's clutch: the outward speed bleeds off at 85 m/s² while
+  the wire runs out, instead of vanishing in one tick.
 * **The reel** is a gas-driven winch with a torque curve. It pulls hard from rest and fades as the inward speed
   nears its limit (36 m/s, or 64 m/s with the gas trigger held), and it instantly winds in any slack. A wire
   that shortens while you circle spins you up (angular momentum), which gives the anime's slingshot around a
@@ -77,8 +79,12 @@ hand that holds them, or kill the titan, within about five seconds.
 * **The nape swoop:** roped to a titan, the gear flies you in three legs: out beside the head, round behind the
   neck, then through the nape at about 33 m/s (44 with Shift). Ropes on anything else go slack meanwhile.
 * **Landing assist:** when you are about to hit a surface head-on while flying on a wire, the front vents bleed
-  off the closing speed so you land on the trunk instead of hitting it. Sideways passes keep all their speed.
+  off the closing speed so you land on the trunk instead of hitting it. They brake with the deceleration it
+  actually takes (up to 420 m/s² when a trunk swings into view close up). Sideways passes keep all their speed.
   Held against a wall by a wire, you run up it.
+* **Impacts:** anything above 11 m/s gives a shake, dust and a thud. Above 17 m/s into a trunk or wall (30 m/s
+  feet first onto a floor) it hurts. A horse that gallops into a wall throws you up and over its head at the
+  speed you had, never faster.
 * **Collision** is a swept sphere (sub-steps of 0.3 m or less, up to 12 per tick) against analytic shapes:
   oriented boxes, vertical cylinders, capsules, spheres and a height-field. Nothing tunnels at 100 m/s.
 * **Damage:** a slash deals `(40 + relative speed × 12.5) × blade sharpness`. Small titans need about 25 m/s at
@@ -91,6 +97,15 @@ real forest and reports distance, altitude, how often ropes catch and stalls.
 `node tools/combat-bench.mjs 90` lets a keyboard-only bot fight the Expedition and reports kills, nape hits,
 grabs and deaths.
 `node tools/play-bench.mjs "play=free"` drives the real game in headless Chromium and screenshots a flight.
+`node tools/motion-bench.mjs` measures the animation and gear in the real game: how fast planted feet and hooves
+move over the ground (soldier walk/jog/sprint, 5 m and 15 m titans, horse walk/trot/gallop), step rates, the horse
+pitch against the slope, per-frame speed loss on point-blank rope catches and trunk hits, the horse-crash throw,
+and the cape angle at rest and on landing. `node tools/filmstrip.mjs run|titan|horse|grab|idle|cape|land out.png`
+films a side-on contact sheet of any of those.
+**Feet:** soldiers, titans and horses plant their feet. The gait clock runs at the cadence the step length gives
+(a sprint is ~2.1 m steps at ~5 a second; titans use the same curve scaled to their leg length). A planted foot is
+pinned to the ground while the leg is solved onto it and the pelvis sinks just enough to reach. Horses also pitch
+with the slope.
 `node tools/forest-bench.mjs 60` flies AI soldiers through the real forest for a minute and reports altitude,
 speed, canopy passes and tunnelling (none). URL flags for testing: `?play=free|expedition`, `?notitans`, `?noallies`,
 `?allies=N`, `?noaudio`, `?norender`, `?testworld`, `?sens=1.5`, `?invert`.

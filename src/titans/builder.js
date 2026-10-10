@@ -330,6 +330,56 @@ function handParts(P, d, skin, side, fist) {
     capsule(P, skin, [dir * 0.1 * hs, y0 + 0.06 * hs, 0.26 * hs], [dir * 0.27 * hs, y0 - 0.12 * hs, 0.14 * hs], 0.085 * hs, { rs: 6, cs: 2, ao: 0.3 });
   }
 }
+/**
+ * A hand closed round a soldier: the palm against their back, four fingers curled round under and up their front,
+ * the thumb over the top, all wrapped about a cylinder of radius `rl` (local units) along the knuckle line (z).
+ * Small titans' hands are smaller than a human's waist, so the hand is scaled up (`g`) until the grip goes most of
+ * the way round. Returns the grip centre (fore-local) as well; the soldier's waist goes there, body along z.
+ */
+function gripParts(P, d, skin, side, rl, g) {
+  const hs = d.handS * g, dir = -side;
+  const wristY = -d.foreLen + 0.55 * d.handS, y0 = wristY - 0.55 * hs;
+  P.add(limbGeo(0.4 * hs, 0.31 * d.limb + 0.04, 0.26 * hs, 0.0), skin, { pos: [0, wristY, 0], ao: 0.3 });
+  ell(P, skin, [-dir * 0.02 * hs, y0 + 0.02, 0], [0.17 * hs, 0.36 * hs, 0.36 * hs], { ao: 0.3 });
+  const C = new V3(dir * (0.15 * hs + rl), y0 - 0.06 * hs, 0);
+  const arc = (a0, sweep, R, z0, z1, n, r0, r1, base) => {
+    let prev = base;
+    for (let k = 1; k <= n; k++) {
+      const t = k / n, a = a0 + sweep * t;
+      const p = new V3(C.x + Math.cos(a) * R, C.y + Math.sin(a) * R, z0 + (z1 - z0) * t);
+      capsule(P, skin, prev.toArray(), p.toArray(), r0 + (r1 - r0) * t, { rs: 6, cs: 2, ao: 0.3 });
+      prev = p;
+    }
+  };
+  // fingers: from the knuckles under the palm, round the far side of the waist
+  for (let i = 0; i < 4; i++) {
+    const z = (-0.27 + i * 0.18) * hs;
+    const K = new V3(dir * 0.05 * hs, y0 - 0.3 * hs, z);
+    const R = rl + 0.075 * hs;
+    const a0 = Math.atan2(K.y - C.y, K.x - C.x);
+    const len = (0.66 + (i === 1 || i === 2 ? 0.06 : 0) - (i === 3 ? 0.1 : 0)) * hs;
+    arc(a0, dir * Math.min(len / R, 3.9), R, z, z * 0.9, 4, 0.08 * hs, 0.062 * hs, K);
+  }
+  // thumb: from the top of the palm, over the top of the waist
+  const T = new V3(-dir * 0.02 * hs, y0 + 0.18 * hs, 0.22 * hs);
+  const Rt = rl + 0.085 * hs;
+  arc(Math.atan2(T.y - C.y, T.x - C.x), -dir * Math.min(0.5 * hs / Rt, 2.3), Rt, 0.22 * hs, 0.12 * hs, 3, 0.09 * hs, 0.07 * hs, T);
+  return C;
+}
+const GRIP_R = 0.15;     // m: the soldier's waist, held tight
+/** Forearm + a hand gripping a soldier (cached per archetype, side and titan scale); { full, outline, centre } */
+export function gripGeometry(arch, side, scale) {
+  const d = arch.dims, rl = GRIP_R / scale;
+  const key = 'grip' + side + ':' + rl.toFixed(2);
+  if (arch.geo[key]) return arch.geo[key];
+  const g = THREE.MathUtils.clamp(3.54 * rl / d.handS, 1, 1.7);
+  const P = new Parts(d.B.colossal);
+  P.add(limbGeo(d.foreLen - 0.55 * d.handS, 0.4 * d.limb, 0.3 * d.limb + 0.02, 0.1, 0.25), arch.skin, { ao: 0.3 });
+  const centre = gripParts(P, d, arch.skin, side, rl, g);
+  const out = P.build(); out.centre = centre;
+  return (arch.geo[key] = out);
+}
+
 function buildFore(d, skin, side, fist) {
   const P = new Parts(d.B.colossal);
   const lm = d.limb;
@@ -431,7 +481,7 @@ export function getArchetype(spec) {
     foreLFist: buildFore(d, skin, 1, true), foreRFist: buildFore(d, skin, -1, true),
     thigh: buildThigh(d, skin), shin: buildShin(d, skin), foot: buildFoot(d, skin),
   };
-  const arch = { key, dims: d, st, geo, material: bodyMaterial(colossal), colossal, jawRest: st.open };
+  const arch = { key, dims: d, st, geo, material: bodyMaterial(colossal), colossal, jawRest: st.open, skin };
   _cache.set(key, arch);
   return arch;
 }

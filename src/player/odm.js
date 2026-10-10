@@ -159,18 +159,27 @@ export class OdmGear {
   constrain(pos, vel, dt = 1 / 120) {
     // payout > 0 (↓ held on a rope): a brake-reel. Under tension the wire runs out at up to `payout` m/s,
     // so the outward speed is kept up to that limit and the wire lengthens with it; no slack is taken up.
+    // A wire going taut while you fly away from its anchor (a point-blank catch, a slack wire snapping tight) slips
+    // through the reel's clutch: the outward speed bleeds off at slipDecel and the wire runs out meanwhile, instead
+    // of the whole closing speed vanishing in one tick. Swings never slip (their outward speed per tick is tiny).
     const G = this.payout || 0;
-    let any = G > 0;
+    const W = CFG.wire;
     for (const h of this.hooks) {
       h._keep = 0;
+      if (!h.attached) { h.slipping = false; continue; }
       const P = Math.max(G, h.payout || 0);
-      if (P > 0) any = true;
-      if (!h.attached || P <= 0) continue;
       _d.subVectors(pos, h.anchor);
       const dist = _d.length();
-      if (dist < 1e-6 || dist < h.length - 0.05) continue;
+      if (dist < 1e-6 || dist < h.length - 0.05) { h.slipping = false; continue; }
       const vout = vel.dot(_d.multiplyScalar(1 / dist));
-      if (vout > 0) { h._keep = Math.min(vout, P); h.length = Math.min(CFG.hook.range, h.length + h._keep * dt); }
+      if (vout <= 0) { h.slipping = false; continue; }
+      let keep = P > 0 ? Math.min(vout, P) : 0;
+      if (vout > W.slipFrom && h.length < CFG.hook.range) {
+        if (!h.slipping && vout > W.snapSpeed) this.snap = Math.max(this.snap || 0, vout);   // the jolt: felt once
+        h.slipping = true;
+        keep = Math.max(keep, vout - W.slipDecel * dt);
+      } else h.slipping = false;
+      if (keep > 0) { h._keep = keep; h.length = Math.min(CFG.hook.range, h.length + keep * dt); }
     }
     for (let it = 0; it < 2; it++) {
       for (const h of this.hooks) {
@@ -182,15 +191,15 @@ export class OdmGear {
         pos.copy(h.anchor).addScaledVector(_d, h.length);
         const vo = vel.dot(_d) - h._keep;
         if (vo > 0) {
-          // a slack wire snapping taut stretches a little and kicks back (the steel wire's spring)
-          const e = vo > CFG.wire.snapSpeed ? CFG.wire.rebound : 0;
+          // a wire at full length (it can't slip any further) stops you and kicks back a little (the steel's spring)
+          const e = vo > W.snapSpeed ? W.rebound : 0;
           vel.addScaledVector(_d, -vo * (1 + e));
-          if (vo > CFG.wire.snapSpeed) this.snap = Math.max(this.snap || 0, vo);
+          if (vo > W.snapSpeed) this.snap = Math.max(this.snap || 0, vo);
         }
       }
     }
     for (const h of this.hooks) {
-      if (!h.attached || G > 0 || h.payout > 0) continue;
+      if (!h.attached || G > 0 || h.payout > 0 || h.slipping) continue;
       const dist = pos.distanceTo(h.anchor);
       h.length = Math.max(CFG.hook.minLen, Math.min(h.length, dist));
     }

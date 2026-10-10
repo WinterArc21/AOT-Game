@@ -1,6 +1,6 @@
 // The Titan: procedural rig + AI + animation + hit handling. One instance per titan (see titans.js for the manager).
 import * as THREE from 'three';
-import { getArchetype, HAIRS, sizeClass } from './builder.js';
+import { getArchetype, gripGeometry, HAIRS, sizeClass } from './builder.js';
 import { buildRig } from './rig.js';
 import { outlineMaterial } from '../core/style.js';
 import { solveArm } from './ik.js';
@@ -197,13 +197,37 @@ export class Titan {
     });
   }
 
-  _setFist(side, on) {
-    if (this.fist[side] === on) return;
-    this.fist[side] = on;
+  /** Close (on) or open a hand. grip: closed round a soldier (see gripFrame), not an empty fist. */
+  _setFist(side, on, grip = false) {
+    const mode = on ? (grip ? 2 : 1) : 0;
+    if ((this.fist[side] || 0) === mode) return;
+    this.fist[side] = mode;
     const g = this.arch.geo;
-    const key = side === 0 ? (on ? 'foreLFist' : 'foreL') : (on ? 'foreRFist' : 'foreR');
+    let geo = g[side === 0 ? (on ? 'foreLFist' : 'foreL') : (on ? 'foreRFist' : 'foreR')];
+    if (mode === 2) {
+      geo = gripGeometry(this.arch, side === 0 ? 1 : -1, this.s);
+      this.grip = { side, centre: geo.centre, flip: false };
+    } else if (this.grip?.side === side) this.grip = null;
     const m = this.rig.meshes.find((x) => x.key === (side === 0 ? 'foreL' : 'foreR'));
-    if (m) { m.mesh.geometry = g[key].full; m.outline.geometry = g[key].outline; }
+    if (m) { m.mesh.geometry = geo.full; m.outline.geometry = geo.outline; }
+  }
+
+  /**
+   * Where a held soldier is (world): `pos` = their waist in the grip, `up` = their body axis out of the thumb side of
+   * the fist, `face` = the way they face (out of the palm). False when not gripping anyone.
+   */
+  gripFrame(pos, up, face) {
+    const G = this.grip;
+    if (!G) return false;
+    const fore = this.J[G.side === 0 ? 'foreL' : 'foreR'];
+    pos.copy(G.centre).applyMatrix4(fore.matrixWorld);
+    up.set(0, 0, 1).transformDirection(fore.matrixWorld);
+    // head out of whichever end of the fist is higher (it only swaps when the fist is near level)
+    if (G.flip ? up.y > 0.25 : up.y < -0.25) G.flip = !G.flip;
+    if (G.flip) up.negate();
+    face.set(G.side === 0 ? -1 : 1, 0, 0).transformDirection(fore.matrixWorld);
+    face.addScaledVector(up, -face.dot(up)).normalize();
+    return true;
   }
 
   // ====================================================================================== public API
@@ -402,6 +426,7 @@ export class Titan {
     this._buildPose(dt);
     this._applyPose(dt);
     this.root.updateMatrixWorld(true);
+    this._plantLegs(dt);
     this._applyArmIK(dt);
     this.root.updateMatrixWorld(true);
     this._post(dt);
@@ -649,7 +674,7 @@ export class Titan {
     const pl = this.game.player;
     if (pl.grab) { if (pl.grab(this, this.J[side === 0 ? 'handL' : 'handR']) === false) return false; }
     else pl.grabbedBy = this;
-    this._setFist(side, true);
+    this._setFist(side, true, true);
     this.act = { side, t: 0, dur: 2.2 };
     this._enter('grab');
     return true;
@@ -657,7 +682,7 @@ export class Titan {
   /** Close the fist on a comrade: they get a few seconds for someone to cut the hand or the nape. */
   _catchAlly(side, ally) {
     ally.grab(this, this.J[side === 0 ? 'handL' : 'handR']);
-    this._setFist(side, true);
+    this._setFist(side, true, true);
     this.act = { side, t: 0, dur: 5.5, ally };
     this.mgr.allyGrabT = 30;
     this._enter('grab');
@@ -1250,6 +1275,18 @@ export class Titan {
     P.jaw[0] = jawT;
   }
 
+  /**
+   * Step length (world m) at a ground speed, dynamically scaled from a human's: the same curve in leg lengths against
+   * the Froude speed v / √(g·leg), so a 15 m titan takes ~6 m strides at a heavy ~1 step a second where a 5 m one
+   * takes 2 m steps half again as often. Also how far along the walk → run blend it is (0..1).
+   */
+  _stepLen(sp = this.speed) {
+    const d = this.d, leg = (d.thighLen + d.shinLen + d.ankleH) * this.s;
+    const vh = sp / Math.sqrt(9.8 * leg);
+    this._runK = sm((vh - 0.55) / 0.5);
+    return Math.max(0.3 * leg, leg * 2.55 * (1 - Math.exp(-0.675 * vh))) * (this.abnormal ? 1.1 : 1) * (1 - 0.3 * this.crawlW);
+  }
+
   _poseGait(dt) {
     const P = this.P, d = this.d, s = this.s, h = this.height;
     const sp = this.speed;
@@ -1257,7 +1294,7 @@ export class Titan {
     const rf = clamp(sp / this.runSpeed, 0, 1.4);
     if (m <= 0.001) return;
     const legLen = (d.thighLen + d.shinLen) * 0.97 * s;
-    const stepLen = h * (0.30 + 0.30 * Math.min(rf, 1.2)) * (this.abnormal ? 1.15 : 1) * (1 - 0.3 * this.crawlW);
+    const stepLen = this._stepLen(sp);
     this.gait += Math.PI * sp / stepLen * dt;
     const amp = Math.asin(clamp(stepLen * 0.5 / legLen, 0, 0.8)) * m;
     const ph = this.gait;
@@ -1270,11 +1307,11 @@ export class Titan {
       P[ft][0] += -(sw + kn) * 0.85 + 0.3 * m * Math.pow(Math.max(0, -Math.sin(p)), 2);
     }
     const bob = 0.11 * d.thighLen * m * (0.4 + Math.min(rf, 1.2));
-    this.hipT.y += bob * (Math.cos(2 * ph) - 1) * 0.5;
+    this.hipT.y += bob * (Math.cos(2 * ph) - 1) * 0.5 * (1 - (this.plantW || 0));   // planted feet set the pelvis height
     this.hipT.x += -0.1 * m * (0.5 + 0.5 * rf) * Math.cos(ph);
     P.pelvis[1] += -0.13 * m * (0.6 + rf) * Math.sin(ph); P.spine[1] += 0.12 * m * (0.6 + rf) * Math.sin(ph);
     P.pelvis[2] += 0.04 * m * Math.cos(ph);
-    const lean = m * (0.05 + 0.2 * Math.min(rf, 1.2)) * (this.abnormal ? 1.5 : 1);
+    const lean = m * (0.03 + 0.1 * Math.min(rf, 1.2)) * (this.abnormal ? 1.6 : 1);
     P.spine[0] += lean; P.pelvis[0] += lean * 0.25;
     P.head[0] += 0.03 * m * Math.cos(2 * ph + 0.5);
     // arms swing opposite to the legs, hanging heavy
@@ -1290,10 +1327,150 @@ export class Titan {
       P.head[2] += fl * 0.3 * Math.sin(ph); P.neck[1] += fl * 0.25 * Math.sin(ph * 0.5);
       this.jawExtra += 0.4 * fl;
     }
-    // footfalls
+    // footfalls (planted feet report their own touchdowns, see _plantLegs)
     const idx = Math.floor((ph - Math.PI / 2) / Math.PI);
-    if (idx !== this._stepIdx) { this._stepIdx = idx; this._footfall(idx & 1 ? 'footR' : 'footL'); }
+    if (idx !== this._stepIdx) { this._stepIdx = idx; if (!(this.plantW > 0.5)) this._footfall(idx & 1 ? 'footR' : 'footL'); }
     this.rate = 12;
+  }
+
+  /**
+   * Planted feet. The gait clock (this.gait: a full cycle per two steps) says which foot is down; a planted foot's ball
+   * is pinned to its spot on the ground (zero world velocity, the heel peeling up before toe-off), a swinging foot
+   * arcs to the next foothold. The pelvis sinks just enough for both legs to reach, and each leg is solved
+   * analytically (hip flexion + abduction, knee, foot pitch) in the pelvis frame. Units: local (unscaled) rig units.
+   */
+  _plantLegs(dt) {
+    const d = this.d, s = this.s, pel = this.J.pelvis;
+    const want = !this.airborne && !this.dying && !this.isColossal && this.crippleT <= 0 ? 1 : 0;
+    this.plantW = (this.plantW ?? want) + (want - (this.plantW ?? want)) * (1 - Math.exp(-8 * dt));
+    const w = this.plantW;
+    const PL = this._plant || (this._plant = {
+      init: false, drop: 0, last: 0,
+      feet: [0, 1].map(() => ({ ball: new V3(), fd: new V3(), from: new V3(), to: new V3(), toBall: new V3(), ankle: new V3(),
+        swing: false, timed: false, u: 0, u0: 0, t: 0, dur: 0.5, heel: 0, pitch: 0, fromPitch: 0, tRem: 0 })),
+    });
+    if (w < 0.01) { PL.init = false; PL.drop = 0; return; }
+    const L1 = d.thighLen, L2 = d.shinLen, LL = L1 + L2, REACH = 0.985 * LL;
+    const BALL = 0.95 * Math.sqrt(d.limb), SOLE = d.ankleH + 0.05;          // the toes (the pivot of a heel-rise) ahead of / sole below the ankle
+    const sp = this.speed, stepLen = this._stepLen(sp) / s, run = this._runK;
+    const moving = sp > 0.25;
+    // pelvis height and the stance the legs can reach from it
+    const base = LL * (0.02 + 0.03 * run);
+    const H = LL - 0.1 - base, half = Math.sqrt(Math.max(0.01, REACH * REACH - H * H));
+    const duty = clamp(Math.min(lerp(0.6, 0.3, run), (1.9 * half + 0.15) / (2 * stepLen)), 0.2, 0.65);
+    const stance = duty * 2 * stepLen;
+    const cycT = 2 * stepLen * s / Math.max(sp, 0.05);
+    // the clock: psi = 0 at the left foot's touchdown (the FK gait has the left thigh furthest forward there)
+    const gp = (((this.gait - Math.PI / 2) / TAU) % 1 + 1) % 1;
+    const fwd = _t13.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)), lat = _t14.set(fwd.z, 0, -fwd.x);   // lat = its left
+    const vel = _t15.set(fwd.x * sp, 0, fwd.z * sp);
+    const ground = (out) => { out.y = this._ground(out.x, out.z); return out; };
+    const thighs = [this.J.thighL, this.J.thighR], shins = [this.J.shinL, this.J.shinR], feet = [this.J.footL, this.J.footR];
+    const ankleFromBall = (f, ball, fd, heel, out) => {
+      const c = Math.cos(heel), sn = Math.sin(heel);
+      return out.copy(ball).addScaledVector(fd, (-BALL * c + SOLE * sn) * s).addScaledVector(UP, (BALL * sn + SOLE * c) * s);
+    };
+    if (!PL.init) {
+      for (let i = 0; i < 2; i++) {
+        const f = PL.feet[i];
+        feet[i].getWorldPosition(f.ankle);
+        f.fd.copy(fwd);
+        f.ball.copy(f.ankle).addScaledVector(fwd, BALL * s); ground(f.ball);
+        f.swing = false; f.timed = false; f.heel = 0;
+      }
+      PL.init = true;
+    }
+    const foothold = (i, tAhead, out) => {
+      const ahead = moving ? stance * lerp(0.48, 0.42, run) : (i ? -0.08 : 0.12) * LL;
+      out.copy(this.position).addScaledVector(vel, moving ? tAhead : 0)
+        .addScaledVector(fwd, (ahead + BALL * 0.5) * s).addScaledVector(lat, (i ? -1 : 1) * d.hipX * s * 1.05);
+      return ground(out);
+    };
+    const startSwing = (f, dur) => { f.swing = true; f.timed = dur > 0; f.t = 0; f.dur = dur; f.u = 0; f.from.copy(f.ankle); f.fromPitch = f.pitch; };
+    for (let i = 0; i < 2; i++) {
+      const f = PL.feet[i];
+      if (moving && !f.timed) {
+        const psi = (gp + 0.5 * i) % 1, inStance = psi < duty, u = (psi - duty) / (1 - duty);
+        if (f.swing && inStance && f.u > 0.5) { f.swing = false; f.ball.copy(f.toBall); f.fd.copy(fwd); f.heel = 0; this._footfall(i ? 'footR' : 'footL'); }
+        else if (!f.swing && !inStance) { startSwing(f, 0); f.u0 = u; }
+        if (f.swing) { f.u = clamp((u - f.u0) / Math.max(1e-3, 1 - f.u0), 0, 1); f.tRem = (1 - u) * (1 - duty) * cycT; }
+        if (!f.swing) f.heel = lerp(0.3, 0.5, run) * sm((psi - 0.45 * duty) / (0.55 * duty));
+      } else if (f.timed) {
+        f.t += dt; f.u = clamp(f.t / f.dur, 0, 1); f.tRem = f.dur - f.t;
+        if (f.u >= 1) { f.swing = false; f.timed = false; f.ball.copy(f.toBall); f.fd.copy(fwd); f.heel = 0; this._footfall(i ? 'footR' : 'footL'); }
+      } else if (f.swing) { f.timed = true; f.dur = (0.3 + 0.25 * (1 - f.u)) * Math.sqrt(this.height / 5); f.t = f.u * f.dur; }
+      else f.heel *= Math.exp(-6 * dt);
+    }
+    // standing or turning on the spot: a foot left out of place (or pointing the wrong way) steps over
+    if (!moving && !PL.feet[0].swing && !PL.feet[1].swing) {
+      let worst = -1, we = 0.22 * LL * s;
+      for (let i = 0; i < 2; i++) {
+        const f = PL.feet[i], tgt = foothold(i, 0, _t16);
+        const e = hypot(f.ball.x - tgt.x, f.ball.z - tgt.z) + 0.4 * LL * s * (1 - f.fd.dot(fwd));
+        if (e > we) { we = e; worst = i; }
+      }
+      if (worst >= 0) startSwing(PL.feet[worst], 0.45 * Math.sqrt(this.height / 5));
+    }
+    const lift = lerp(0.1, 0.24, run) * LL * s;
+    for (let i = 0; i < 2; i++) {
+      const f = PL.feet[i];
+      if (f.swing) {
+        foothold(i, f.tRem, f.toBall);
+        ankleFromBall(f, f.toBall, fwd, 0, f.to);
+        const e = sm(f.u);
+        f.ankle.lerpVectors(f.from, f.to, e);
+        f.ankle.y += (f.timed ? 0.6 : 1) * lift * Math.sin(Math.PI * Math.pow(f.u, lerp(1, 0.75, run)));
+        f.pitch = lerp(f.fromPitch, -0.12, sm((f.u - 0.15) / 0.7)) + 0.35 * run * Math.sin(Math.PI * f.u);
+        f.fdNow = fwd;
+      } else {
+        ankleFromBall(f, f.ball, f.fd, f.heel, f.ankle);
+        f.pitch = f.heel; f.fdNow = f.fd;
+      }
+    }
+    // the pelvis sinks until the planted feet are in reach
+    let need = base;
+    for (let i = 0; i < 2; i++) {
+      const f = PL.feet[i];
+      if (f.swing && f.u < 0.9) continue;
+      const hw = thighs[i].getWorldPosition(_t17);
+      const vert = (hw.y - f.ankle.y) / s, horiz = hypot(hw.x - f.ankle.x, hw.z - f.ankle.z) / s;
+      const h2 = Math.min(horiz, REACH * 0.97);
+      need = Math.max(need, vert - Math.sqrt(REACH * REACH - h2 * h2));
+    }
+    need = Math.min(need, 0.45 * LL);
+    PL.drop = need > PL.drop ? need : PL.drop + (need - PL.drop) * (1 - Math.exp(-8 * dt));
+    pel.position.y -= PL.drop * w;
+    pel.updateMatrixWorld(true);
+    // solve each leg in the pelvis frame (thigh = Rx(hx)·Rz(hz), knee = Rx(kx)), then pitch the foot
+    _mi.copy(pel.matrixWorld).invert();
+    for (let i = 0; i < 2; i++) {
+      const f = PL.feet[i], th = thighs[i], sh = shins[i], ft = feet[i];
+      const tl = _t18.copy(f.ankle).applyMatrix4(_mi).sub(th.position);
+      const dd = _t19.copy(tl);
+      let hx = 0, hz = 0, kx = 0;
+      for (let pass = 0; pass < 3; pass++) {
+        const D = clamp(dd.length(), 0.3 * LL, REACH);
+        const dn0 = Math.sqrt(dd.y * dd.y + dd.z * dd.z) || 1e-4;
+        hz = Math.atan2(dd.x, dn0);
+        const dn = dd.x * Math.sin(hz) - dd.y * Math.cos(hz);
+        const line = Math.atan2(-dd.z, dn);
+        const beta = Math.acos(clamp((L1 * L1 + D * D - L2 * L2) / (2 * L1 * D), -1, 1));
+        const gamma = Math.acos(clamp((L1 * L1 + L2 * L2 - D * D) / (2 * L1 * L2), -1, 1));
+        hx = line - beta; kx = Math.PI - gamma;
+        if (pass === 2) break;
+        const sx = Math.sin(hx), cx = Math.cos(hx), sz = Math.sin(hz), cz = Math.cos(hz), sk = Math.sin(kx), ck = Math.cos(kx);
+        const lx = L1 * sz + L2 * ck * sz, ly = -L1 * cz - L2 * ck * cz, lz = -L2 * sk;
+        dd.x += tl.x - lx; dd.y += tl.y - (ly * cx - lz * sx); dd.z += tl.z - (ly * sx + lz * cx);
+      }
+      _q0.setFromEuler(_eu.set(hx, 0, hz, 'YXZ')); th.quaternion.slerp(_q0, w);
+      _q0.setFromEuler(_eu.set(kx, 0, 0, 'YXZ')); sh.quaternion.slerp(_q0, w);
+      th.updateMatrixWorld(true);
+      // foot: pointing along its foothold's heading (not swaying with the hips), toe-down by its pitch
+      footQuat(f.fdNow, f.pitch, _q0);
+      sh.getWorldQuaternion(_q1).invert();
+      ft.quaternion.slerp(_q0.premultiply(_q1), w);
+    }
+    this.root.updateMatrixWorld(true);
   }
 
   _footfall(joint) {
@@ -1443,12 +1620,15 @@ export class Titan {
   _poseGrab() {
     const P = this.P, a = this.act, side = a.side;
     const u = sm(a.t / a.dur);
-    // from the hand's grab position to the mouth
+    // from the hand's grab position up in front of the chest (forearm level, elbow down: the fist upright, so the
+    // soldier is held upright in it, head and shoulders out of the top), then raised to the mouth
     const mouth = this._mouthWorld(_tw);
     if (!a.start) { a.start = this._jpos(side === 0 ? 'handL' : 'handR', new V3()); }
-    _tw2.copy(a.start).lerp(mouth, u);
-    _tw2.y += Math.sin(u * Math.PI) * 0.06 * this.height;
-    this._arm(side, _tw2, this._pole(side, 0.8, -0.5, -0.1), 20);
+    const sg = sideSign(side), A = this.armLen;
+    this._fp(sg * this.d.shoulderX * this.s * 0.55, this.shoulderH - 0.42 * A, 0.5 * A, _tw3);
+    const u1 = sm(a.t / (0.32 * a.dur)), u2 = sm((a.t - 0.42 * a.dur) / (0.58 * a.dur));
+    _tw2.copy(a.start).lerp(_tw3, u1).lerp(mouth, u2);
+    this._arm(side, _tw2, this._pole(side, 0.35, -1, -0.15), 14);
     // the other hand: held up, clenched
     const o = 1 - side;
     this._fp(sideSign(o) * (this.d.shoulderX * this.s + 0.15 * this.armLen), this.shoulderH - 0.15 * this.armLen, 0.3 * this.armLen, _tw3);
@@ -1770,9 +1950,16 @@ export class Titan {
 }
 
 function sideSign(side) { return side === 0 ? 1 : -1; }
+/** World orientation of a foot (+z forward, +y up) pointing along horizontal `fd`, toe-down by `pitch`. */
+function footQuat(fd, pitch, out) {
+  const z = _fq0.copy(fd).multiplyScalar(Math.cos(pitch)).addScaledVector(UP, -Math.sin(pitch)).normalize();
+  const x = _fq1.crossVectors(UP, z).normalize(), y = _fq2.crossVectors(z, x);
+  return out.setFromRotationMatrix(_fqm.makeBasis(x, y, z));
+}
 
 // scratch objects
 const _t0 = new V3(), _t1 = new V3(), _t2 = new V3(), _t3 = new V3(), _t4 = new V3(), _t5 = new V3(), _t6 = new V3(), _t7 = new V3(), _t8 = new V3(), _t9 = new V3();
 const _t10 = new V3(), _t11 = new V3(), _t12 = new V3(), _t13 = new V3(), _t14 = new V3(), _t15 = new V3(), _t16 = new V3(), _t17 = new V3(), _t18 = new V3(), _t19 = new V3(), _t20 = new V3(), _t21 = new V3();
 const _tw = new V3(), _tw2 = new V3(), _tw3 = new V3(), _pl = new V3(), _il = new V3(), _g0 = new V3(), _g1 = new V3(), _dir = new V3(), _c0 = new V3();
-const _q0 = new Q(), _eu = new EU(), _mi = new THREE.Matrix4();
+const _q0 = new Q(), _q1 = new Q(), _eu = new EU(), _mi = new THREE.Matrix4();
+const _fq0 = new V3(), _fq1 = new V3(), _fq2 = new V3(), _fqm = new THREE.Matrix4();

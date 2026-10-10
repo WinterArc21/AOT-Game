@@ -276,7 +276,12 @@ export class Ally {
     this.prev.copy(this.pos);
     if (this.grabbedBy) {                       // in a titan's fist
       if (!this.grabbedBy.alive || !this.grabHand) { this.freed(); return; }
-      this.grabHand.getWorldPosition(this.pos); this.vel.set(0, 0, 0);
+      // held round the waist in the fist (body along it, head out of the top), like the player
+      const G = this._grip || (this._grip = { on: false, up: new THREE.Vector3(), face: new THREE.Vector3() });
+      G.on = !!this.grabbedBy.gripFrame?.(this.pos, G.up, G.face);
+      if (G.on) { this.pos.addScaledVector(G.up, -0.4); this.up.copy(G.up); this.forward.copy(G.face); }
+      else this.grabHand.getWorldPosition(this.pos);
+      this.vel.set(0, 0, 0);
       return;
     }
     const odm = this.odm, v = this.vel, p = this.pos;
@@ -341,6 +346,8 @@ export class Ally {
     if (this.horse) {
       this.forward.set(Math.sin(this.horse.yaw), 0, Math.cos(this.horse.yaw));
       this.horse.up(this.up);
+    } else if (this.grabbedBy && this._grip?.on) {
+      // orientation comes from the fist (fixedUpdate)
     } else if (landing) {
       const hl = hypot(this.vel.x, this.vel.z) || 1;
       this.forward.lerp(_a.set(this.vel.x / hl, 0, this.vel.z / hl), 1 - Math.exp(-12 * dt)).normalize();
@@ -350,7 +357,7 @@ export class Ally {
     const upT = _c.copy(UP);
     if (pd) upT.lerp(pd, 0.5);
     upT.addScaledVector(this.forward, -upT.dot(this.forward));
-    if (!this.horse && !landing && upT.lengthSq() > 1e-3) this.up.lerp(upT.normalize(), 1 - Math.exp(-5 * dt)).normalize();
+    if (!this.horse && !landing && !(this.grabbedBy && this._grip?.on) && upT.lengthSq() > 1e-3) this.up.lerp(upT.normalize(), 1 - Math.exp(-5 * dt)).normalize();
     const dist = this.render.distanceTo(this.game.camera.position);
     const visible = dist < (this.game.allyRange || 260);
     const wantOutlines = dist < 45;
