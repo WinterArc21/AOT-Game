@@ -1,0 +1,171 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>titan test</title>
+<style>html,body{margin:0;background:#9cc4e8;overflow:hidden}canvas{display:block}#i{position:fixed;left:8px;top:8px;color:#fff;font:12px monospace;text-shadow:0 0 3px #000;white-space:pre}</style>
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.min.js", "three/addons/": "../vendor/addons/" } }</script>
+</head><body><div id="i"></div>
+<script type="module">
+// Dev harness for the titan module: ground, lights, a line-up of titans, the colossal and a fake player.
+//   #lineup  #closeup  #colossal  #chase  #grab  #swat  #leap   (camera presets; ?t=seconds to fast-forward)
+//   ?norender: no WebGL, no rAF loop; drive it with window.stepTitans(dt, n) (headless checks)
+import * as THREE from 'three';
+import { TitanManager } from '../src/titans/titans.js';
+
+const V = THREE.Vector3;
+const hash = (location.hash.slice(1) || 'lineup');
+const NORENDER = new URLSearchParams(location.search).has('norender');
+let renderer = null;
+if (!NORENDER) {
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(innerWidth, innerHeight); renderer.setPixelRatio(1);
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  document.body.appendChild(renderer.domElement);
+}
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x9fc8ee); scene.fog = new THREE.Fog(0x9fc8ee, 300, 1600);
+scene.add(new THREE.HemisphereLight(0xdcecff, 0x6a5a45, 1.5));
+const sun = new THREE.DirectionalLight(0xfff0d0, 2.4); sun.position.set(-60, 120, 80); sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -90, right: 90, top: 90, bottom: -90, near: 10, far: 400 });
+scene.add(sun); scene.add(sun.target);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), new THREE.MeshToonMaterial({ color: 0x728f4d }));
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.3, 4000);
+
+// --- collision: the real CollisionWorld when it exists, else a tiny stub
+let collision;
+try { const m = await import('../src/core/collision.js'); collision = new m.CollisionWorld(); collision.setGround(() => 0); }
+catch (e) { console.warn('stub collision', e.message); collision = { groundHeight: () => 0, addCapsule() { return {}; }, addSphere() { return {}; }, addBox() { return {}; }, remove() {}, updateDynamic() {}, querySphere: () => [], collideSphere: () => [] }; }
+// --- fx: the real Effects when it exists
+const game = { scene, camera, renderer, collision, time: 0, mode: 'free' };
+const listeners = {};
+game.events = { on: (n, f) => (listeners[n] ||= []).push(f), off() {}, emit: (n, p) => (listeners[n] || []).forEach((f) => f(p)) };
+let steps = 0, kills = 0, bigSteps = 0, impacts = 0;
+const windups = [];
+game.events.on('titan:step', (e) => { steps++; if (e.size >= 2 * e.titan.height - 1e-6) bigSteps++; }); game.events.on('titan:killed', () => kills++);
+game.events.on('titan:windup', (e) => windups.push({ t: +game.time.toFixed(3), kind: e.kind, duration: +e.duration.toFixed(3), id: e.titan.id }));
+if (!NORENDER) { try { const m = await import('../src/fx/effects.js'); game.fx = new m.Effects(game); } catch (e) { console.warn('no fx', e.message); } }
+else game.fx = { impact() { impacts++; }, steam() {}, blood() {}, lightning() {}, update() {} };
+game.audio = { titanStep() {}, titanGroan() {}, titanFall() {}, colossalAppear() {}, napeKill() {}, steamHiss() {} };
+
+// --- a fake player
+const player = {
+  position: new V(0, 1.7, 40), velocity: new V(), alive: true, grabbedBy: null, hand: null, eatenCount: 0, hits: 0, impulses: [],
+  grab(t, hand) { this.grabbedBy = t; this.hand = hand; },
+  eaten(t) { this.eatenCount++; this.grabbedBy = null; this.hand = null; this.freeze = 2; },
+  applyImpulse(v, dmg) { this.impulses.push([v.length().toFixed(1), dmg]); this.hits++; this.velocity.add(v); },
+};
+game.player = player;
+const marker = new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 8), new THREE.MeshBasicMaterial({ color: 0xff2255 }));
+scene.add(marker);
+
+game.titans = new TitanManager(game);
+const T = game.titans;
+const spawn = (kind, h, x, z, yaw = Math.PI, crawler) => T.spawn({ kind, height: h, position: new V(x, 0, z), yaw, crawler });
+
+let mode = 'orbit', camFn = null, frozen = false;
+if (hash === 'lineup') {
+  const sizes = [3, 4.5, 6, 7.5, 9, 11, 13, 15];
+  let x = -34;
+  sizes.forEach((h, i) => { const t = spawn(i === 4 ? 'abnormal' : 'normal', h, x, 0, 0.35); t.aiEnabled = false; t.state = 'idle'; t.gazeTarget = camera.position; x += h * 0.55 + 4.6; });
+  player.alive = false;
+  camFn = () => { camera.position.set(-6, 5, 62); camera.lookAt(-6, 5.5, 0); };
+} else if (hash === 'closeup') {
+  const t = spawn('normal', 6, 0, 0, 0.0); t.idleDur = 999;
+  player.position.set(7, 2.2, 14); player.alive = false;
+  camFn = () => { const hp = t._headWorld(new V()); camera.position.set(hp.x + 1.6, hp.y + 0.2, hp.z + 6.2); camera.lookAt(hp.x, hp.y - 0.35, hp.z); };
+} else if (hash === 'colossal') {
+  const w = new THREE.Mesh(new THREE.BoxGeometry(2400, 50, 12), new THREE.MeshToonMaterial({ color: 0x9a9690 })); w.position.set(0, 25, 0); w.castShadow = w.receiveShadow = true; scene.add(w);
+  const c = spawn('colossal', 60, 0, 28, Math.PI);
+  player.position.set(0, 51.7, 0); player.alive = true;
+  camFn = () => { camera.position.set(-90, 40, 120); camera.lookAt(0, 38, 20); };
+} else if (hash === 'colossal2' || hash === 'colossal3') {
+  const w = new THREE.Mesh(new THREE.BoxGeometry(2400, 50, 12), new THREE.MeshToonMaterial({ color: 0x9a9690 })); w.position.set(0, 25, 0); w.castShadow = w.receiveShadow = true; scene.add(w);
+  const c = spawn('colossal', 60, 0, 28, Math.PI); window.colossal = c;
+  player.position.set(0, 51.7, -2); player.alive = true;
+  if (hash === 'colossal2') camFn = () => { camera.position.set(-12, 56, -22); camera.lookAt(0, 52, 28); };
+  else camFn = () => { camera.position.set(75, 58, 5); camera.lookAt(0, 45, 20); };
+} else if (hash === 'chase' || hash === 'grab' || hash === 'swat') {
+  if (hash === 'grab') {
+    spawn('normal', 8, 0, 8, 0).idleDur = 0;
+    player.position.set(0, 1.7, 17);
+    camFn = () => { camera.position.set(22, 6, 14); camera.lookAt(0, 4.5, 11); };
+  } else {
+    spawn('normal', 7, -14, 40, 0).idleDur = 0;
+    spawn('normal', 10, 8, 55, 0).idleDur = 0.5;
+    spawn('abnormal', 6, 26, 70, 0, true).idleDur = 0.2;   // a crawler
+    spawn('normal', 4, -26, 62, 0);
+    player.position.set(0, 1.7, 5);
+    camFn = () => { camera.position.set(-34, 12, -12); camera.lookAt(0, 4, 38); };
+  }
+}
+if (hash === 'leap') {
+  // a crawling abnormal pounces at a player standing in the open (leaps are >= 8 s apart)
+  const t = spawn('abnormal', 7, 0, 46, Math.PI, true); t.idleDur = 0; t.cdLeap = 0.6; window.leaper = t;
+  player.position.set(0, 1.7, 8);
+  camFn = () => { camera.position.set(34, 9, 26); camera.lookAt(0, 3.5, 24); };
+}
+if (hash === 'kill' || hash === 'blind' || hash === 'cripple') {
+  const t = spawn('normal', 8, 0, 0, 0.0); player.alive = false; t.state = 'idle'; t.aiEnabled = false; t.gazeTarget = camera.position;
+  window.killTarget = t;
+  camFn = () => { camera.position.set(34, 9, 26); camera.lookAt(0, 4, 0); };
+}
+const reuseTime = new URLSearchParams(location.search).get('t');
+
+// player behaviour: wander in a circle, or hold still for 'grab'
+let ptime = 0;
+function movePlayer(dt) {
+  ptime += dt;
+  if (player.grabbedBy && player.hand) { player.hand.updateWorldMatrix(true, false); player.position.setFromMatrixPosition(player.hand.matrixWorld); player.velocity.set(0, 0, 0); return; }
+  if (player.freeze > 0) { player.freeze -= dt; player.position.set(0, 1.7, 5); return; }
+  if (hash === 'chase') { const a = ptime * 0.25; player.position.set(Math.sin(a) * 28, 1.7 + 6 * Math.max(0, Math.sin(ptime * 0.9)), 20 + Math.cos(a) * 18); }
+  else if (hash === 'swat') { const a = ptime * 1.1; player.position.set(Math.sin(a) * 14, 5 + 3 * Math.sin(a * 2), 30 + Math.cos(a) * 14); player.velocity.set(Math.cos(a) * 15, 0, -Math.sin(a) * 15); }
+  else if (hash === 'grab' || hash === 'leap') { if (!player.pinned) player.position.set(hash === 'grab' ? 0 : 0, 1.7, hash === 'grab' ? 17 : 8); }
+  player.velocity.multiplyScalar(0.9);
+}
+
+let last = performance.now(), fixed = reuseTime ? parseFloat(reuseTime) : 0;
+const info = document.getElementById('i');
+const infoText = () => `titans ${T.titans.length}  steps ${steps}  kills ${kills}  eaten ${player.eatenCount}  state ${T.titans.map((t) => t.state + (t.crawler ? '(c)' : '')).join(',')}` +
+  `\nthreat ${T.titans.map((t) => t.threat.toFixed(2)).join(',')}  speed ${T.titans.map((t) => t.velocity.length().toFixed(1)).join(',')}` + (renderer ? `  calls ${renderer.info.render.calls}` : '');
+function frame(now) {
+  let dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (fixed > 0) { let n = 0; while (fixed > 0 && n++ < 400) { step(1 / 30); fixed -= 1 / 30; } }
+  step(dt);
+  if (camFn) camFn();
+  marker.position.copy(player.position); marker.visible = player.alive;
+  sun.target.position.set(camera.position.x * 0.2, 0, 0);
+  renderer.render(scene, camera);
+  info.textContent = infoText();
+  if (!window.manualFrames) requestAnimationFrame(frame);
+}
+// headless hooks: step the simulation, render one frame on demand, read counters
+window.stepTitans = (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) step(dt); info.textContent = infoText(); };
+window.renderOnce = () => { if (!renderer) return 0; if (camFn) camFn(); marker.position.copy(player.position); renderer.info.reset(); renderer.render(scene, camera); info.textContent = infoText(); return renderer.info.render.calls; };
+window.counters = () => ({ steps, bigSteps, kills, impacts, eaten: player.eatenCount, hits: player.hits, impulses: player.impulses.slice(), windups: windups.slice() });
+window.player = player;
+let acted = false;
+function step(dt) {
+  game.time += dt;
+  if (!acted && window.killTarget && game.time > 1.0) {
+    acted = true; const t = window.killTarget, nw = t.napeWorld();
+    const hits = T.hitTest(nw.center, 0.3).map((h) => h.part);
+    console.warn('hitTest at nape:', JSON.stringify(hits), 'normal', nw.normal.toArray().map((x) => x.toFixed(2)).join(','));
+    const eye = t.J.head.localToWorld(new V(0.4, t.d.cy + 0.3, t.d.cz + 1.0));
+    console.warn('hitTest at face:', JSON.stringify(T.hitTest(eye, 0.6).map((h) => h.part)));
+    if (hash === 'kill') console.warn('applyHit', JSON.stringify(t.applyHit({ part: 'nape', damage: 999, point: nw.center, dir: nw.normal })));
+    if (hash === 'blind') console.warn('applyHit', JSON.stringify(t.applyHit({ part: 'eye', damage: 100, point: eye, dir: new V(0, 0, 1) })));
+    if (hash === 'cripple') console.warn('applyHit', JSON.stringify(t.applyHit({ part: 'ankle', damage: 100, point: t.position.clone(), dir: new V(0, 0, 1) })));
+    t.aiEnabled = hash === 'kill' ? false : true;
+  }
+  movePlayer(dt);
+  for (const t of T.titans) if (t.aiEnabled === false) { t.speedTarget = 0; }
+  T.update(dt);
+  collision.updateDynamic();
+  game.fx?.update?.(dt);
+}
+window.game = game; window.T = T; window.THREE = THREE;
+window.manualFrames = NORENDER || new URLSearchParams(location.search).has('manual');
+if (!window.manualFrames) requestAnimationFrame(frame);
+else if (renderer) { renderer.info.autoReset = false; }
+window.ready = true;
+</script></body></html>

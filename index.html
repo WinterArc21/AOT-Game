@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wings of Freedom</title>
+<style>
+  :root { color-scheme: dark; --ground: #0d0f0c; --parchment: #e9dfc4; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ground); }
+  canvas { display: block; outline: none; cursor: crosshair; }
+  #loading { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at center, #26301f 0%, #0b0d0a 75%); color: var(--parchment); font-family: Georgia, 'Times New Roman', serif; z-index: 50; }
+  #loading h1 { font-size: clamp(28px, 6vw, 64px); letter-spacing: .28em; margin: 0 0 .2em; font-weight: 600; text-shadow: 0 2px 18px #000; }
+  #loading .msg { opacity: .75; letter-spacing: .2em; font-size: 14px; text-transform: uppercase; animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35 } }
+  #vignette { position: fixed; inset: 0; pointer-events: none; z-index: 1;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0) 62%, rgba(10,8,4,.38) 100%); }
+</style>
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js", "three/addons/": "./vendor/addons/" } }</script>
+</head>
+<body>
+<div id="loading"><h1>WINGS OF FREEDOM</h1><div class="msg">Loading…</div></div>
+<div id="vignette"></div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

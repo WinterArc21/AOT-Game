@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HUD test</title>
+<style>
+  html,body{margin:0;height:100%;background:#0b1118;overflow:hidden}
+  /* stand-in for the 3D scene: sky, distant ridge, field */
+  #stage{position:fixed;inset:0;
+    background:
+      radial-gradient(ellipse at 62% 18%,rgba(255,230,170,.55) 0,rgba(255,230,170,0) 26%),
+      linear-gradient(180deg,#5d7d97 0%,#9bb3bf 46%,#5b6e4a 60%,#2c3a25 100%)}
+  #stage::after{content:"";position:absolute;left:-10%;right:-10%;top:52%;height:14%;
+    background:linear-gradient(180deg,#3a4d3c,#22301f);border-radius:50% 50% 0 0/100% 100% 0 0;opacity:.8}
+  #dev{position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:50;display:flex;flex-wrap:wrap;gap:5px;justify-content:center;max-width:60vw;opacity:.75}
+  #dev button{font:12px/1 system-ui,sans-serif;background:#1d1d1d;color:#ddd;border:1px solid #555;padding:5px 8px;border-radius:3px;cursor:pointer}
+  #dev button.on{border-color:#c9a25a;color:#f3d28a}
+  #dev button:hover{opacity:1}
+  body.nodev #dev{display:none}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="dev">
+  <button data-go="menu">#menu</button>
+  <button data-go="hud">#hud</button>
+  <button data-go="training">#training</button>
+  <button data-go="result">#result</button>
+  <button data-go="grabbed">#grabbed</button>
+  <button data-go="big">#big</button>
+  <button data-go="death">#death</button>
+  <button data-go="pause">#pause</button>
+</div>
+
+<script type="module">
+import { Hud } from '../src/ui/hud.js';
+
+// Fake game object: the HUD only needs it to exist; state is pushed through update(s).
+// URL flags: ?t=<seconds> freezes the clock at that time (deterministic screenshots), ?nodev hides the dev buttons.
+const params = new URLSearchParams(location.search);
+const frozen = params.has('t') ? Number(params.get('t')) || 0 : null;
+if (params.has('nodev')) document.body.classList.add('nodev');
+const game = { mode: 'expedition', time: 0, events: { on() {}, off() {}, emit() {} } };
+const hud = new Hud(game);
+
+const STATES = ['menu', 'hud', 'training', 'result', 'grabbed', 'big', 'death', 'pause'];
+const buttons = [...document.querySelectorAll('#dev button')];
+const st = { gas: 1, blade: 0.8, spare: 4, hp: 1, kills: 0, score: 0, combo: 1 };
+let state = 'menu';
+let t = frozen ?? 0;
+let stateT = 0;
+let lastDmg = 0;
+let dmgIndex = 0;
+let controlsCard = true;
+const log = [];
+window.hudLog = log;
+
+const HINTS = [
+  { keys: ['Z', 'X'], text: 'Hold Z or X to fire a rope at the marker' },
+  { keys: ['Left', 'Right'], text: 'Swing left or right on the rope' },
+  null,
+  { keys: ['Space'], text: 'Cut the nape: hit it fast' },
+];
+
+function go(h) { history.replaceState(null, '', '#' + h); pick(h); }
+
+function pick(hash) {
+  const h = STATES.includes(hash) ? hash : 'menu';
+  state = h;
+  stateT = frozen ?? 0;
+  buttons.forEach((b) => b.classList.toggle('on', b.dataset.go === h));
+  if (h !== 'menu') hud.hideMenu();
+  if (h !== 'death') hud.hideDeath();
+  if (h !== 'pause') hud.hidePause();
+  if (h !== 'result') hud.hideTrainingResult();
+  game.mode = h === 'training' || h === 'result' ? 'training' : 'expedition';
+  switch (h) {
+    case 'menu':
+      hud.showMenu((mode) => {
+        log.push('start:' + mode);
+        hud.message('Started: ' + mode, 2, 'info');
+        go(mode === 'training' ? 'training' : 'hud');
+      });
+      break;
+    case 'hud':
+      hud.message('Titan spotted: 42 m, the field', 3, 'info');
+      break;
+    case 'training':
+      hud.message('TRAINING GROUNDS', 2.5, 'big');
+      break;
+    case 'result':
+      hud.showTrainingResult({ time: 83.46, best: 83.46, cuts: 10, total: 10, avgSpeed: 142.6, newBest: true },
+        () => { log.push('result:again'); go('training'); },
+        () => { log.push('result:menu'); go('menu'); });
+      break;
+    case 'grabbed':
+      hud.message('GRABBED!', 1.5, 'warn');
+      break;
+    case 'big':
+      hud.message('THE COLOSSAL TITAN HAS APPEARED', 4, 'big');
+      break;
+    case 'death':
+      hud.showDeath({ cause: 'YOU WERE EATEN', kills: 7, score: 4120, time: 152 },
+        () => { log.push('death:retry'); hud.message('Back on the wall', 2, 'info'); go('hud'); },
+        () => { log.push('death:menu'); go('menu'); });
+      break;
+    case 'pause':
+      hud.showPause(() => { log.push('pause:resume'); hud.message('Resumed', 1.5, 'info'); go('hud'); });
+      break;
+  }
+}
+
+buttons.forEach((b) => b.addEventListener('click', () => go(b.dataset.go)));
+window.addEventListener('hashchange', () => pick(location.hash.slice(1)));
+window.addEventListener('keydown', (e) => { if (e.code === 'KeyH') controlsCard = !controlsCard; });
+
+function hudState(dt) {
+  // gas drains from full to empty over 12 s, then refills (passes amber, red and pulse)
+  st.gas = 1 - ((t % 12) / 12);
+  st.hp = 0.25 + 0.75 * Math.abs(Math.sin(t * 0.2));
+  st.speed = 22 + 18 * (1 + Math.sin(t * 0.7));                  // m/s, 22..58 => 79..209 km/h
+  st.combo = 1 + (Math.floor(t / 3.5) % 5);                       // 1..5, pops when it rises
+  if (Math.floor(t * 1.4) !== Math.floor((t - dt) * 1.4)) st.kills += 1;
+  st.score += Math.round(dt * 260);
+  st.blade = Math.max(0.05, 0.8 - (t % 20) / 25);
+  st.spare = 4 - Math.floor((t % 20) / 5);
+
+  const cx = innerWidth / 2, cy = innerHeight / 2;
+  const cycle = Math.floor(t / 1.5) % 4;
+  const hooks = [
+    { state: cycle === 0 ? 'flying' : cycle === 1 ? 'attached' : 'idle' },
+    { state: cycle === 2 ? 'flying' : cycle === 3 ? 'attached' : 'idle' },
+  ];
+  // rope targets: Z ahead-left, X ahead-right; X goes invalid for a moment every 6 s
+  const hookTargets = [
+    { x: cx - 210 + 30 * Math.sin(t * 0.8), y: cy - 120 + 18 * Math.cos(t * 1.1), visible: true, valid: true, attached: cycle === 1 },
+    { x: cx + 240 + 24 * Math.cos(t * 0.7), y: cy - 90 + 22 * Math.sin(t * 0.9), visible: true, valid: (t % 6) > 1, attached: cycle === 3 },
+  ];
+  const aim = { valid: true, distance: 42 + 8 * Math.sin(t), lockTitan: false };
+  const napeMarkers = [{ x: cx + 120, y: cy - 30 + 14 * Math.sin(t * 1.7), visible: true }];
+  // threats: two on the ring (one reaching for you), one clamped to the right edge
+  const threats = [
+    { angle: Math.PI * 0.75 + 0.3 * Math.sin(t * 0.5), danger: false },
+    { angle: -Math.PI * 0.6, danger: (t % 4) < 2 },
+    { x: innerWidth - 24, y: cy + 70, angle: Math.PI / 2, danger: false },
+  ];
+  const base = {
+    gas: st.gas, blade: st.blade, bladesSpare: st.spare, hp: st.hp,
+    kills: st.kills, score: st.score, speed: st.speed, combo: st.combo,
+    hooks, aim, napeMarkers, hookTargets, controlsCard,
+  };
+  if (state === 'training') {
+    const left = Math.max(0, 10 - Math.floor(stateT / 3));
+    return { ...base, kills: 0, objective: 'Training Grounds: cut every dummy', timer: stateT, targets: { left, total: 10 },
+      hint: stateT < 4 ? HINTS[0] : stateT < 8 ? HINTS[3] : null, threats: [], napeMarkers: [] };
+  }
+  if (state === 'grabbed') {
+    return { ...base, objective: 'Kill the titans', grabbed: true, struggle: (stateT * 0.35) % 1, threats,
+      hint: HINTS[0], hookTargets: [] };
+  }
+  return { ...base, objective: 'Kill the titans  |  Colossal Titan in the town', threats,
+    hint: HINTS[Math.floor(t / 4) % HINTS.length], timer: null, targets: null };
+}
+
+let last = performance.now();
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = frozen !== null ? 0 : Math.min(0.05, (now - last) / 1000);
+  last = now;
+  t += dt;
+  stateT += dt;
+  try {
+    hud.update(hudState(dt || 1 / 60));
+  } catch (e) { console.error('hud.update threw', e); }
+
+  if (frozen === null && state === 'hud' && t - lastDmg > 0.7) {
+    lastDmg = t;
+    dmgIndex++;
+    const kill = dmgIndex % 4 === 0;
+    const x = innerWidth / 2 + (Math.sin(dmgIndex * 2.3) * 0.35) * innerWidth;
+    const y = innerHeight / 2 - 40 + (Math.cos(dmgIndex * 1.7) * 0.25) * innerHeight;
+    hud.damageNumber(kill ? 320 + dmgIndex * 7 : 40 + (dmgIndex * 13) % 90, x, y, kill);
+  }
+}
+
+// robustness: update() must never throw on missing / junk fields
+for (const junk of [{}, { hookTargets: [null, {}], threats: [null, { angle: 'x' }], hint: {}, timer: 'abc', targets: {} },
+  { hookTargets: 5, threats: 'no', hint: { keys: 'Z' }, struggle: NaN, grabbed: 0, controlsCard: null }]) {
+  try { hud.update(junk); } catch (e) { console.error('hud.update threw on junk', e); }
+}
+
+pick(location.hash.slice(1));
+requestAnimationFrame(frame);
+window.hud = hud;
+window.hudPick = go;
+</script>
+</body>
+</html>

@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audio Test Bench</title>
+<style>
+  :root {
+    --bg: #11141a; --panel: #1a1f29; --line: #2b3342; --text: #e6e9ef; --dim: #8b94a7;
+    --accent: #e0b04a; --accent2: #5aa7e8; --danger: #e5604f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif; }
+  header { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; letter-spacing: .04em; }
+  #state { color: var(--dim); font-variant-numeric: tabular-nums; }
+  main { padding: 16px; display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); max-width: 1400px; margin: 0 auto; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+  section h2 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: var(--accent); }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; }
+  button { background: #252c3a; color: var(--text); border: 1px solid var(--line); border-radius: 5px; padding: 6px 10px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--accent2); }
+  button:active { background: #31405a; }
+  button.primary { background: var(--accent); color: #1a1405; border-color: var(--accent); font-weight: 600; }
+  button.on { border-color: var(--accent); color: var(--accent); }
+  label { display: grid; grid-template-columns: 110px 1fr 56px; gap: 8px; align-items: center; margin: 6px 0; color: var(--dim); }
+  label output { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  canvas { width: 100%; height: 120px; display: block; background: #0c0f14; border-radius: 6px; }
+  .wide { grid-column: 1 / -1; }
+  .sub { color: var(--dim); margin: 8px 0 6px; font-size: 12px; }
+  #log { font: 12px/1.5 ui-monospace, monospace; color: var(--dim); max-height: 90px; overflow: auto; white-space: pre-wrap; }
+</style>
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.min.js", "three/addons/": "../vendor/addons/" } }</script>
+</head>
+<body>
+<header>
+  <h1>WINGS OF FREEDOM / AUDIO BENCH</h1>
+  <button id="start" class="primary">Start audio</button>
+  <button id="mute">Mute: off</button>
+  <span id="state">audio not started</span>
+</header>
+<main>
+  <section class="wide">
+    <h2>Output</h2>
+    <canvas id="scope" width="1200" height="240"></canvas>
+  </section>
+
+  <section>
+    <h2>Continuous</h2>
+    <label>Reel <input id="reel" type="range" min="0" max="1" step="0.01" value="0"><output></output></label>
+    <label>Gas <input id="gas" type="range" min="0" max="1" step="0.01" value="0"><output></output></label>
+    <label>Wind (m/s) <input id="wind" type="range" min="0" max="100" step="1" value="0"><output></output></label>
+    <label>Music <input id="music" type="range" min="0" max="1" step="0.01" value="0"><output></output></label>
+    <div class="row" style="margin-top:8px">
+      <button data-music="0">ambient 0</button><button data-music="0.4">battle 0.4</button>
+      <button data-music="0.65">0.65</button><button data-music="0.9">climax 0.9</button><button data-music="1">1.0</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>ODM gear</h2>
+    <div class="row">
+      <button data-call="hookFire" data-args="0">hookFire L</button>
+      <button data-call="hookFire" data-args="1">hookFire R</button>
+      <button data-call="hookRetract" data-args="0">retract L</button>
+      <button data-call="hookRetract" data-args="1">retract R</button>
+      <button data-call="hookMiss">hookMiss</button>
+    </div>
+    <div class="sub">hookHit(material)</div>
+    <div class="row">
+      <button data-call="hookHit" data-args="'wood'">wood</button>
+      <button data-call="hookHit" data-args="'bark'">bark</button>
+      <button data-call="hookHit" data-args="'stone'">stone</button>
+      <button data-call="hookHit" data-args="'flesh'">flesh</button>
+      <button data-call="hookHit" data-args="'roof'">roof</button>
+      <button data-call="hookHit" data-args="'metal'">metal</button>
+      <button data-call="hookHit" data-args="'ground'">ground</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Combat</h2>
+    <div class="row">
+      <button data-call="slash" data-args="false">slash (miss)</button>
+      <button data-call="slash" data-args="true">slash (hit)</button>
+      <button data-call="napeKill">napeKill</button>
+      <button data-call="bladeBreak">bladeBreak</button>
+      <button data-call="bladeSwap">bladeSwap</button>
+      <button data-call="refill">refill</button>
+    </div>
+    <div class="sub">body</div>
+    <div class="row">
+      <button data-call="impact" data-args="0.3">impact .3</button>
+      <button data-call="impact" data-args="1">impact 1</button>
+      <button data-call="land" data-args="0.3">land .3</button>
+      <button data-call="land" data-args="1">land 1</button>
+      <button data-call="grabbed">grabbed</button>
+      <button data-call="eaten">eaten</button>
+      <button data-call="hurt">hurt</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Titans (3D)</h2>
+    <label>Size (m) <input id="size" type="range" min="2" max="70" step="1" value="15"><output></output></label>
+    <label>Distance (m) <input id="dist" type="range" min="2" max="600" step="1" value="60"><output></output></label>
+    <label>Azimuth (deg) <input id="az" type="range" min="-180" max="180" step="1" value="40"><output></output></label>
+    <div class="row">
+      <button data-titan="titanStep">titanStep</button>
+      <button data-titan="titanGroan">titanGroan</button>
+      <button data-titan="titanFall">titanFall</button>
+      <button data-titan="steamHiss">steamHiss</button>
+      <button data-call="colossalAppear">colossalAppear</button>
+      <button id="walk">walk (4 steps)</button>
+    </div>
+  </section>
+
+  <section class="wide">
+    <h2>Scenarios</h2>
+    <div class="row">
+      <button id="demo-fly">Flight: hooks, reel, gas, wind ramp</button>
+      <button id="demo-fight">Fight: slash, kill, steam, groan</button>
+      <button id="demo-all">Every sound in sequence</button>
+      <button id="stop">Stop loops</button>
+    </div>
+    <div class="sub">log</div>
+    <div id="log"></div>
+  </section>
+</main>
+
+<script type="module">
+import { Audio } from '../src/audio/audio.js';
+
+const audio = new Audio();
+window.audio = audio;
+window.AudioEngine = Audio;
+const $ = (s) => document.querySelector(s);
+const logEl = $('#log');
+const log = (m) => { logEl.textContent = (m + '\n' + logEl.textContent).slice(0, 1500); };
+const params = new URLSearchParams(location.search);
+
+audio.strict = true;
+audio.setListener({ x: 0, y: 1.7, z: 0 }, { x: 0, y: 0, z: -1 }, { x: 0, y: 1, z: 0 });
+
+let started = false;
+function start() {
+  if (started) return;
+  started = true;
+  const ok = audio.init();
+  $('#start').textContent = ok ? 'Audio running' : 'Audio unavailable';
+  log(ok ? 'init ok' : 'init failed');
+}
+$('#start').addEventListener('click', start);
+$('#mute').addEventListener('click', (e) => {
+  start();
+  const m = audio.toggleMute();
+  e.target.textContent = 'Mute: ' + (m ? 'ON' : 'off');
+  e.target.classList.toggle('on', m);
+});
+
+// sliders
+const bind = (id, fn, fmt = (v) => v.toFixed(2)) => {
+  const el = $('#' + id), out = el.parentElement.querySelector('output');
+  const upd = () => { const v = +el.value; out.textContent = fmt(v); fn(v); };
+  el.addEventListener('input', () => { start(); upd(); });
+  upd();
+  return el;
+};
+bind('reel', (v) => audio.setReel(v));
+bind('gas', (v) => audio.setGas(v));
+bind('wind', (v) => audio.setWind(v), (v) => v.toFixed(0));
+const musicEl = bind('music', (v) => audio.setMusic(v));
+bind('size', () => {}, (v) => v.toFixed(0));
+bind('dist', () => {}, (v) => v.toFixed(0));
+bind('az', () => {}, (v) => v.toFixed(0));
+document.querySelectorAll('[data-music]').forEach((b) => b.addEventListener('click', () => {
+  start(); musicEl.value = b.dataset.music; musicEl.dispatchEvent(new Event('input'));
+}));
+
+function titanPos() {
+  const d = +$('#dist').value, a = (+$('#az').value * Math.PI) / 180;
+  return { x: Math.sin(a) * d, y: 0, z: -Math.cos(a) * d }; // listener faces -Z, +X is right
+}
+const titanCall = (name) => {
+  start();
+  const size = +$('#size').value;
+  audio[name](titanPos(), size);
+  log(`${name}(pos ${JSON.stringify(titanPos(), (k, v) => typeof v === 'number' ? +v.toFixed(1) : v)}, ${size})`);
+};
+document.querySelectorAll('[data-titan]').forEach((b) => b.addEventListener('click', () => titanCall(b.dataset.titan)));
+document.querySelectorAll('[data-call]').forEach((b) => b.addEventListener('click', () => {
+  start();
+  const args = b.dataset.args !== undefined ? [eval('(' + b.dataset.args + ')')] : [];
+  audio[b.dataset.call](...args);
+  log(`${b.dataset.call}(${args.map((a) => JSON.stringify(a)).join(', ')})`);
+}));
+$('#walk').addEventListener('click', () => {
+  start();
+  for (let i = 0; i < 4; i++) setTimeout(() => titanCall('titanStep'), i * 650);
+});
+
+// scenarios
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let token = 0;
+async function scenario(fn) {
+  start();
+  const my = ++token;
+  const wait = async (ms) => { await sleep(ms); if (my !== token) throw new Error('cancelled'); };
+  try { await fn(wait); } catch (e) { if (e.message !== 'cancelled') throw e; }
+}
+$('#demo-fly').addEventListener('click', () => scenario(async (w) => {
+  audio.setMusic(0.5);
+  audio.hookFire(1); await w(250); audio.hookHit('wood'); audio.setReel(0.6); audio.setWind(30); await w(700);
+  audio.setReel(1); audio.setGas(1); audio.setWind(60); await w(500); audio.setGas(0); await w(400);
+  audio.hookRetract(1); audio.setReel(0); audio.hookFire(0); await w(220); audio.hookHit('stone'); audio.setReel(0.8); audio.setWind(80); await w(900);
+  audio.setGas(0.8); await w(500); audio.setGas(0); audio.setReel(0); audio.hookRetract(0); audio.hookMiss(); audio.setWind(20); await w(700);
+  audio.land(0.8); audio.setWind(0);
+}));
+$('#demo-fight').addEventListener('click', () => scenario(async (w) => {
+  audio.setMusic(0.9);
+  const p = { x: 25, y: 0, z: -60 };
+  audio.titanStep(p, 15); await w(500); audio.titanGroan(p, 15); await w(900); audio.titanStep(p, 15); await w(500);
+  audio.slash(false); await w(400); audio.slash(true); await w(300); audio.napeKill(); audio.steamHiss(p, 15); await w(1400);
+  audio.titanFall(p, 15); await w(2500); audio.grabbed(); await w(1300); audio.bladeBreak(); await w(900); audio.bladeSwap(); await w(600); audio.hurt();
+}));
+$('#demo-all').addEventListener('click', () => scenario(async (w) => {
+  const p = { x: 30, y: 0, z: -50 };
+  const calls = [
+    () => audio.hookFire(0), () => audio.hookHit('wood'), () => audio.hookHit('bark'), () => audio.hookHit('stone'), () => audio.hookHit('flesh'),
+    () => audio.hookHit('roof'), () => audio.hookHit('metal'), () => audio.hookHit('ground'), () => audio.hookRetract(1), () => audio.hookMiss(),
+    () => audio.slash(false), () => audio.slash(true), () => audio.napeKill(), () => audio.bladeBreak(), () => audio.bladeSwap(), () => audio.refill(),
+    () => audio.impact(0.5), () => audio.land(0.9), () => audio.grabbed(), () => audio.eaten(), () => audio.hurt(),
+    () => audio.titanStep(p, 12), () => audio.titanGroan(p, 12), () => audio.steamHiss(p, 12), () => audio.titanFall(p, 12), () => audio.colossalAppear(),
+  ];
+  for (const c of calls) { c(); await w(1300); }
+}));
+$('#stop').addEventListener('click', () => {
+  token++;
+  for (const id of ['reel', 'gas', 'wind', 'music']) { const el = $('#' + id); el.value = 0; el.dispatchEvent(new Event('input')); }
+});
+
+// scope
+const cv = $('#scope'), g = cv.getContext('2d');
+const wave = new Float32Array(2048), spec = new Uint8Array(1024);
+function draw() {
+  requestAnimationFrame(draw);
+  const W = cv.width, H = cv.height;
+  g.fillStyle = '#0c0f14'; g.fillRect(0, 0, W, H);
+  const an = audio.analyser;
+  if (!an) { g.fillStyle = '#8b94a7'; g.font = '20px system-ui'; g.fillText('press "Start audio"', 20, 40); return; }
+  an.getByteFrequencyData(spec);
+  g.fillStyle = '#5aa7e8';
+  const bins = 400;
+  for (let i = 0; i < bins; i++) {
+    const v = spec[i] / 255, x = (i / bins) * W;
+    g.fillRect(x, H - v * H * 0.9, Math.max(1, W / bins - 1), v * H * 0.9);
+  }
+  an.getFloatTimeDomainData(wave);
+  g.strokeStyle = '#e0b04a'; g.lineWidth = 2; g.beginPath();
+  let peak = 0, sum = 0;
+  for (let i = 0; i < wave.length; i++) {
+    const x = (i / wave.length) * W, y = H / 2 - wave[i] * H * 0.45;
+    i ? g.lineTo(x, y) : g.moveTo(x, y);
+    peak = Math.max(peak, Math.abs(wave[i])); sum += wave[i] * wave[i];
+  }
+  g.stroke();
+  const rms = Math.sqrt(sum / wave.length);
+  $('#state').textContent = `ctx ${audio.state} · peak ${peak.toFixed(2)} · rms ${rms.toFixed(3)} · voices ${audio._total} · music ${audio.music ? audio.music.intensity.toFixed(2) : '-'}`;
+}
+draw();
+
+if (params.has('auto')) {
+  start();
+  musicEl.value = params.get('auto') === '1' ? 0.7 : params.get('auto');
+  musicEl.dispatchEvent(new Event('input'));
+  $('#gas').value = 0.6; $('#gas').dispatchEvent(new Event('input'));
+  $('#wind').value = 50; $('#wind').dispatchEvent(new Event('input'));
+  $('#reel').value = 0.7; $('#reel').dispatchEvent(new Event('input'));
+  setTimeout(() => { audio.hookFire(1); audio.titanStep({ x: 20, y: 0, z: -40 }, 15); }, 800);
+}
+</script>
+</body>
+</html>

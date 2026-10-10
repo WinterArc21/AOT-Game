@@ -1,0 +1,325 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>fx-test</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  #info { position: absolute; left: 8px; top: 6px; color: #fff; font: 12px/1.35 monospace; text-shadow: 0 0 3px #000, 0 0 3px #000; pointer-events: none; white-space: pre; }
+  #emblem { position: absolute; inset: 0; background: #20362a; display: none; align-items: center; justify-content: center; }
+  #emblem canvas { height: 94vh; image-rendering: auto; }
+</style>
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.min.js", "three/addons/": "../vendor/addons/" } }</script>
+</head>
+<body>
+<div id="info"></div>
+<div id="emblem"></div>
+<script type="module">
+// Dev page for the FX agent: PlayerModel poses + effects showcase.
+//   #all (default)  lineup of poses        #idle #run #fly #boost #swing #slash[-p] #spin #grab
+//   #lines          fly + speed lines      #emblem  the cape crest
+//   #fx             live effects showcase  #steam #blood #gas #sparks #impact #leaves #slasharc  frozen shots
+//   #lightning-<age seconds>               frozen lightning at the given age
+//   ?dt=0.05 forces a fixed update dt (stability test)
+//   ?still   deterministic: warm up, then freeze (no rAF loop); drive it with window.__render() / window.__measure()
+//   ?seed=N  seeded Math.random (identical cape texture folds between runs, for before/after screenshots)
+import * as THREE from 'three';
+import { Effects, SpeedLines } from '../src/fx/effects.js';
+import { PlayerModel, drawEmblem } from '../src/player/model.js';
+
+const info = document.getElementById('info');
+const [mode, arg] = (location.hash || '#all').slice(1).split('-');
+const params = new URLSearchParams(location.search);
+const forcedDt = parseFloat(params.get('dt')) || 0;
+const still = params.has('still');
+if (params.has('seed')) {
+  const seed0 = (parseInt(params.get('seed'), 10) || 1) >>> 0;
+  let sd = seed0;
+  // restart the sequence at every 2D canvas: procedural textures (cape folds) then do not depend on how many
+  // three.js objects (each takes a random UUID) were created before them
+  const gc = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (type, ...a) { if (type === '2d') sd = seed0; return gc.call(this, type, ...a); };
+  Math.random = () => { sd = (sd + 0x6D2B79F5) >>> 0; let x = sd; x = Math.imul(x ^ (x >>> 15), x | 1); x ^= x + Math.imul(x ^ (x >>> 7), x | 61); return ((x ^ (x >>> 14)) >>> 0) / 4294967296; };
+}
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(1);
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const SKY = 0x8fc7ee;
+scene.background = new THREE.Color(SKY);
+scene.fog = new THREE.Fog(0xbfdff2, 120, 1200);
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 3000);
+camera.position.set(0, 3, 10);
+scene.add(camera);
+camera.fov = parseFloat(params.get('fov')) || 50; camera.updateProjectionMatrix();     // ?fov=20 zooms in on the model
+
+scene.add(new THREE.HemisphereLight(0xcfe6ff, 0x6d7b52, 1.05));
+const sun = new THREE.DirectionalLight(0xfff1d6, 2.4);
+sun.position.set(30, 60, -20);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -14, right: 14, top: 14, bottom: -14, near: 1, far: 200 });
+scene.add(sun, sun.target);
+
+// ground with a checker so motion reads
+{
+  const cv = document.createElement('canvas'); cv.width = cv.height = 128;
+  const c = cv.getContext('2d');
+  c.fillStyle = '#7fa65a'; c.fillRect(0, 0, 128, 128);
+  c.fillStyle = '#74993f'; c.fillRect(0, 0, 64, 64); c.fillRect(64, 64, 64, 64);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(500, 500); tex.colorSpace = THREE.SRGBColorSpace;
+  const g = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), new THREE.MeshLambertMaterial({ map: tex }));
+  g.rotation.x = -Math.PI / 2; g.receiveShadow = true;
+  scene.add(g);
+}
+
+const game = { scene, camera, renderer, collision: { groundHeight: () => 0 }, fx: null };
+const fx = game.fx = new Effects(game);
+const lines = new SpeedLines(renderer);
+
+const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
+function newState() {
+  return {
+    position: V(), velocity: V(), forward: V(0, 0, 1), up: V(0, 1, 0), grounded: true, running: 0,
+    hooks: [{ attached: false, anchor: null }, { attached: false, anchor: null }],
+    boosting: 0, slash: -1, spin: false, grabbed: false, blades: true, speed: 0,
+  };
+}
+
+// ───────────── scenarios: each fills a state from time t (seconds) and returns the camera offset ─────────────
+const sc = {
+  idle: (s, t, o) => { s.position.set(0, 0.9, 0); s.velocity.set(0, 0, 0); s.forward.set(0, 0, 1); s.grounded = true; s.running = 0; s.speed = 0; return o.set(2.2, 0.9, -3.0); },
+  run: (s, t, o) => { s.position.set(0, 0.9, 9.5 * t); s.velocity.set(0, 0, 9.5); s.forward.set(0, 0, 1); s.grounded = true; s.running = 1; s.speed = 9.5; return o.set(2.0, 0.9, -2.8); },
+  fly: (s, t, o) => { s.position.set(0, 60 + 6 * t, 60 * t); s.velocity.set(0, 6, 60); s.forward.set(0, 0.1, 0.995).normalize(); s.grounded = false; s.running = 0; s.speed = 60.3; return o.set(1.2, 1.8, -3.2); },
+  boost: (s, t, o) => { sc.fly(s, t, o); s.boosting = 1; return o.set(2.4, 0.9, -3.0); },
+  swing: (s, t, o) => {
+    const R = 45, w = 0.62, phi = -0.55 + w * t, A = V(0, 80, 20);
+    s.position.set(0, A.y - R * Math.cos(phi), A.z + R * Math.sin(phi)); s.velocity.set(0, R * w * Math.sin(phi), R * w * Math.cos(phi));
+    s.speed = R * w; s.forward.copy(s.velocity).normalize(); s.grounded = false; s.running = 0;
+    s.hooks[0].attached = s.hooks[1].attached = true; s.hooks[0].anchor = V(2, 80, 20); s.hooks[1].anchor = V(-2, 80, 20);
+    return o.set(2.8, 1.6, -4.0);
+  },
+  slash: (s, t, o) => { sc.fly(s, t, o); s.velocity.set(0, 2, 33); s.speed = 33; s.slash = arg !== undefined ? parseFloat(arg) : (t % 0.9) / 0.9 < 0.34 ? (t % 0.9) / 0.9 / 0.34 : -1; s.position.set(0, 60 + 2 * t, 33 * t); return o.set(2.0, 1.4, -3.4); },
+  spin: (s, t, o) => { sc.fly(s, t, o); s.velocity.set(0, 2, 36); s.speed = 36; s.spin = true; s.position.set(0, 60 + 2 * t, 36 * t); return o.set(2.4, 1.7, -4.4); },
+  grab: (s, t, o) => { s.position.set(0, 12, 0); s.velocity.set(0, 0, 0); s.grounded = false; s.grabbed = true; s.speed = 0; s.forward.set(0, 0, 1); return o.set(2.2, 0.6, -3.0); },
+};
+sc.lines = (s, t, o) => sc.fly(s, t, o);
+
+let model = null, state = newState(), camOff = V(), t = 0;
+window.__dbg = { get model() { return model; }, fx, THREE, camera, scene };
+const gallery = [];
+function addModel() { const m = new PlayerModel(game); scene.add(m.root); return m; }
+
+const staticFx = { steam: 1, blood: 1, gas: 1, sparks: 1, impact: 1, leaves: 1, slasharc: 1, lightning: 1 };
+
+if (mode === 'emblem') {
+  const holder = document.getElementById('emblem'); holder.style.display = 'flex';
+  const cv = document.createElement('canvas'); cv.width = 800; cv.height = 800;
+  const c = cv.getContext('2d'); c.fillStyle = '#3a6542'; c.fillRect(0, 0, 800, 800);
+  drawEmblem(c, 400, 400, 560);
+  holder.appendChild(cv);
+  renderer.domElement.style.display = 'none';
+  window.__ready = true;
+} else if (mode === 'all') {
+  const defs = [
+    ['idle', 6.2], ['run', 3.7], ['fly', 1.2], ['swing', -1.3], ['slash', -3.8], ['spin', -6.3],
+  ];
+  for (const [name, x] of defs) {
+    const m = addModel(); const st = newState();
+    gallery.push({ name, m, st, x });
+  }
+} else if (sc[mode]) {
+  model = addModel();
+} else if (mode === 'stress') {
+  // robustness: random states, dt up to 1/20, speeds 0..110 m/s, teleports, NaN inputs; cape must stay finite and bounded
+  const m = new PlayerModel(game); scene.add(m.root);
+  const st = newState();
+  let maxExt = 0, bad = 0, tot = 0, frames = 0;
+  const dts = [1 / 240, 1 / 120, 1 / 60, 1 / 30, 1 / 20, 0.05];
+  let seed = 1; const R = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const tStart = performance.now();
+  for (let i = 0; i < 4000; i++) {
+    const dt = dts[(R() * dts.length) | 0];
+    if (i % 90 === 0) { st.grounded = R() < 0.3; st.slash = R() < 0.3 ? R() : -1; st.spin = R() < 0.2; st.grabbed = R() < 0.05; st.boosting = R() < 0.4 ? R() : 0; st.running = R(); }
+    const sp = R() < 0.3 ? 0 : R() * 110;
+    const dir = V(R() - 0.5, R() - 0.5, R() - 0.5).normalize();
+    st.velocity.copy(dir).multiplyScalar(sp); st.speed = sp; st.forward.copy(dir);
+    st.up.set(R() * 0.2 - 0.1, 1, R() * 0.2 - 0.1).normalize();
+    st.position.addScaledVector(st.velocity, dt);
+    if (i % 700 === 350) st.position.set(R() * 500, R() * 80, R() * 500);         // teleport
+    if (i % 1000 === 500) { st.forward.set(0, 0, 0); }
+    if (i % 1100 === 600) { st.forward.set(NaN, 0, 1); st.velocity.set(NaN, 0, 0); }
+    m.update(dt, st);
+    const cp = m.cape.pos;
+    for (let k = 0; k < cp.length; k++) { tot++; if (!Number.isFinite(cp[k])) bad++; else maxExt = Math.max(maxExt, Math.abs(cp[k])); }
+    for (const e of m.pivot.quaternion.toArray()) if (!Number.isFinite(e)) bad++;
+    frames++;
+  }
+  const ms = (performance.now() - tStart) / frames;
+  window.__stress = { frames, bad, maxExtentFromBody: +maxExt.toFixed(2), msPerUpdate: +ms.toFixed(3) };
+  info.textContent = 'stress ' + JSON.stringify(window.__stress);
+  renderer.domElement.style.display = 'none';
+  window.__ready = true;
+} else if (!staticFx[mode] && mode !== 'fx') { info.textContent = 'unknown mode ' + mode; }
+
+// static fx scene setup ---------------------------------------------------------------------------------------
+const fxScript = { acc: 0, n: 0 };
+function fxLive(dt) {
+  const ft = fx.time;
+  fxScript.acc += dt;
+  const every = (name, period, f) => { const k = Math.floor(ft / period); if (fxScript[name] !== k) { fxScript[name] = k; f(); } };
+  every('steam', 1.0, () => fx.steam(V(-12, 0, 0), 5, 3.5));
+  every('blood', 0.7, () => fx.blood(V(-6, 3, 0), V(1, 0.6, 0.1).normalize(), 1.3));
+  every('spark', 0.45, () => fx.sparks(V(6, 1, 0), V(0, 1, 0.2).normalize(), 14));
+  const mats = ['stone', 'wood', 'bark', 'roof', 'ground', 'metal'];
+  every('impact', 0.8, () => fx.impact(V(9.5, 0.1, 0), V(0, 1, 0), mats[(Math.floor(ft / 0.8)) % mats.length]));
+  every('leaves', 0.9, () => fx.leaves(V(3, 6, 0), 14));
+  every('arc', 1.1, () => { const q = new THREE.Quaternion().setFromAxisAngle(V(0, 0, 1), -0.6 + (Math.floor(ft / 1.1) % 2) * 1.2); q.premultiply(camera.quaternion); fx.slashArc(V(-1, 5, 3), q, 3); });
+  every('lightning', 5, () => fx.lightning(V(0, 0, -40), 12));
+  const gx = -3 + 7 * (0.5 + 0.5 * Math.sin(ft * 1.4));
+  fx.gas(V(gx, 3, 0), V(-1, 0.05, 0.1).normalize(), 1);
+}
+function fxPrewarm(kind, T) {
+  const step = 1 / 60;
+  const n = Math.round(T / step);
+  const cam = camera;
+  switch (kind) {
+    case 'steam': cam.position.set(0, 4, 17); cam.lookAt(0, 4.5, 0); break;
+    case 'blood': cam.position.set(0, 2.5, 8); cam.lookAt(0, 1.8, 0); break;
+    case 'gas': cam.position.set(2, 2, 7); cam.lookAt(-1, 2, 0); break;
+    case 'sparks': cam.position.set(0, 1.2, 4); cam.lookAt(0, 1, 0); break;
+    case 'impact': cam.position.set(0, 2.0, 6); cam.lookAt(0, 1, 0); break;
+    case 'leaves': cam.position.set(0, 4, 9); cam.lookAt(0, 4, 0); break;
+    case 'slasharc': cam.position.set(0, 3, 7); cam.lookAt(0, 3, 0); break;
+    case 'lightning': cam.position.set(14, 8, 55); cam.lookAt(0, 22, 0); break;
+  }
+  cam.updateMatrixWorld(true);
+  for (let i = 0; i < n; i++) {
+    const ft = i * step;
+    if (kind === 'steam' && i % 12 === 0) fx.steam(V(-4 + (i % 36) / 9, 0, 0), 5, 3.5);
+    if (kind === 'steam' && i === 0) fx.steam(V(4, 0, 0), 3, 3);
+    if (kind === 'blood' && i % 45 === 0) fx.blood(V(0, 1.5, 0), V(1, 0.5, 0.2).normalize(), 1.5);
+    if (kind === 'gas') fx.gas(V(1.5 - ft * 1.0, 2, 0), V(-1, 0.04, 0.1).normalize(), 1);
+    if (kind === 'sparks' && i % 20 === 0) fx.sparks(V(0, 0.2, 0), V(0, 1, 0.3).normalize(), 24);
+    if (kind === 'impact') { const mats = ['stone', 'wood', 'ground', 'roof']; if (i === 0) for (let k = 0; k < 4; k++) fx.impact(V(-3 + k * 2, 0.05, 0), V(0, 1, 0), mats[k]); }
+    if (kind === 'leaves' && i % 20 === 0) fx.leaves(V(0, 4, 0), 14);
+    if (kind === 'slasharc' && i === 0) { const q = new THREE.Quaternion().setFromAxisAngle(V(0, 0, 1), -0.5); fx.slashArc(V(0, 3, 0), q, 3); }
+    if (kind === 'slasharc' && i === 14) { const q = new THREE.Quaternion().setFromAxisAngle(V(0, 0, 1), 0.7); q.multiply(new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), 0.0)); fx.slashArc(V(0.3, 3, 0), q, 3.4); }
+    if (kind === 'lightning' && i === 0) fx.lightning(V(0, 0, 0), 12);
+    fx.update(step);
+  }
+}
+
+// ─────────────────────────────────────────── main loop ───────────────────────────────────────────
+const clock = { last: performance.now() };
+function simStep(dt) {
+  t += dt;
+  if (model) {
+    state = newState();
+    sc[mode](state, t, camOff);
+    const view = params.get('cam');
+    if (view === 'front') camOff.set(camOff.x * 0.6, camOff.y * 0.8, -camOff.z * 0.9);
+    else if (view === 'side') camOff.set(Math.abs(camOff.z) * 0.95, camOff.y * 0.5, 0.2);
+    else if (view === 'top') camOff.set(0.3, Math.abs(camOff.z) * 0.9, -1.2);
+    model.update(dt, state);
+    followCam(state.position, camOff);
+  } else if (gallery.length) {
+    for (const g of gallery) {
+      const st = g.st; st.boosting = 0; st.slash = -1; st.spin = false; st.hooks[0].attached = st.hooks[1].attached = false;
+      const off = V();
+      sc[g.name](st, g.name === 'run' || g.name === 'swing' || g.name === 'fly' ? 1.0 : 0.7, off);
+      if (g.name === 'slash') st.slash = 0.5;
+      // place the lineup: keep each pose where it is in space, only offset in x; stationary relative position
+      const base = st.position;
+      st.position.set(g.x, g.name === 'idle' || g.name === 'run' ? 0.9 : 2.6, 0);
+      if (g.name === 'swing') { st.hooks[0].anchor = V(g.x + 2, 30, 8); st.hooks[1].anchor = V(g.x - 2, 30, 8); }
+      if (g.name === 'fly' || g.name === 'slash' || g.name === 'spin') st.boosting = 0;
+      // yaw the pose 35 degrees so the lineup shows back and side
+      { const cy = Math.cos(0.6), sy = Math.sin(0.6);
+        for (const vv of [st.forward, st.velocity]) { const x = vv.x * cy + vv.z * sy, z = -vv.x * sy + vv.z * cy; vv.x = x; vv.z = z; } }
+      g.m.update(dt, st);
+    }
+    camera.position.set(-1.0, 2.9, -9.5);
+    camera.lookAt(0, 2.3, 0);
+    sun.position.set(18, 40, -22); sun.target.position.set(0, 4, 0);
+  }
+  if (mode === 'fx') fxLive(dt);
+  if (mode !== 'lightning' && !staticFx[mode]) fx.update(dt);
+}
+function followCam(pos, off) {
+  // camera follows the model with a fixed world offset (slightly behind/aside), looking at the body
+  camera.position.copy(pos).add(off);
+  camera.lookAt(pos.x, pos.y + 0.05, pos.z + 0.4);
+  sun.position.copy(pos).add(V(20, 45, -15));
+  sun.target.position.copy(pos);
+  sun.target.updateMatrixWorld();
+}
+
+if (mode !== 'emblem' && mode !== 'stress') {
+  if (staticFx[mode]) {
+    fxPrewarm(mode, mode === 'lightning' ? parseFloat(arg || '0.08') : parseFloat(arg || '1.4'));
+  } else if (mode === 'fx') {
+    camera.position.set(0, 6, 26); camera.lookAt(0, 8, 0);
+    const n = Math.round(5.3 * 60); for (let i = 0; i < n; i++) simStep(1 / 60);
+  } else {
+    // pre-simulate 3 s so the cape reaches its steady streaming shape
+    const warm = Math.round(3 * 60);
+    for (let i = 0; i < warm; i++) simStep(1 / 60);
+  }
+  // draw-call probe: colour pass (shadows off) and full frame (with the shadow pass), with and without the model(s)
+  window.__render = () => { renderer.render(scene, camera); return renderer.info.render.calls; };
+  window.__measure = () => {
+    const models = model ? [model] : gallery.map((g) => g.m);
+    const r = (shadows, vis) => {
+      for (const m of models) m.root.visible = vis;
+      renderer.shadowMap.enabled = shadows; renderer.shadowMap.needsUpdate = true;
+      renderer.info.autoReset = false; renderer.info.reset();      // r180 resets info AFTER the shadow pass: count it too
+      renderer.render(scene, camera);
+      renderer.info.autoReset = true;
+      return { calls: renderer.info.render.calls, tris: renderer.info.render.triangles };
+    };
+    const cw = r(false, true), cn = r(false, false), fw = r(true, true), fn = r(true, false);
+    for (const m of models) m.root.visible = true;
+    renderer.shadowMap.enabled = true;
+    const out = { models: models.length, colourPerModel: (cw.calls - cn.calls) / models.length, shadowPerModel: (fw.calls - fn.calls - (cw.calls - cn.calls)) / models.length,
+      trisPerModel: (cw.tris - cn.tris) / models.length, colourCalls: cw.calls, frameCalls: fw.calls };
+    if (model) {
+      const f = (v) => v.toArray().map((x) => +x.toFixed(5));
+      const a = V(), b = V();
+      out.hook0 = f(model.hookOrigin(0, a)); out.hook1 = f(model.hookOrigin(1, a));
+      model.gasNozzle(a, b); out.gasPos = f(a); out.gasDir = f(b);
+      let n = 0; model.root.traverse(() => n++); out.objects = n;
+    }
+    return out;
+  };
+  window.__ready = true;
+  if (still) { renderer.render(scene, camera); } else {
+  let frames = 0;
+  const loop = () => {
+    const now = performance.now();
+    let dt = Math.min((now - clock.last) / 1000, 1 / 20); clock.last = now;
+    if (forcedDt) dt = forcedDt;
+    if (!staticFx[mode]) simStep(dt);
+    renderer.render(scene, camera);
+    if (mode === 'lines') { lines.setIntensity(1); lines.render(); }
+    frames++;
+    if (frames % 10 === 0) {
+      const c = renderer.info.render;
+      info.textContent = `fx-test #${mode}${arg ? '-' + arg : ''}  t=${t.toFixed(2)}  particles n=${fx.norm.alive} a=${fx.add.alive}  calls=${c.calls}`;
+    }
+    requestAnimationFrame(loop);
+  };
+  loop();
+  }
+}
+addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
+</script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>titan model viewer</title>
+<style>html,body{margin:0;background:#9cc4e8;overflow:hidden}canvas{display:block}</style>
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.min.js", "three/addons/": "../vendor/addons/" } }</script>
+</head><body>
+<script type="module">
+import * as THREE from 'three';
+import { getArchetype } from '../src/titans/builder.js';
+import { buildRig } from '../src/titans/rig.js';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight); renderer.setPixelRatio(1);
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0xa8cdee);
+scene.add(new THREE.HemisphereLight(0xddeeff, 0x6a5a45, 1.4));
+const sun = new THREE.DirectionalLight(0xfff2d8, 2.2); sun.position.set(-30, 50, 40); scene.add(sun);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshToonMaterial({ color: 0x6d8a4a })); ground.rotation.x = -Math.PI / 2; scene.add(ground);
+
+const hash = location.hash.slice(1) || 'row';
+const list = [
+  { build: 'average', size: 'M', skin: 'beige', hair: 0, expr: 'grin', h: 7 },
+  { build: 'potbelly', size: 'S', skin: 'pink', hair: false, expr: 'wide', h: 4 },
+  { build: 'lanky', size: 'M', skin: 'tan', hair: 1, expr: 'grin', h: 8 },
+  { build: 'muscular', size: 'L', skin: 'pale', hair: false, expr: 'wide', h: 12 },
+  { build: 'gaunt', size: 'M', skin: 'ruddy', hair: 3, expr: 'snarl', h: 7 },
+  { build: 'colossal', size: 'XL', skin: 'pink', hair: false, expr: 'colossal', h: 7 },
+];
+let x = -30;
+const rigs = [];
+for (const s of list) {
+  const arch = getArchetype(s);
+  const rig = buildRig(arch, s.h);
+  rig.root.position.set(x, 0, 0);
+  rig.J.jaw.rotation.x = arch.jawRest;
+  // relaxed arms
+  rig.J.armL.rotation.z = 0.14; rig.J.armR.rotation.z = -0.14;
+  rig.J.foreL.rotation.x = -0.25; rig.J.foreR.rotation.x = -0.25;
+  scene.add(rig.root); rigs.push(rig);
+  x += s.h * 0.9 + 3;
+}
+let calls = 0; renderer.info.autoReset = false;
+const cam = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 2000);
+if (hash === 'row') { cam.position.set(-4, 5, 42); cam.lookAt(-4, 4, 0); }
+else if (hash === 'face') { cam.position.set(rigs[0].root.position.x + 2.5, 5.9, 8); cam.lookAt(rigs[0].root.position.x, 5.4, 0); }
+else if (hash === 'face2') { const r = rigs[1]; cam.position.set(r.root.position.x - 2, 3.2, 6.5); cam.lookAt(r.root.position.x, 3.0, 0); }
+else if (hash === 'face4') { const r = rigs[4]; cam.position.set(r.root.position.x + 2.5, 5.6, 9); cam.lookAt(r.root.position.x, 5.2, 0); }
+else if (hash === 'face5') { const r = rigs[5]; cam.position.set(r.root.position.x + 2.5, 5.6, 9); cam.lookAt(r.root.position.x, 5.2, 0); }
+else if (hash === 'body5') { const r = rigs[5]; cam.position.set(r.root.position.x + 6, 5, 22); cam.lookAt(r.root.position.x, 3.5, 0); }
+else if (hash === 'side') { const r = rigs[4]; cam.position.set(r.root.position.x + 11, 5.6, 2); cam.lookAt(r.root.position.x, 5.4, 0); }
+else if (hash === 'hand') { const r = rigs[0]; cam.position.set(r.root.position.x + 3, 2.5, 5); cam.lookAt(r.root.position.x + 1, 2.5, 0); }
+{ const a = getArchetype(list[4]); for (const k of ['head','jaw']) { const g = a.geo[k].full; console.warn(k, g.attributes.position.count, JSON.stringify(g.boundingBox), g.index.count); } console.warn(JSON.stringify(a.dims.jawPivot), a.dims.cy, a.dims.ry); }
+renderer.info.reset();
+renderer.render(scene, cam);
+window.__info = renderer.info.render;
+console.log('draw calls total for ' + list.length + ' titans: ' + renderer.info.render.calls + ' tris ' + renderer.info.render.triangles);
+</script></body></html>

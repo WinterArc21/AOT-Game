@@ -1,0 +1,213 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Training test</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { display: block; }
+  #info { position: fixed; left: 8px; top: 8px; color: #fff; font: 11px/1.35 monospace; text-shadow: 0 0 3px #000, 0 0 3px #000; white-space: pre; pointer-events: none; }
+</style>
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.min.js", "three/addons/": "../vendor/addons/" } }</script>
+</head>
+<body>
+<div id="info">building…</div>
+<script type="module">
+// Dev harness for the Training Grounds (src/titans/dummies.js): the real world + CollisionWorld + TrainingCourse.
+//   #dummy (post dummy close-up, nape side)   #pulley (a hanging dummy on its line)   #course (overview from the tower)
+//   ?norender  skip rendering (checks only)    ?shadows  enable shadow maps    ?cut  cut the shown dummy before the shot
+//   ?t=seconds advance the course before rendering
+// An automated check runs on load: results in window.__check ({ ok, fails[], log[] }) and in the overlay.
+import * as THREE from 'three';
+import { buildWorld } from '../src/world/world.js';
+import { CollisionWorld } from '../src/core/collision.js';
+import { TrainingCourse, CUT_DAMAGE } from '../src/titans/dummies.js';
+
+const params = new URLSearchParams(location.search);
+const NORENDER = params.has('norender');
+const info = document.getElementById('info');
+
+let renderer = null;
+if (!NORENDER) {
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(1);
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.shadowMap.enabled = params.has('shadows');
+  document.body.appendChild(renderer.domElement);
+}
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.3, 600);
+const collision = new CollisionWorld();
+const listeners = {};
+const counts = { cut: 0, impact: 0, napeKill: 0, hookHit: 0 };
+const game = {
+  scene, camera, renderer, collision, time: 0, mode: 'training',
+  events: { on: (n, f) => (listeners[n] ||= []).push(f), off() {}, emit: (n, p) => (listeners[n] || []).forEach((f) => f(p)) },
+  audio: { napeKill: () => counts.napeKill++, hookHit: () => counts.hookHit++ },
+  fx: { impact: () => counts.impact++ },
+};
+game.events.on('training:cut', () => counts.cut++);
+if (renderer) {
+  try { const m = await import('../src/fx/effects.js'); const real = new m.Effects(game); game.fx = { impact: (...a) => { counts.impact++; real.impact(...a); }, update: (dt) => real.update(dt) }; }
+  catch (e) { console.warn('no fx', e.message); }
+}
+
+const t0 = performance.now();
+const world = buildWorld(game);
+const tWorld = performance.now() - t0;
+const base = { statics: collision.statics.length, dynamics: collision.dynamics.length };
+const course = new TrainingCourse(game);
+const t1 = performance.now();
+course.start();
+const tCourse = performance.now() - t1;
+
+// --------------------------------------------------------------------------------------------- automated check
+const log = [], fails = [];
+const check = (ok, msg) => { (ok ? log : fails).push((ok ? 'ok   ' : 'FAIL ') + msg); };
+const D = course.titans;
+const trees = course.plan.trees;
+const trunkClear = (p) => { let m = Infinity; for (const t of trees) m = Math.min(m, Math.hypot(t.x - p.x, t.z - p.z) - t.rAt(p.y)); return m; };
+const step = (dt, n = 1) => { for (let i = 0; i < n; i++) { course.update(dt); collision.updateDynamic(); game.fx.update?.(dt); game.time += dt; } };
+window.stepGame = (dt = 1 / 60) => step(dt);
+
+check(course.total === 10 && D.length === 10, `total ${course.total}`);
+const pul = D.filter((d) => d.pulley), posts = D.filter((d) => !d.pulley);
+check(pul.length === 3, `pulley dummies ${pul.length}`);
+for (const d of D) {
+  const p = d.position, hw = 2.75 * d.s;
+  check(d.height >= 6 && d.height <= 12, `#${d.index} height ${d.height.toFixed(1)}`);
+  check(Math.abs(p.x) <= 160 && p.z >= 190 && p.z <= 480, `#${d.index} at (${p.x.toFixed(0)}, ${p.y.toFixed(1)}, ${p.z.toFixed(0)})`);
+  const meshes = []; d.root.traverse((o) => { if (o.isMesh) meshes.push(o); });
+  check(meshes.length <= 6, `#${d.index} draw calls ${meshes.length}`);
+  if (!d.pulley) check(trunkClear(_mid(d)) > hw + 1, `#${d.index} post clear of trunks by ${(trunkClear(_mid(d)) - hw).toFixed(1)} m`);
+}
+function _mid(d) { return new THREE.Vector3(0, 5, 0).applyMatrix4(d.body.matrixWorld); }
+for (const d of pul) {
+  const p = d.pulley, gy = collision.groundHeight(p.a.x, p.a.z);
+  check(p.a.y - gy >= 15 && p.a.y - gy <= 30, `#${d.index} pulley line ${(p.a.y - gy).toFixed(1)} m up, span ${p.L.toFixed(0)} m, travel ±${p.amp.toFixed(1)} m`);
+}
+// colliders registered
+const nBoxes = D.reduce((n, d) => n + d.boxes.length, 0), nDyn = pul.reduce((n, d) => n + d.boxes.length, 0);
+check(collision.dynamics.length - base.dynamics === nDyn, `dynamic colliders +${collision.dynamics.length - base.dynamics} (want ${nDyn})`);
+check(collision.statics.length - base.statics === nBoxes - nDyn + course.staticBoxes.length, `static colliders +${collision.statics.length - base.statics}`);
+check(collision.dynamics.slice(base.dynamics).every((c) => c.dynamic && c.material === 'wood' && c.hookable), 'pulley colliders are dynamic hookable wood');
+// a ray at the chest of each dummy hits its wood
+const rayHits = (d) => {
+  const c = new THREE.Vector3(0, 5.8, 0).applyMatrix4(d.body.matrixWorld);
+  const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(d.body.getWorldQuaternion(new THREE.Quaternion()));
+  const o = c.clone().addScaledVector(fwd, 12);
+  const h = collision.raycast(o, fwd.clone().negate(), 30, { hookableOnly: true });
+  return h && h.collider.userData?.dummy === d;
+};
+check(D.every(rayHits), 'anchors stick to every dummy (raycast hits its wood)');
+// moving targets
+const p0 = pul.map((d) => d.position.clone());
+step(1 / 60, 150);
+check(pul.every((d, i) => d.position.distanceTo(p0[i]) > 1 && d.velocity.length() > 0.5), `pulley dummies move (${pul.map((d, i) => d.position.distanceTo(p0[i]).toFixed(1)).join(', ')} m, v ${pul.map((d) => d.velocity.length().toFixed(1)).join(', ')})`);
+check(pul.every(rayHits), 'dynamic colliders follow the moving dummies');
+check(pul.every((d) => trunkClear(d.position) > 2.75 * d.s && trunkClear(_mid(d)) > 2.75 * d.s), 'hanging dummies clear of trunks');
+// hit tests
+const ht = (d, part) => { const nw = d.napeWorld(); const c = part === 'nape' ? nw.center.clone().addScaledVector(nw.normal, 0.6) : _mid(d).add(new THREE.Vector3(0, 0, 1).applyQuaternion(d.body.getWorldQuaternion(new THREE.Quaternion())).multiplyScalar(0.9)); return course.hitTest(c, 1.0).filter((h) => h.titan === d).map((h) => h.part); };
+check(D.every((d) => ht(d, 'nape').includes('nape')), 'hitTest finds every nape');
+check(D.every((d) => { const r = ht(d, 'body'); return r.includes('body') && !r.includes('nape'); }), 'hitTest finds body (no nape) at the chest');
+// hits
+const d0 = D[0];
+let r = d0.applyHit({ part: 'body', damage: 900, point: _mid(d0), dir: new THREE.Vector3(0, 0, 1) });
+check(r.effect === 'none' && !r.killed && d0.alive, `body hit -> ${r.effect}`);
+r = d0.applyHit({ part: 'nape', damage: CUT_DAMAGE - 1, point: d0.napeWorld().center.clone(), dir: new THREE.Vector3(1, 0, 0) });
+check(r.effect === 'shallow' && !r.killed && d0.alive, `nape ${CUT_DAMAGE - 1} -> ${r.effect}`);
+let cuts = 0;
+for (const d of D) {
+  const nw = d.napeWorld();
+  const res = d.applyHit({ part: 'nape', damage: CUT_DAMAGE + 40, point: nw.center.clone(), dir: nw.normal.clone().negate().add(new THREE.Vector3(0.6, 0, 0)).normalize() });
+  if (res.killed && res.effect === 'kill' && !d.alive) cuts++;
+}
+check(cuts === 10 && course.remaining === 0, `cut all: ${cuts} kills, remaining ${course.remaining}`);
+check(counts.cut === 10 && counts.napeKill === 10 && counts.impact >= 20, `events training:cut ${counts.cut}, napeKill ${counts.napeKill}, impacts ${counts.impact}`);
+check(D[1].applyHit({ part: 'nape', damage: 5000 }).effect === 'none', 'a cut dummy ignores further hits');
+check(course.hitTest(d0.napeWorld().center, 2).length === 0, 'hitTest skips cut dummies');
+step(1 / 60, 240);
+check(D.every((d) => !d.padFlying && d.pad.parent === course.group && Math.abs(d.pad.position.y - collision.groundHeight(d.pad.position.x, d.pad.position.z)) < 0.3), 'pads flew off and landed');
+check(posts.every((d) => Math.abs(d.tilt) > 0.02 && Math.abs(d.tilt) < 0.2), `post dummies lean after the cut (${posts.map((d) => d.tilt.toFixed(2)).join(' ')})`);
+// stop / start
+course.stop();
+check(collision.statics.length === base.statics && collision.dynamics.length === base.dynamics, `stop(): statics ${collision.statics.length}/${base.statics}, dynamics ${collision.dynamics.length}/${base.dynamics}`);
+check(!course.group.visible && course.hitTest(D[3].napeWorld().center, 3).length === 0, 'stop(): hidden, no hits');
+const grid = [...collision.grid.values()].reduce((n, a) => n + a.filter((c) => c.userData?.dummy || c.userData?.training).length, 0);
+check(grid === 0, `stop(): no course colliders left in the broadphase grid (${grid})`);
+course.stop();
+course.start(); course.start();
+check(collision.statics.length - base.statics === nBoxes - nDyn + course.staticBoxes.length && collision.dynamics.length - base.dynamics === nDyn, `start() twice: statics +${collision.statics.length - base.statics}, dynamics +${collision.dynamics.length - base.dynamics}`);
+check(course.remaining === 10 && D.every((d) => d.pad.parent === d.body && d.tilt === 0), 'start(): all standing, pads back on');
+check(D.every(rayHits), 'start(): colliders restored');
+// steady-state update must not allocate: count Vector3 constructions over 300 frames
+{
+  let n = 0; const V = THREE.Vector3; const orig = V.prototype.clone;
+  const Q = THREE.Quaternion.prototype.clone, M = THREE.Matrix4.prototype.clone;
+  V.prototype.clone = function () { n++; return orig.call(this); };
+  D[4].applyHit({ part: 'nape', damage: 100 });
+  const s0 = n; for (let i = 0; i < 300; i++) course.update(1 / 60);
+  check(n - s0 === 0, `update(): no Vector3 clones over 300 frames (${n - s0})`);
+  V.prototype.clone = orig;
+}
+const ms = performance.now(); for (let i = 0; i < 600; i++) course.update(1 / 60); const upd = (performance.now() - ms) / 600;
+log.push(`update ${(upd * 1000).toFixed(1)} µs/frame, world ${tWorld.toFixed(0)} ms, course build ${tCourse.toFixed(0)} ms`);
+log.push(`spawn (${course.spawn.position.x.toFixed(1)}, ${course.spawn.position.y.toFixed(1)}, ${course.spawn.position.z.toFixed(1)}) yaw ${course.spawn.yaw.toFixed(2)}`);
+for (const d of D) log.push(`  #${d.index} ${d.pulley ? 'pulley' : 'post  '} h ${d.height.toFixed(1)} at (${d.position.x.toFixed(0)}, ${d.position.y.toFixed(1)}, ${d.position.z.toFixed(0)})`);
+window.__check = { ok: fails.length === 0, fails, log };
+console.log('[training-test] ' + (fails.length ? 'FAIL' : 'PASS') + '\n' + fails.concat(log).join('\n'));
+
+// --------------------------------------------------------------------------------------------- views
+course.stop(); course.start();
+const key = (location.hash || '#dummy').slice(1);
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+const front = (d) => V(Math.sin(d.yaw), 0, Math.cos(d.yaw));
+// a camera spot around a dummy at a preferred bearing, nudged until it is clear of trunks with a line of sight
+function orbitShot(d, bearing, dist, up) {
+  const c = _mid(d).add(V(0, 0.12 * d.height, 0)), fr = front(d);
+  for (let k = 0; k < 24; k++) {
+    const a = bearing + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.2;
+    const dir = fr.clone().applyAxisAngle(V(0, 1, 0), a);
+    const pos = c.clone().addScaledVector(dir, dist).add(V(0, up, 0));
+    const to = c.clone().sub(pos), len = to.length();
+    const hit = collision.raycast(pos, to.normalize(), len, { dynamic: false });
+    if (trunkClear(pos) > 3 && (!hit || hit.collider.userData?.dummy === d)) return { pos, look: c };
+  }
+  return { pos: c.clone().addScaledVector(fr, dist).add(V(0, up, 0)), look: c };
+}
+function overview() {
+  const sp = course.spawn, f = V(Math.sin(sp.yaw), 0, Math.cos(sp.yaw));
+  return { pos: sp.position.clone().addScaledVector(f, -16).add(V(0, 14, 0)), look: sp.position.clone().addScaledVector(f, 90).setY(sp.position.y - 10) };
+}
+let panels;
+const dPost = D.find((x) => !x.pulley && x.height > 8) || D[0], dPul = D.find((x) => x.pulley);
+if (key === 'course') panels = [overview()];
+else if (key === 'pulley') panels = [orbitShot(dPul, Math.PI * 0.8, dPul.height * 1.6, -2)];
+else panels = [orbitShot(dPost, 0.55, dPost.height * 1.05, 0.5), orbitShot(dPost, Math.PI - 0.6, dPost.height * 1.0, 1.5), overview()];   // face, nape pad, course
+if (params.has('cut')) { const nw = dPost.napeWorld(); dPost.applyHit({ part: 'nape', damage: 400, point: nw.center.clone(), dir: V(1, 0, 0) }); }
+step(1 / 30, Math.round(parseFloat(params.get('t') || '0.4') * 30));
+if (world.sun) {
+  const off = world.sun.position.clone().sub(world.sun.target.position), p = panels[0].pos;
+  world.sun.target.position.set(p.x, 0, p.z); world.sun.position.copy(world.sun.target.position).add(off); world.sun.target.updateMatrixWorld();
+}
+info.textContent = renderer ? (fails.length ? 'FAIL ' + fails.length : 'PASS') + ' (details: ?norender)' : (fails.length ? 'FAIL\n' + fails.join('\n') + '\n' : 'PASS\n') + log.join('\n');
+if (renderer) {
+  world.update?.(0.016, panels[0].pos);
+  const W = innerWidth, Hh = innerHeight, n = panels.length, pw = Math.floor(W / n);
+  camera.aspect = pw / Hh; camera.updateProjectionMatrix();
+  renderer.setScissorTest(true);
+  let calls = 0;
+  panels.forEach((pn, i) => {
+    camera.position.copy(pn.pos); camera.lookAt(pn.look); camera.updateMatrixWorld();
+    renderer.setViewport(i * pw, 0, pw, Hh); renderer.setScissor(i * pw, 0, pw, Hh);
+    renderer.render(scene, camera); calls += renderer.info.render.calls;
+  });
+  renderer.setScissorTest(false);
+  window.__rendered = true;
+  window.__drawCalls = calls;
+}
+window.__ready = true;
+</script>
+</body>
+</html>
