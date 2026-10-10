@@ -1,16 +1,16 @@
-// Per-system frame profile (JS only): which subsystem costs what, and its worst single call. node aot/tools/profile-bench.mjs [frames]
+// Per-system frame profile (JS only): which subsystem costs what, and its worst single call. node tools/profile-bench.mjs [frames]
 // Reports per-frame ms (p50 / p95 / p99 / max) and heap growth, the things that turn into hitches on a real GPU.
-//   node aot/tools/frame-bench.mjs [frames=600]
+//   node tools/frame-bench.mjs [frames=600]
 import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
-import { serve } from '../../tools/serve.mjs';
+import { serve } from './serve.mjs';
 import path from 'node:path';
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
+const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const N = +(process.argv[2] || 600);
 const { srv, url } = await serve(ROOT);
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-precise-memory-info', '--js-flags=--expose-gc'] });
 const page = await browser.newPage({ viewport: { width: 320, height: 180 } });
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
-await page.goto(`${url}/aot/index.html?noaudio&norender&play=expedition`);
+await page.goto(`${url}/index.html?noaudio&norender&play=expedition`);
 await page.waitForFunction(() => window.READY === true, null, { timeout: 180000 });
 const r = await page.evaluate((N) => {
   const T = {}; const wrap = (o, k, name) => { const f = o[k].bind(o); o[k] = (...a) => { const t = performance.now(); const r = f(...a); const d = performance.now() - t; const e = T[name] || (T[name] = { sum: 0, max: 0, n: 0, big: 0 }); e.sum += d; e.n++; if (d > e.max) e.max = d; if (d > 2) e.big++; return r; }; };

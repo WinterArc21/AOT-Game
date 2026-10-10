@@ -1,14 +1,14 @@
 // Mount bench: running vault onto a free horse, dropping onto one from the air, and whistling a horse over.
-//   node aot/tools/mount-bench.mjs
+//   node tools/mount-bench.mjs
 import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
-import { serve } from '../../tools/serve.mjs';
+import { serve } from './serve.mjs';
 import path from 'node:path';
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
+const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const { srv, url } = await serve(ROOT);
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const page = await browser.newPage({ viewport: { width: 320, height: 180 } });
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
-await page.goto(`${url}/aot/index.html?noaudio&norender&notitans&noallies&play=free`);
+await page.goto(`${url}/index.html?noaudio&norender&notitans&noallies&play=free`);
 await page.waitForFunction(() => window.READY === true, null, { timeout: 180000 });
 const r = await page.evaluate(() => {
   const p = game.player, out = {};

@@ -1,6 +1,6 @@
 // Headless bench for the ODM physics (no browser): runs the real Player/OdmGear/CollisionWorld code through
 // scripted manoeuvres and checks the numbers that make it feel right — energy in a free swing, zip times,
-// orbit spin-up, no tunnelling, no jitter.   node aot/tools/physics-bench.mjs   (needs `three` resolvable)
+// orbit spin-up, no tunnelling, no jitter.   node tools/physics-bench.mjs   (needs `three` resolvable)
 import * as THREE from 'three';
 import { CollisionWorld } from '../src/core/collision.js';
 import { Player } from '../src/player/player.js';

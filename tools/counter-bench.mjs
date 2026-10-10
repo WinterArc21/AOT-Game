@@ -1,15 +1,15 @@
 // Titan counters bench: a titan grabbing your wire (held on / let go / cut with Space), shaking off a soldier
-// hanging on its body, and an abnormal charging a rider.   node aot/tools/counter-bench.mjs
+// hanging on its body, and an abnormal charging a rider.   node tools/counter-bench.mjs
 import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
-import { serve } from '../../tools/serve.mjs';
+import { serve } from './serve.mjs';
 import path from 'node:path';
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
+const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const { srv, url } = await serve(ROOT);
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const page = await browser.newPage({ viewport: { width: 320, height: 180 } });
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
 page.on('console', (m) => { if (m.type() === 'error') console.log('[console]', m.text()); });
-await page.goto(`${url}/aot/index.html?noaudio&norender&noallies&play=free`);
+await page.goto(`${url}/index.html?noaudio&norender&noallies&play=free`);
 await page.waitForFunction(() => window.READY === true, null, { timeout: 180000 });
 const r = await page.evaluate(async () => {
   const p = game.player, T = game.titans, V = p.pos.constructor, out = {};

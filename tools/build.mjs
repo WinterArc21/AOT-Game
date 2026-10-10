@@ -1,5 +1,5 @@
-// Bundles the game into ONE self-contained HTML file (aot/dist/wings-of-freedom.html): double-click to play,
-// no server needed.   node aot/tools/build.mjs   (needs esbuild + three resolvable, e.g. `npm i -D esbuild three`)
+// Bundles the game into ONE self-contained HTML file (dist/wings-of-freedom.html): double-click to play,
+// no server needed.   node tools/build.mjs   (needs esbuild + three resolvable, e.g. `npm i -D esbuild three`)
 import { build } from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';

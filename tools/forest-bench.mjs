@@ -1,17 +1,17 @@
 // Flies soldiers through the real Forest of Giant Trees with the real physics (no rendering) and reports
 // how they move: altitude band, speed, time anchored, canopy passes, stalls, and any tunnelling.
-//   node aot/tools/forest-bench.mjs [seconds=60]
+//   node tools/forest-bench.mjs [seconds=60]
 import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
-import { serve } from '../../tools/serve.mjs';
+import { serve } from './serve.mjs';
 import path from 'node:path';
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
+const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const secs = +(process.argv[2] || 60);
 const { srv, url } = await serve(ROOT);
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const page = await browser.newPage({ viewport: { width: 320, height: 180 } });
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
 page.on('console', (m) => { if (m.type() === 'error') console.log('[console.error]', m.text().slice(0, 200)); });
-await page.goto(`${url}/aot/index.html?noaudio&norender&notitans&allies=5`);
+await page.goto(`${url}/index.html?noaudio&norender&notitans&allies=5`);
 await page.waitForFunction(() => window.READY === true, null, { timeout: 180000 });
 const r = await page.evaluate((secs) => {
   const col = game.collision;

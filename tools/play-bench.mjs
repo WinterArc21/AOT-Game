@@ -1,11 +1,11 @@
 // Drives the real game in headless Chromium: scripted ODM flight with real key/mouse events, screenshots on the way.
-//   node aot/tools/play-bench.mjs [query=play=free] [outDir] [WxH]
+//   node tools/play-bench.mjs [query=play=free] [outDir] [WxH]
 import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
-import { serve } from '../../tools/serve.mjs';
+import { serve } from './serve.mjs';
 import path from 'node:path';
 import fs from 'node:fs';
 
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
+const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const [query = 'play=free', out = '/tmp/aot-shots', size = '1280x720'] = process.argv.slice(2);
 const [W, H] = size.split('x').map(Number);
 fs.mkdirSync(out, { recursive: true });
@@ -15,7 +15,7 @@ const page = await browser.newPage({ viewport: { width: W, height: H } });
 const errors = [];
 page.on('pageerror', (e) => { errors.push(e.message); console.log('[pageerror]', e.message, (e.stack || '').split('\n').slice(1, 3).join(' | ')); });
 page.on('console', (m) => { if (m.type() === 'error') { errors.push(m.text()); console.log('[console.error]', m.text().slice(0, 300)); } });
-await page.goto(`${url}/aot/index.html?${query}&noaudio`);
+await page.goto(`${url}/index.html?${query}&noaudio`);
 await page.waitForFunction(() => window.READY === true, null, { timeout: 120000 });
 const state = () => page.evaluate(() => { const p = game.player; return { pos: p.pos.toArray().map((v) => +v.toFixed(1)), speed: +p.speed.toFixed(1), hooks: p.odm.hooks.map((h) => h.state), gas: +p.odm.gas.toFixed(2), hp: +p.hp.toFixed(2), fps: +(game.fps || 0).toFixed(1), aim: p.aim.valid, mode: game.mode, titans: game.titans?.titans?.length ?? -1, calls: game.renderer.info.render.calls, tris: game.renderer.info.render.triangles }; });
 const look = (yaw, pitch) => page.evaluate(([y, p]) => { game.player.yaw = y; game.player.pitch = p; }, [yaw, pitch]);

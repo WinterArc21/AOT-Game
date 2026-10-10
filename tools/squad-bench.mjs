@@ -1,15 +1,15 @@
 // Squad bench: an Expedition where the player just hangs back on the wall-side field and the comrades work.
-// Logs the radio/kill feed and counts pair kills, ankle cuts, grabs, rescues.   node aot/tools/squad-bench.mjs [secs=120]
+// Logs the radio/kill feed and counts pair kills, ankle cuts, grabs, rescues.   node tools/squad-bench.mjs [secs=120]
 import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
-import { serve } from '../../tools/serve.mjs';
+import { serve } from './serve.mjs';
 import path from 'node:path';
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
+const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const SECS = +(process.argv[2] || 120);
 const { srv, url } = await serve(ROOT);
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const page = await browser.newPage({ viewport: { width: 320, height: 180 } });
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
-await page.goto(`${url}/aot/index.html?noaudio&norender&play=expedition`);
+await page.goto(`${url}/index.html?noaudio&norender&play=expedition`);
 await page.waitForFunction(() => window.READY === true, null, { timeout: 180000 });
 const r = await page.evaluate((SECS) => {
   const feed = [], c = { allyKills: 0, playerKills: 0, ankles: 0, grabbed: 0, freed: 0, eaten: 0 };

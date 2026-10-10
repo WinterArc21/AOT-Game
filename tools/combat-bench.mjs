@@ -1,10 +1,10 @@
 // Keyboard-only combat bot in the real Expedition (no rendering): steers with ← → toward the nearest titan,
 // holds Z + X (the ropes auto-target titan shoulders), presses Space near the nape, Shift to boost in.
-// Reports kills, deaths, grabs, cut attempts and nape hits.   node aot/tools/combat-bench.mjs [seconds=60]
+// Reports kills, deaths, grabs, cut attempts and nape hits.   node tools/combat-bench.mjs [seconds=60]
 import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
-import { serve } from '../../tools/serve.mjs';
+import { serve } from './serve.mjs';
 import path from 'node:path';
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
+const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const secs = +(process.argv[2] || 60);
 const { srv, url } = await serve(ROOT);
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
@@ -12,7 +12,7 @@ const page = await browser.newPage({ viewport: { width: 320, height: 180 } });
 const errors = [];
 page.on('pageerror', (e) => { errors.push(e.message); console.log('[pageerror]', e.message, (e.stack || '').split('\n').slice(1, 3).join(' | ')); });
 page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('404') && !m.text().includes('dummies')) { errors.push(m.text()); console.log('[console.error]', m.text().slice(0, 200)); } });
-await page.goto(`${url}/aot/index.html?noaudio&norender&allies=0&play=expedition`);
+await page.goto(`${url}/index.html?noaudio&norender&allies=0&play=expedition`);
 await page.waitForFunction(() => window.READY === true, null, { timeout: 180000 });
 await page.evaluate(() => { const c = window.__c = { kills: 0, hits: 0, nape: 0, grabs: 0, deaths: 0, titanHook: 0 };
   game.events.on('titan:killed', () => c.kills++); game.events.on('player:hit', (e) => { c.hits++; if (e.part === 'nape') c.nape++; });

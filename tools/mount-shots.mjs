@@ -1,15 +1,15 @@
-// Contact sheet of the horse mounts, filmed side-on: node aot/tools/mount-shots.mjs <run|air> <out.png> [horseSpeed=0]
+// Contact sheet of the horse mounts, filmed side-on: node tools/mount-shots.mjs <run|air> <out.png> [horseSpeed=0]
 import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
-import { serve } from '../../tools/serve.mjs';
+import { serve } from './serve.mjs';
 import path from 'node:path';
 import fs from 'node:fs';
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
+const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const [kind = 'run', out = 'mount.png', hs = '0'] = process.argv.slice(2);
 const { srv, url } = await serve(ROOT);
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const page = await browser.newPage({ viewport: { width: 400, height: 300 } });
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
-await page.goto(`${url}/aot/index.html?noaudio&notitans&noallies&play=free`);
+await page.goto(`${url}/index.html?noaudio&notitans&noallies&play=free`);
 await page.waitForFunction(() => window.READY === true, null, { timeout: 240000 });
 const data = await page.evaluate(async ({ kind, hs }) => {
   const p = game.player, h = game.herd.horses[0], V = p.pos.constructor;
