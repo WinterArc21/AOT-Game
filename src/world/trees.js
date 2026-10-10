@@ -128,6 +128,35 @@ export function addTree(ctx, batch, rng, x, z, spec) {
   return { gy, H, r0 };
 }
 
+/**
+ * Anime canopy: on top of the cel ramp, the crown is sun-lit and the underside falls into deep green shade (the
+ * Forest of Giant Trees look), and a world-space leaf-clump pattern breaks every blob into painted clusters of leaves
+ * with a light rim on the clump edges. Shared by every foliage instance.
+ */
+let _foliageMat = null;
+function foliageMaterial() {
+  if (_foliageMat) return _foliageMat;
+  const m = toonMaterial(0xffffff);
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = 'varying vec3 vFolW; varying float vFolUp;\n' + sh.vertexShader.replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
+      vec4 fw = modelMatrix * instanceMatrix * vec4( transformed, 1.0 ); vFolW = fw.xyz;
+      vFolUp = normalize( mat3( modelMatrix ) * mat3( instanceMatrix ) * objectNormal ).y;`);
+    sh.fragmentShader = 'varying vec3 vFolW; varying float vFolUp;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+      // leaf clumps: two octaves of cheap 3D value-ish noise in world space
+      vec3 q = vFolW * 0.55;
+      float n = sin( q.x * 1.7 + sin( q.y * 1.3 ) * 2.0 ) * sin( q.z * 1.9 + sin( q.x * 1.1 ) * 2.0 ) * sin( q.y * 2.3 + q.z * 0.7 );
+      float n2 = sin( q.x * 4.1 + q.z * 3.7 ) * sin( q.y * 4.7 - q.x * 2.9 );
+      float clump = smoothstep( -0.15, 0.35, n + 0.35 * n2 );
+      // sun-lit crown, shaded underbelly
+      float up = clamp( vFolUp * 0.5 + 0.5, 0.0, 1.0 );
+      float lit = mix( 0.42, 1.12, smoothstep( 0.15, 0.85, up ) );
+      diffuseColor.rgb *= lit * mix( 0.72, 1.08, clump );
+      diffuseColor.rgb += vec3( 0.05, 0.08, 0.02 ) * smoothstep( 0.6, 1.0, up ) * clump;`);
+  };
+  m.customProgramCacheKey = () => 'foliage-v1';
+  return (_foliageMat = m);
+}
+
 const _c = new THREE.Color();
 function pickLeaf(rng, t) {
   t = clamp(t, 0, 1);
@@ -146,7 +175,7 @@ export function finishBatch(ctx, batch, name, { outline = true, outlineThickness
     out.wood = m;
   }
   if (batch.blobs.length) {
-    const mat = toonMaterial(0xffffff);
+    const mat = foliageMaterial();
     const im = new THREE.InstancedMesh(blobGeometry(blobDetail), mat, batch.blobs.length);
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), s = new THREE.Vector3(), p = new THREE.Vector3();
     batch.blobs.forEach((b, i) => {

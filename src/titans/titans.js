@@ -43,6 +43,7 @@ export class TitanManager {
     if (this._grabbedPrev && !held && pl?.alive) this.grabBlockT = Math.max(this.grabBlockT, TITAN_TUNING.GRAB_BLOCK_AFTER_ESCAPE);
     this._grabbedPrev = held;
     if (this.grabBlockT > 0) this.grabBlockT = Math.max(0, this.grabBlockT - dt);
+    if (this.allyGrabT > 0) this.allyGrabT -= dt;
     const list = this.titans;
     for (let i = 0; i < list.length; i++) list[i].update(dt);
     for (let i = list.length - 1; i >= 0; i--) if (list[i].dead) list.splice(i, 1);
@@ -51,7 +52,7 @@ export class TitanManager {
   clear() {
     for (const t of this.titans) t.dispose();
     this.titans.length = 0;
-    this.grabBlockT = 0; this._grabbedPrev = null;
+    this.grabBlockT = 0; this._grabbedPrev = null; this.allyGrabT = 20;
   }
 
   remove(t) {

@@ -61,8 +61,14 @@ export class Horse {
     this.neck = new THREE.Group(); this.neck.position.set(0, 0.3, 0.78); this.neck.rotation.x = 0.72; this.trunk.add(this.neck);
     mesh([
       piece(new THREE.CylinderGeometry(0.17, 0.33, 0.95, 12), coat, { p: [0, 0.42, 0], s: [0.8, 1, 1.15] }),
-      piece(new THREE.BoxGeometry(0.07, 0.95, 0.16), dark, { p: [0, 0.45, -0.2], r: [0.12, 0, 0] }),              // mane
     ], this.neck, 0.018);
+    // mane: tufts along the crest that stream and bounce with the gait
+    this.mane = [];
+    for (let i = 0; i < 6; i++) {
+      const tuft = new THREE.Group(); tuft.position.set(0, 0.08 + i * 0.15, -0.2 + i * 0.012); this.neck.add(tuft);
+      mesh([piece(new THREE.ConeGeometry(0.06, 0.26, 5), dark, { p: [0, 0, -0.12], r: [-1.35, 0, 0], s: [0.55, 1, 1] })], tuft);
+      this.mane.push(tuft);
+    }
     this.head = new THREE.Group(); this.head.position.set(0, 0.88, 0.02); this.neck.add(this.head);
     mesh([
       // the face runs forward-down from the poll (head frame is tilted 0.72 rad with the neck)
@@ -101,21 +107,38 @@ export class Horse {
 
   /** The rider's collision-centre position: seated in the saddle (stand = 0) or standing on it (stand = 1). */
   saddle(out, stand = 0) {
-    return out.set(0, 1.5 + this.bob + stand * 0.86, -0.08)
+    return out.set(0, 1.5 + this.bob - this._dip() + stand * 0.86, -0.08)
       .applyAxisAngle(_w.set(0, 0, 1), this.lean || 0)          // the saddle tilts with the horse's bank
       .applyAxisAngle(_w.set(0, 1, 0), this.yaw).add(this.pos);
   }
+  /** How far the back sinks under a rider dropping onto it: a quick give, then it springs back. */
+  _dip() { const j = this.jolt || 0; return j > 0 ? Math.sin(j * Math.PI) * 0.16 * (this.joltAmp || 1) : 0; }
+  /** A rider landed on it: the back gives, it stumbles a step and loses a little speed. */
+  hit(strength = 1) { this.jolt = 1; this.joltAmp = Math.min(1.4, 0.5 + strength); this.speed *= 1 - 0.15 * Math.min(1, strength); }
+  /** Whistled for: gallop to the caller and stop beside them. */
+  call(who) { this.caller = who; this.callT = 25; this.state = 'walk'; }
+
   /** The horse's up vector (banked), for the rider. */
   up(out) { return out.set(0, 1, 0).applyAxisAngle(_w.set(0, 0, 1), this.lean || 0).applyAxisAngle(_w.set(0, 1, 0), this.yaw); }
 
   fixedUpdate(dt) {
     const col = this.game.collision;
     this.t += dt; this.mountCd -= dt;
+    if (this.jolt > 0) this.jolt = Math.max(0, this.jolt - dt * 3.2);
     let target = 0, turn = 0;
     if (this.rider) {
       target = this.want.f > 0 ? SPEED.gallop * (this.speedMul || 1) : this.want.f < 0 ? 0 : Math.max(this.speed - 3 * dt, Math.min(this.speed, SPEED.trot));
       turn = this.want.turn;
+    } else if (this.caller && (this.callT -= dt) > 0) {
+      // answering a whistle: run to the caller's side (aiming a few metres off them so it pulls up alongside)
+      const c = this.caller.pos, dx = c.x - this.pos.x, dz = c.z - this.pos.z, d = Math.sqrt(dx * dx + dz * dz);
+      const dir = Math.atan2(dx, dz);
+      turn = THREE.MathUtils.clamp(-Math.sin(dir - this.yaw) * 3, -1, 1);
+      target = d > 40 ? SPEED.gallop : d > 7 ? Math.max(3, Math.min(SPEED.gallop, (d - 5) * 0.9)) : 0;
+      if (Math.cos(dir - this.yaw) < 0.3 && d < 12) target = Math.min(target, 2);   // swing round rather than overshoot
+      if (d < 6.5) { this.caller = null; this.state = 'graze'; this.t = 0; }
     } else {
+      this.caller = null;
       let threat = null, td = 45;
       for (const t of this.game.titans?.titans || []) {
         if (!t.alive) continue;
@@ -182,14 +205,22 @@ export class Horse {
       l.hip.rotation.x = -sw;
       l.knee.rotation.x = l.front ? lift * 1.2 : -lift * 0.9;        // fore knee folds back, hind hock folds forward
     });
-    this.trunk.position.y = 1.32 + this.bob;
-    this.trunk.rotation.x = ga * 0.07 * Math.sin(P + 1.2);           // rocking: forehand up, then hindquarters up
+    const dip = this._dip();
+    this.trunk.position.y = 1.32 + this.bob - dip;
+    this.trunk.rotation.x = ga * 0.07 * Math.sin(P + 1.2) + dip * 0.35;           // rocking: forehand up, then hindquarters up
     g.rotation.z = this.lean || 0;   // banked into the turn
     const graze = this.state === 'graze' && s < 0.4 && !this.rider;
     const nodT = graze ? 1.85 : 0.72 + ga * (0.18 + 0.12 * Math.sin(P + 2.2)) + (1 - ga) * 0.04 * Math.sin(P * 2);
     this.neck.rotation.x += (nodT - this.neck.rotation.x) * Math.min(1, dt * (graze ? 1.5 : 8));
     this.head.rotation.x = graze ? -0.3 : 0.05 - ga * 0.12;
     this.tail.rotation.x = 0.25 + ga * 0.75 + Math.sin(this.phase * 3.1) * 0.12;
+    this.tail.rotation.z = Math.sin(this.phase * 1.7) * 0.15 * (0.4 + ga);
+    // mane streams back with speed and ripples down the crest
+    const stream = Math.min(1, s / 15);
+    this.mane.forEach((m, i) => {
+      m.rotation.x = -0.35 * stream + Math.sin(P * 2 - i * 0.7) * (0.08 + 0.18 * ga);
+      m.rotation.z = Math.sin(this.phase * 2.3 + i) * 0.1 * stream;
+    });
   }
 }
 

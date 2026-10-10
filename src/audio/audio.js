@@ -361,6 +361,7 @@ export class Audio {
   grabbed() { this._run(sfx.grabbed); }
   eaten() { this._run(sfx.eaten); }
   hurt() { this._run(sfx.hurt); }
+  whistle() { this._run(sfx.whistle); }
 
   // titans (3D)
   titanStep(position, size) { this._run(sfx.titanStep, position, size); }

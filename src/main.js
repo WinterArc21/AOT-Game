@@ -40,6 +40,14 @@ const game = {
 game.noRender = params.has('norender');
 window.game = game; // handy for debugging and the headless test bench
 game.input = new Input(renderer.domElement);
+{
+  const fl = document.createElement('div');
+  fl.style.cssText = 'position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:3;mix-blend-mode:screen';
+  document.body.appendChild(fl);
+  let a = 0, raf = 0;
+  const fade = () => { a *= 0.82; fl.style.opacity = a.toFixed(3); if (a > 0.01) raf = requestAnimationFrame(fade); else { fl.style.opacity = '0'; raf = 0; } };
+  game.flash = (k = 0.5) => { a = Math.max(a, k); fl.style.opacity = a.toFixed(3); if (!raf) raf = requestAnimationFrame(fade); };
+}
 
 async function load(imp, fn) {
   try { const m = await imp(); return await fn(m); }
@@ -146,7 +154,42 @@ const boot = async () => {
   });
   addEventListener('blur', () => pause());
   game.showControls = true;
-  addEventListener('resize', () => {
+  // quality: 2 high, 1 medium, 0 low. Picked automatically from the frame rate in the first seconds of play
+// (only ever stepping down), and G cycles it by hand.
+const QUALITY = [
+  { name: 'LOW', ratio: 0.75, shadows: false, shadowMap: 1024, allyRange: 120 },
+  { name: 'MEDIUM', ratio: 1, shadows: true, shadowMap: 1024, allyRange: 180 },
+  { name: 'HIGH', ratio: Math.min(devicePixelRatio, 1.75), shadows: true, shadowMap: 2048, allyRange: 260 },
+];
+game.quality = params.has('lowres') ? 1 : 2;
+game.setQuality = (q, say = true) => {
+  q = Math.max(0, Math.min(2, q)); game.quality = q;
+  const Q = QUALITY[q];
+  renderer.setPixelRatio(Q.ratio); renderer.setSize(innerWidth, innerHeight);
+  const sun = game.world?.sun;
+  if (sun) {
+    sun.castShadow = Q.shadows && !params.has('noshadow');
+    if (sun.shadow.mapSize.x !== Q.shadowMap) { sun.shadow.mapSize.set(Q.shadowMap, Q.shadowMap); sun.shadow.map?.dispose(); sun.shadow.map = null; }
+  }
+  game.allyRange = Q.allyRange;
+  if (say) game.hud?.message?.(`GRAPHICS: ${Q.name}${say === 'auto' ? ' (auto, G to change)' : ''}`, 2, 'info');
+};
+let autoT = 0, autoN = 0, autoSum = 0;
+game.autoQuality = (dt, playing) => {
+  if (!playing || game.paused || game._qualityLocked || autoT > 12) return;
+  autoT += dt;
+  if (autoT < 2) return;                 // let shaders and the first wave settle
+  autoSum += dt; autoN++;
+  if (autoN >= 120) {
+    const fps = autoN / autoSum;
+    autoN = 0; autoSum = 0;
+    if (fps < 42 && game.quality > 0) game.setQuality(game.quality - 1, 'auto');
+  }
+};
+addEventListener('keydown', (e) => {
+  if (e.code === 'KeyG' && !e.repeat) { game._qualityLocked = true; game.setQuality((game.quality + 2) % 3); }
+});
+addEventListener('resize', () => {
     renderer.setSize(innerWidth, innerHeight);
     camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
     game.speedLines?.setSize?.(innerWidth, innerHeight);
@@ -155,6 +198,9 @@ const boot = async () => {
   if (loading) loading.remove();
   if (params.has('play')) game.flow.start(params.get('play') || 'free');
   else game.flow.toMenu();
+  // compile every shader now (world, titans, horses, soldiers, effects) so the first cut, flash or steam burst
+  // never stalls a frame mid-flight
+  if (!game.noRender) { try { renderer.compile(scene, camera); } catch (e) { console.warn('warm-up', e); } }
   window.READY = true;
   requestAnimationFrame(frame);
 };
@@ -174,6 +220,7 @@ function frame(now) {
 /** One rendered frame. Exposed for the headless bench (window.stepGame) to drive time deterministically. */
 function step(dt) {
   const { player, input } = game;
+  game._frameDt = dt;
   frames++; fpsT += dt; if (fpsT > 1) { game.fps = frames / fpsT; frames = 0; fpsT = 0; }
   if (game.paused) { input.consume(); renderer.render(scene, camera); return; }
 
@@ -181,10 +228,12 @@ function step(dt) {
   // kill moment: a freeze-frame, then a short slow-motion that eases back to full speed
   let simDt = dt;
   if (game.hitstop > 0) { game.hitstop -= dt; simDt = dt * 0.1; }
-  else if (game.slowmo > 0) { game.slowmo -= dt; simDt = dt * (0.3 + 0.7 * (1 - Math.max(0, game.slowmo) / 0.4)); }
+  else if (game.slowmo > 0) { game.slowmo -= dt; const d = game.slowmoDur || 0.4; simDt = dt * (0.22 + 0.78 * Math.pow(1 - Math.max(0, game.slowmo) / d, 2)); }
+  if (game.killCam) { game.killCam.t += dt; if (game.killCam.t >= game.killCam.dur) game.killCam = null; }
   game.time += simDt;
 
   const playing = game.mode === 'expedition' || game.mode === 'free' || game.mode === 'training';
+  game.autoQuality(dt, playing);
   input.freeLook = playing && !input.locked && input.lockDenied && player.alive;
   input.edgeTurn(dt);
   if (playing) player.handleInput(input, dt);
@@ -207,6 +256,11 @@ function step(dt) {
   game.flow.update(simDt);
   try { game.fx?.update(simDt); } catch (e) { console.error('fx.update', e); }
   try { game.world?.update?.(simDt, camera.position); } catch (e) { console.error('world.update', e); }
+  // the forest breathes: leaves drift down around you under the canopy
+  if (game.fx?.leaves && camera.position.z > 190 && camera.position.y < 110 && Math.random() < simDt * 2.2) {
+    _n.set(camera.position.x + (Math.random() - 0.5) * 40, camera.position.y + 8 + Math.random() * 14, camera.position.z + (Math.random() - 0.3) * 40);
+    game.fx.leaves(_n, 2);
+  }
 
   // keep the shadow frustum centred on the action
   const sun = game.world?.sun;
@@ -266,7 +320,10 @@ function hudState(playing) {
       const h = p.odm.hooks[i], T = p.targets[i], o = _hookTargets[i];
       o.attached = h.attached;
       o.valid = h.attached || T.valid;
-      o.visible = o.valid && toScreen(h.attached ? h.anchor : T.point, o);
+      // markers glide to a new anchor instead of jumping (and snap when they first appear)
+      const wasVis = o.visible, px = o.x, py = o.y;
+      o.visible = !game.killCam && o.valid && toScreen(h.attached ? h.anchor : T.point, o);
+      if (o.visible && wasVis) { const k = 1 - Math.exp(-22 * (game._frameDt || 0.016)); o.x = px + (o.x - px) * k; o.y = py + (o.y - py) * k; }
     }
   }
   return {
@@ -278,8 +335,8 @@ function hudState(playing) {
     napeMarkers: _markers, hookTargets: _hookTargets, threats: _threats,
     objective: playing ? game.flow.objective() : '', fps: game.fps,
     grabbed: !!p.grabbedBy, struggle: p.struggle, swapping: p.swapT > 0, wave: game.flow.wave,
-    timer: game.flow.timer(), targets: game.flow.trainingTargets(), hint: playing ? game.flow.hint : null,
-    controlsCard: playing && game.showControls,
+    timer: game.flow.timer(), targets: game.flow.trainingTargets(), hint: playing && !game.killCam ? game.flow.hint : null,
+    controlsCard: playing && game.showControls && !game.killCam,
   };
 }
 

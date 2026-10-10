@@ -6,7 +6,7 @@ the Forest of Giant Trees, titans that want to eat you, and the Colossal Titan. 
 
 **Play:** open [`dist/wings-of-freedom.html`](dist/wings-of-freedom.html) in Chrome, Edge or Firefox. It is a
 single file, so double-clicking it works. For development, serve the repo root
-(`npx http-server . -p 8080 -c-1`) and open `http://localhost:8080/`.
+(`npx http-server . -p 8080 -c-1`) and open `http://localhost:8080/aot/`.
 
 ## Controls
 
@@ -22,6 +22,7 @@ The keyboard is all you need. The mouse is optional.
 | **Shift** | gas boost (the reel pulls harder too). Tap it on the ground to jump; clinging to a trunk, it kicks you off |
 | **Space** | cut. Hold it while flying fast for Levi's spinning slash. Swooping in on a nape, press it early: the cut fires when you arrive |
 | **Esc** / **P** | pause · **M** mute · **H** show or hide the controls card |
+| **F** | whistle: your horse (or the nearest free one) gallops over. Run into a horse to vault on, or drop onto it from the air |
 
 WASD mirror the arrows. Blades swap themselves when they go dull (**R** also swaps). Mouse players can click
 the game to look around with the mouse; **Q** / **E** and the right mouse button also fire ropes.
@@ -38,6 +39,17 @@ so add **Shift** for speed.
 
 Supply depots (crates under a Survey Corps flag) refill gas, blades and health. There is one on the wall top
 either side of the gate, one on the Garrison HQ roof and one on a platform in the forest.
+
+### Titans fight back
+* **Wire grab:** rope a titan from the front and dawdle, and it may snatch your wire and haul you in. Let go of the
+  rope key, or press **Space** to cut the wire.
+* **Shake-off:** hang against a titan's body on a short rope and it thrashes until your anchors tear out.
+* **Abnormals charge riders:** a crouch and a roar, then a sprint straight at your horse. Swerve, or leap off.
+
+### Your squad
+Comrades fly in pairs: one calls a titan and cuts its ankles, the other finishes the nape. They call out new
+titans by clock bearing, and their kills show in the feed on the right. A titan can catch a comrade: cut the
+hand that holds them, or kill the titan, within about five seconds.
 
 ## How the ODM gear works (the physics)
 
@@ -72,14 +84,14 @@ either side of the gate, one on the Garrison HQ roof and one on a platform in th
 * **Damage:** a slash deals `(40 + relative speed × 12.5) × blade sharpness`. Small titans need about 25 m/s at
   the nape, 15 m titans about 45 m/s, and the Colossal takes several fast cuts.
 
-`node tools/physics-bench.mjs` runs the real player code headless through a free swing, zips, an orbit, a
+`node aot/tools/physics-bench.mjs` runs the real player code headless through a free swing, zips, an orbit, a
 fall, a run, a wall climb, rope auto-targeting, wire payout and keyboard turning, and checks the numbers.
-`node tools/keyboard-bench.mjs 40` lets a keyboard-only bot (↑, alternating X and Z, some Shift) fly the
+`node aot/tools/keyboard-bench.mjs 40` lets a keyboard-only bot (↑, alternating X and Z, some Shift) fly the
 real forest and reports distance, altitude, how often ropes catch and stalls.
-`node tools/combat-bench.mjs 90` lets a keyboard-only bot fight the Expedition and reports kills, nape hits,
+`node aot/tools/combat-bench.mjs 90` lets a keyboard-only bot fight the Expedition and reports kills, nape hits,
 grabs and deaths.
-`node tools/play-bench.mjs "play=free"` drives the real game in headless Chromium and screenshots a flight.
-`node tools/forest-bench.mjs 60` flies AI soldiers through the real forest for a minute and reports altitude,
+`node aot/tools/play-bench.mjs "play=free"` drives the real game in headless Chromium and screenshots a flight.
+`node aot/tools/forest-bench.mjs 60` flies AI soldiers through the real forest for a minute and reports altitude,
 speed, canopy passes and tunnelling (none). URL flags for testing: `?play=free|expedition`, `?notitans`, `?noallies`,
 `?allies=N`, `?noaudio`, `?norender`, `?testworld`, `?sens=1.5`, `?invert`.
 

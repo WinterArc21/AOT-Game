@@ -3,6 +3,10 @@
 // Used for ODM anchor raycasts, the player's swept sphere and titan steering.
 import * as THREE from 'three';
 
+// Math.hypot is variadic and boxes its arguments in hot loops (it was the top source of garbage); this doesn't.
+const hypot = (a, b, c = 0) => Math.sqrt(a * a + b * b + c * c);
+
+
 const CELL = 24;
 const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _u = new THREE.Vector3();
 const _m3 = new THREE.Matrix3();
@@ -359,7 +363,7 @@ function closestOnShape(c, p, out) {
   }
   if (c.type === 'cylinder') {
     const y = THREE.MathUtils.clamp(p.y, c.y0, c.y1);
-    const dx = p.x - c.x, dz = p.z - c.z, l = Math.hypot(dx, dz);
+    const dx = p.x - c.x, dz = p.z - c.z, l = hypot(dx, dz);
     const k = l > c.r ? c.r / l : 1;
     out.set(c.x + dx * k, y, c.z + dz * k); return out.distanceToSquared(p);
   }
@@ -396,7 +400,7 @@ function sphereContact(c, p, r) {
     n.copy(c.axes[2]).multiplyScalar(Math.sign(lz) || 1); return { normal: n, depth: pz + r, collider: c };
   }
   if (c.type === 'cylinder') {
-    const dx = p.x - c.x, dz = p.z - c.z, l = Math.hypot(dx, dz);
+    const dx = p.x - c.x, dz = p.z - c.z, l = hypot(dx, dz);
     if (l > c.r + r) return null;
     if (p.y > c.y1 + r || p.y < c.y0 - r) return null;
     if (p.y > c.y1) { // above the top cap

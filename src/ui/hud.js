@@ -141,6 +141,13 @@ const CSS = `
 .wof-toast.warn{background:linear-gradient(180deg,rgba(158,40,26,.95),rgba(92,16,10,.95));border:1px solid #ff8a72;color:#fff1e6}
 .wof-toast.warn.on{animation:wof-shake .4s}
 
+/* right: squad radio + kill feed */
+.wof-feed{position:absolute;right:16px;top:96px;display:flex;flex-direction:column;align-items:flex-end;gap:5px;pointer-events:none;max-width:min(380px,calc(100vw - 32px))}
+.wof-feed div{padding:5px 11px;font-size:13px;line-height:1.3;color:var(--parch);background:linear-gradient(90deg,rgba(20,24,16,.0),rgba(20,24,16,.78) 18%);border-right:3px solid var(--brass-d);
+  text-shadow:0 1px 2px #000;opacity:0;transform:translateX(14px);transition:opacity .25s,transform .25s}
+.wof-feed div.on{opacity:1;transform:none}
+.wof-feed div.kill{border-right-color:#ffd24a}.wof-feed div.warn{border-right-color:#ff6a50;color:#ffe2d8}.wof-feed div.radio{font-style:italic}
+.wof-feed b{color:#ffd98a;font-style:normal}
 /* top-right: training clock + dummies left */
 .wof-tr{position:absolute;right:16px;top:14px;padding:6px 14px 7px;min-width:156px;display:none}
 .wof-tr.on{display:block}
@@ -364,6 +371,7 @@ const TEMPLATE = `
   <div class="wof-vig"></div>
   <div class="wof-obj wof-panel"></div>
   <div class="wof-toast info"></div>
+  <div class="wof-feed"></div>
   <div class="wof-tr wof-panel">
     <div class="wof-tr-row" data-r="timer" hidden><span>TIME</span><b>00:00.0</b></div>
     <div class="wof-tr-row" data-r="targets" hidden><span>DUMMIES LEFT</span><b class="sm">0 / 0</b></div>
@@ -526,7 +534,7 @@ const CONTROL_ROWS = `
   </div>
 </div>
 <div class="wof-ctl-more">
-  <span><kbd>Esc</kbd><kbd>P</kbd> pause</span><span><kbd>M</kbd> mute</span><span><kbd>H</kbd> controls card</span>
+  <span><kbd>Esc</kbd><kbd>P</kbd> pause</span><span><kbd>F</kbd> whistle for horse</span><span><kbd>M</kbd> mute</span><span><kbd>H</kbd> controls card</span>
   <span><kbd>R</kbd> blades (auto when dull)</span><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> = arrows</span>
 </div>
 <p class="wof-note"><b>Mouse optional:</b> click the game to look with the mouse</p>`;
@@ -640,7 +648,7 @@ export class Hud {
       kills: q('[data-k="kills"]'),
       score: q('[data-k="score"]'),
       obj: q('.wof-obj'),
-      toast: q('.wof-toast'),
+      toast: q('.wof-toast'), feed: q('.wof-feed'),
       big: q('.wof-big'),
       dmgs: q('.wof-dmgs'),
       menu: q('.wof-menu'),
@@ -870,6 +878,20 @@ export class Hud {
     d.style.top = Math.round(screenY) + 'px';
     layer.appendChild(d);
     setTimeout(() => d.remove(), 1300);
+  }
+
+  /** Right-hand feed line: squad radio ('radio'), kills ('kill'), trouble ('warn'). `who` is shown bold. */
+  feed(text, kind = 'info', who = '') {
+    const box = this.el.feed;
+    if (!box) return;
+    const d = document.createElement('div');
+    d.className = kind;
+    if (who) { const b = document.createElement('b'); b.textContent = who + ': '; d.appendChild(b); }
+    d.appendChild(document.createTextNode(String(text)));
+    box.appendChild(d);
+    while (box.children.length > 5) box.firstChild.remove();
+    requestAnimationFrame(() => d.classList.add('on'));
+    setTimeout(() => { d.classList.remove('on'); setTimeout(() => d.remove(), 300); }, kind === 'warn' ? 6000 : 4500);
   }
 
   /** Centre-top toast (info / warn), or a huge cinematic line in the middle of the screen (big). */

@@ -99,7 +99,7 @@ export function buildForest(ctx) {
   // ---- light shafts (additive cones, soft edges, fade with distance) ----
   const shaftMat = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, fog: false,
-    uniforms: { uColor: { value: new THREE.Color(1.0, 0.92, 0.62) }, uOpacity: { value: 0.16 } },
+    uniforms: { uColor: { value: new THREE.Color(1.0, 0.92, 0.62) }, uOpacity: { value: 0.3 } },
     vertexShader: `varying float vV; varying vec3 vN; varying vec3 vVD; varying float vDist;
       void main(){ vV = uv.y; vec4 wp = modelMatrix * instanceMatrix * vec4( position, 1.0 ); vec4 mv = viewMatrix * wp;
         vN = normalize( mat3( viewMatrix ) * mat3( modelMatrix ) * mat3( instanceMatrix ) * normal ); vVD = normalize( -mv.xyz ); vDist = -mv.z; gl_Position = projectionMatrix * mv; }`,
@@ -109,7 +109,7 @@ export function buildForest(ctx) {
         gl_FragColor = vec4( uColor * a, 1.0 ); }`,
   });
   const cone = new THREE.CylinderGeometry(2.2, 8.5, 1, 12, 1, true); cone.translate(0, -0.5, 0);
-  const NS = 110, shafts = new THREE.InstancedMesh(cone, shaftMat, NS);
+  const NS = 170, shafts = new THREE.InstancedMesh(cone, shaftMat, NS);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion().setFromUnitVectors(new V3(0, 1, 0), SUN_DIR), pp = new V3(), ss = new V3();
   const srng = new Rng(404);
   for (let i = 0; i < NS; i++) {

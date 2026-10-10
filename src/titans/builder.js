@@ -401,7 +401,7 @@ export function bodyMaterial(colossal) {
     if (!_matColossal) _matColossal = toonMaterial(0xffffff, { vertexColors: true, map: colossalTexture() });
     return _matColossal;
   }
-  if (!_matPlain) _matPlain = toonMaterial(0xffffff, { vertexColors: true });
+  if (!_matPlain) _matPlain = titanSkin(toonMaterial(0xffffff, { vertexColors: true }));
   return _matPlain;
 }
 
@@ -434,4 +434,40 @@ export function getArchetype(spec) {
   const arch = { key, dims: d, st, geo, material: bodyMaterial(colossal), colossal, jawRest: st.open };
   _cache.set(key, arch);
   return arch;
+}
+
+
+/**
+ * Titan skin, anime style: the cel shadows go warm reddish-brown instead of grey (the show's titans glow faintly
+ * with heat), a soft rim light peels the silhouette off the background, and a faint large-scale mottling keeps
+ * the body reading as flesh rather than plastic. Only touches flesh (vertex colour = skin tone); eyes, teeth and
+ * hair keep their colours because the effect scales with how skin-like the colour is.
+ */
+function titanSkin(m) {
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = 'varying vec3 vSkinW; varying vec3 vSkinN;\n' + sh.vertexShader.replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
+      vSkinW = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;
+      vSkinN = normalize( mat3( modelMatrix ) * objectNormal );`);
+    sh.fragmentShader = 'varying vec3 vSkinW; varying vec3 vSkinN;\n' + sh.fragmentShader
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        float skinK = smoothstep( 0.05, 0.18, diffuseColor.r - diffuseColor.b ) * step( 0.35, diffuseColor.r );
+        vec3 q = vSkinW * 0.35;
+        float mott = sin( q.x * 1.3 + sin( q.y * 1.7 ) ) * sin( q.z * 1.1 + q.y * 0.6 );
+        diffuseColor.rgb *= 1.0 + 0.06 * mott * skinK;`)
+      .replace('#include <opaque_fragment>', `
+        {
+          float skinK2 = smoothstep( 0.05, 0.18, diffuseColor.r - diffuseColor.b ) * step( 0.35, diffuseColor.r );
+          // warm the shadows: where the lit result is darker than the base colour, push it toward red-brown
+          float lum = dot( outgoingLight, vec3( 0.299, 0.587, 0.114 ) ), base = dot( diffuseColor.rgb, vec3( 0.299, 0.587, 0.114 ) );
+          float shade = clamp( 1.0 - lum / max( base, 1e-3 ), 0.0, 1.0 );
+          outgoingLight = mix( outgoingLight, outgoingLight * vec3( 1.18, 0.86, 0.78 ), shade * skinK2 );
+          // rim light
+          vec3 V = normalize( cameraPosition - vSkinW );
+          float rim = pow( 1.0 - clamp( dot( normalize( vSkinN ), V ), 0.0, 1.0 ), 3.0 );
+          outgoingLight += vec3( 1.0, 0.86, 0.72 ) * rim * 0.28 * skinK2;
+        }
+        #include <opaque_fragment>`);
+  };
+  m.customProgramCacheKey = () => 'titan-skin-v1';
+  return m;
 }

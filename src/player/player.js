@@ -4,6 +4,10 @@ import * as THREE from 'three';
 import { CFG } from '../config.js';
 import { OdmGear } from './odm.js';
 
+// Math.hypot is variadic and boxes its arguments in hot loops (it was the top source of garbage); this doesn't.
+const hypot = (a, b, c = 0) => Math.sqrt(a * a + b * b + c * c);
+
+
 const UP = new THREE.Vector3(0, 1, 0);
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3();
 const _e = new THREE.Vector3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
@@ -50,7 +54,7 @@ export class Player {
     this.stun = 0; this.grabbedBy = null; this.grabHand = null; this.struggle = 0; this.grabImmune = 0;
     this.reelLevel = 0; this.impactCooldown = 0;
     this.wishF = 0; this.wishR = 0; this.turn = 0; this.wantBoost = false; this._dashPuff = 0;
-    this.shiftHeld = 0; this.payout = false; this.mouseT = 99; this.autoSwapT = 0; this.primeT = 0; this.flipT = 0; this.mountCd = 0; this.rideStand = 0; this.rideStandT = 0; this.crouch = 0; if (this.riding) this.riding.rider = null; this.riding = null; this.prey = null; this.preyDist = 1e9; this.swooping = false;
+    this.shiftHeld = 0; this.payout = false; this.mouseT = 99; this.autoSwapT = 0; this.primeT = 0; this.perch = null; this.cling = null; this.flipT = 0; this.mountCd = 0; this.rideStand = 0; this.rideStandT = 0; this.crouch = 0; if (this.riding) this.riding.rider = null; this.riding = null; this.mounting = null; this.prey = null; this.preyDist = 1e9; this.swooping = false;
     if (this.targets) for (const t of this.targets) { t.valid = false; t.collider = null; t.titan = null; }
     this.odm.reset();
     this.cam.pos.copy(position).add(new THREE.Vector3(Math.sin(yaw) * -5, 2, Math.cos(yaw) * -5));
@@ -92,6 +96,7 @@ export class Player {
       const h = this.riding;
       h.want.f = F - B; h.want.turn = R - L;
       this.turn = 0; this.wishF = 0; this.wishR = 0;
+      if (this.mounting) return;   // still climbing on: you can already steer, but not leap
       // hold Shift: rise from the saddle and stand on the galloping horse; let go to spring off it
       const shiftHeld = input.held('ShiftLeft') || input.held('ShiftRight');
       const rope = input.hit('Z') || input.hit('X') || input.hit('Q') || input.hit('E') || input.hit('Mouse2');
@@ -103,6 +108,8 @@ export class Player {
         return;
       }
     }
+
+    if (input.hit('F')) this._whistle();
 
     // steering: the arrows turn your heading; the camera rides behind it
     this.turn = R - L;
@@ -117,7 +124,9 @@ export class Player {
     const wantR = input.held('X') || input.held('E') || input.held('Mouse2');
     const fireL = input.hit('Z') || input.hit('Q') || input.hit('Mouse2');
     const fireR = input.hit('X') || input.hit('E') || input.hit('Mouse2');
+    this._wantL = wantL; this._wantR = wantR;
     if ((fireL || fireR) && this.stun <= 0) for (const b of this._bans) b.t = 0;
+    if ((fireL || fireR) && (this.cling || this.perch)) { this.cling = null; this.perch = null; }
     if (this.stun <= 0) {
       if (fireL) this._fire(0, wantR);
       if (fireR) this._fire(1, wantL);
@@ -153,6 +162,7 @@ export class Player {
     // gas: Shift. Tap on the ground = jump; clinging to a trunk = kick off; held = boost
     const shiftHit = input.hit('ShiftLeft') || input.hit('ShiftRight');
     const shiftHeld = input.held('ShiftLeft') || input.held('ShiftRight');
+    if (shiftHit && this.cling) { this.cling = null; this.wallTime = 0.2; }
     if (shiftHit && this.wallTime > 0 && this.wallN && !this.grounded) {
       this.vel.addScaledVector(this.wallN, 10).y += 7;
       this.odm.releaseAll();
@@ -179,7 +189,9 @@ export class Player {
 
     // blades: Space cuts, held at speed in the air = Levi's spinning slash; dull blades swap themselves
     if (input.hit('R')) this._swapBlades();
-    if (cut && this.swapT <= 0) {
+    const yh = this.odm.hooks[0].yank ? this.odm.hooks[0] : this.odm.hooks[1].yank ? this.odm.hooks[1] : null;
+    if (cut && yh) this._cutWire(yh);                 // a titan has your wire: Space severs it
+    else if (cut && this.swapT <= 0) {
       // swooping in on a nape: Space primes the cut and the blades fire the moment you reach it
       if (this.swooping && this.preyDist < CFG.combat.primeRange) this.primeT = CFG.combat.primeTime;
       else this._slash();
@@ -254,7 +266,7 @@ export class Player {
     const col = this.game.collision, p = this.render;
     const sgn = side === 0 ? -1 : 1;
     const fwd = this._heading(_a), right = this._right(_b);
-    const v = this.vel, hs = Math.hypot(v.x, v.z);
+    const v = this.vel, hs = hypot(v.x, v.z);
     const ax = hs > 8 ? v.x / hs : fwd.x, az = hs > 8 ? v.z / hs : fwd.z;
     const range = CFG.hook.range - 3;
     const gy = col.groundHeight(p.x, p.z);
@@ -269,27 +281,27 @@ export class Player {
     const rel = this._released[side];
     // aim where you face: the camera's view direction decides; Z takes the left half of the view, X the right
     const cf = this.game.camera.getWorldDirection(this._camF || (this._camF = new THREE.Vector3()));
-    const crx = -cf.z, crz = cf.x, crl = Math.hypot(crx, crz) || 1;          // camera right (horizontal)
+    const crx = -cf.z, crz = cf.x, crl = hypot(crx, crz) || 1;          // camera right (horizontal)
     const bans = this._bans;
     const push = (x, y, z, c, titan) => {
       const dx = x - lx, dy = y - ly, dz = z - lz;
-      const d = Math.hypot(dx, dy, dz);
+      const d = hypot(dx, dy, dz);
       if (d < (titan ? 2.5 : 7) || d > range) return;
-      const dl = Math.hypot(dx, dz) || 1e-6;
+      const dl = hypot(dx, dz) || 1e-6;
       const ahead = (dx * ax + dz * az) / dl;
       if (ahead < -0.35) return;                                        // never behind you
       const lateral = ((dx * right.x + dz * right.z) / dl) * sgn;          // > 0: on this rope's side
       const sd = 1 - Math.min(1, Math.abs(d - 40) / 60);
       const sh = this.grounded ? THREE.MathUtils.clamp((dy - 3) / 18, 0, 1) : THREE.MathUtils.clamp((dy + 10) / 30, 0, 1);
       // facing: how close to the centre of your view (cone ~55° wide); this dominates the pick
-      const ex = x - p.x, ey = y - p.y, ez = z - p.z, el = Math.hypot(ex, ey, ez) || 1;
+      const ex = x - p.x, ey = y - p.y, ez = z - p.z, el = hypot(ex, ey, ez) || 1;
       // keyboard: facing is left/right only (the height preference picks anchors overhead); mouse: full 3D aim
       const mouseAim = this.mouseT < 3;
-      const hl = Math.hypot(ex, ez) || 1, cfl = Math.hypot(cf.x, cf.z) || 1;
+      const hl = hypot(ex, ez) || 1, cfl = hypot(cf.x, cf.z) || 1;
       const cosc = mouseAim ? (ex * cf.x + ey * cf.y + ez * cf.z) / el : (ex * cf.x + ez * cf.z) / (hl * cfl);
       const facing = THREE.MathUtils.clamp((cosc - CFG.aim.cone) / (1 - CFG.aim.cone), -1, 1);
       // which half of the view: Z wants the left half, X the right (a centred anchor suits either)
-      const half = ((ex * crx + ez * crz) / (crl * (Math.hypot(ex, ez) || 1))) * sgn;
+      const half = ((ex * crx + ez * crz) / (crl * (hypot(ex, ez) || 1))) * sgn;
       let score = facing * CFG.aim.facingWeight + (half < -0.08 ? -1.2 : Math.min(half, 0.4) * 0.8)
         + sd * 0.7 + sh * 0.9 + (ahead + 1) * 0.25 + THREE.MathUtils.clamp(lateral, 0, 0.6) * 0.3;
       for (const b of bans) if (b.t > 0 && (x - b.p.x) ** 2 + (y - b.p.y) ** 2 + (z - b.p.z) ** 2 < 36) score -= 4;
@@ -319,7 +331,7 @@ export class Player {
       if (!c.hookable) continue;
       if (c.type === 'cylinder') {
         if (c.y1 - c.y0 < 4 && c.r < 1.5) continue;   // cannons, barrels, posts: useless to swing from
-        let dx = p.x - c.x, dz = p.z - c.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+        let dx = p.x - c.x, dz = p.z - c.z; const l = hypot(dx, dz) || 1; dx /= l; dz /= l;
         const y = THREE.MathUtils.clamp(wantY, c.y0 + 1.5, c.y1 - 1);
         push(c.x + dx * c.r, y, c.z + dz * c.r, c, null);
       } else if (c.type === 'capsule') {
@@ -386,32 +398,193 @@ export class Player {
     this.cam.trauma = Math.min(1, this.cam.trauma + 0.12);
   }
 
-  /** Run (or fall) into a free horse to mount it, standing on its back. */
+  // ---------------------------------------------------------------- landing on branches, roofs and trunks
+  /** Holding a rope and coming in slowly: arc up onto the branch / roof it hit, or stick to the trunk / wall. */
+  _perchCheck() {
+    if (this.grounded || this.payout || this.swooping || this.stun > 0) return;
+    const p = this.pos, v = this.vel;
+    for (const h of this.odm.hooks) {
+      if (!h.attached || !h.collider || h.collider.dynamic || h.collider.type === 'ground') continue;
+      if (!(h.side ? this._wantR : this._wantL)) continue;
+      const d = p.distanceTo(h.anchor);
+      _e.subVectors(h.anchor, p).multiplyScalar(1 / Math.max(d, 1e-3));
+      const vin = v.dot(_e);
+      if (d > CFG.perch.reach + Math.max(0, vin) * 0.12 || vin > CFG.perch.maxSpeed) continue;
+      const tgt = this._perchTarget(h);
+      if (!tgt) continue;
+      this._startPerch(tgt.pos, tgt.wall ? tgt.normal : null, h);
+      return;
+    }
+  }
+  _perchTarget(h) {
+    const c = h.collider, R = CFG.radius, a = h.anchor, n = h.normal;
+    const out = { pos: new THREE.Vector3(), normal: n.clone(), wall: false };
+    if (c.type === 'capsule') {
+      _a.subVectors(c.b, c.a); const L2 = _a.lengthSq();
+      const dirY = Math.abs(_a.y) / Math.sqrt(L2 || 1);
+      if (dirY < 0.7) {   // a branch: stand on its top
+        const t = THREE.MathUtils.clamp(_b.subVectors(a, c.a).dot(_a) / (L2 || 1), 0.08, 0.92);
+        out.pos.copy(c.a).addScaledVector(_a, t); out.pos.y += c.r + R + 0.02;
+      } else { out.wall = true; out.normal.set(a.x - c.a.x, 0, a.z - c.a.z).normalize(); out.pos.copy(a).addScaledVector(out.normal, R + 0.05); }
+    } else if (n.y > 0.55) {
+      out.pos.copy(a).addScaledVector(UP, R + 0.02);
+    } else if (Math.abs(n.y) < 0.5) {
+      out.normal.set(n.x, 0, n.z).normalize();
+      // a wall or rooftop edge just above the anchor: vault up onto the top instead of clinging under the lip
+      // (step back from the edge until there's a clear spot: parapets and gutters sit right on the lip)
+      let found = false;
+      for (const back of [0.9, 1.8, 2.8]) {
+        _b.copy(a).addScaledVector(out.normal, -back); _b.y += 3.2;
+        const top = this.game.collision.raycast(_b, _d.set(0, -1, 0), 4.2, { dynamic: false });
+        if (!top || top.normal.y < 0.7 || top.collider.type === 'ground') continue;
+        out.pos.copy(top.point); out.pos.y += R + 0.02;
+        let clear = true;
+        for (const k of this.game.collision.collideSphere(out.pos, R * 0.9, { dynamic: false })) if (k.depth > 0.12 && k.collider !== top.collider) { clear = false; break; }
+        if (clear) { found = true; return out; }
+      }
+      if (!found) { out.wall = true; out.pos.copy(a).addScaledVector(out.normal, R + 0.05); }
+    } else return null;
+    for (const k of this.game.collision.collideSphere(out.pos, R * 0.9, { dynamic: false })) if (k.depth > 0.12 && k.collider !== c && k.collider.type !== 'ground') return null;
+    return out;
+  }
+  _startPerch(target, wallN, hook) {
+    const d = this.pos.distanceTo(target);
+    this.perch = {
+      s: this.pos.clone(), e: target.clone(), wall: wallN ? wallN.clone() : null, t: 0,
+      dur: THREE.MathUtils.clamp(d / 13, 0.28, 0.6),
+      c: this.pos.clone().lerp(target, 0.5).add(_e.set(0, 1.1 + d * 0.12 + (wallN ? 0 : Math.max(0, target.y - this.pos.y) * 0.3), 0)),
+      mat: hook.collider.material,
+    };
+    if (wallN) this.perch.c.addScaledVector(wallN, 1.2);
+    this.odm.braking = 0.25;
+    this.game.audio?.setGas?.(0.7);
+  }
+  _perchStep(dt) {
+    const P = this.perch;
+    P.t += dt;
+    const k = Math.min(1, P.t / P.dur), e = k * k * (3 - 2 * k), u = 1 - e;
+    // quadratic Bezier: start -> over the top -> landing spot (eased); velocity from its derivative
+    this.pos.set(0, 0, 0).addScaledVector(P.s, u * u).addScaledVector(P.c, 2 * u * e).addScaledVector(P.e, e * e);
+    const de = 6 * k * (1 - k) / P.dur;
+    this.vel.set(0, 0, 0).addScaledVector(P.s, -2 * u * de).addScaledVector(P.c, 2 * (u - e) * de).addScaledVector(P.e, 2 * e * de);
+    this.launcher(0, this._origins[0]); this.launcher(1, this._origins[1]);
+    this.odm.step(dt, this._origins);
+    if (k >= 1) {
+      this.perch = null;
+      this.odm.releaseAll(true);
+      this.pos.copy(P.e);
+      this.game.fx?.impact?.(_e.copy(P.e).addScaledVector(P.wall || UP, -CFG.radius), P.wall || UP, P.mat || 'bark');
+      this.game.audio?.land?.(0.45);
+      this.cam.trauma = Math.min(1, this.cam.trauma + 0.12);
+      this.crouch = 0.85;
+      if (P.wall) { this.cling = { n: P.wall.clone(), t: 0 }; this.vel.set(0, 0, 0); }
+      else { this.vel.multiplyScalar(0.12).setY(0); this.grounded = true; this.groundTime = 0; this._landT = 0; }
+      this.game.events.emit('player:perched', { wall: !!P.wall });
+    }
+  }
+  _clingStep(dt) {
+    const C = this.cling;
+    C.t += dt;
+    this.vel.set(0, 0, 0);
+    this.wallN = (this.wallN || new THREE.Vector3()).copy(C.n); this.wallTime = 0.2;
+    this.grounded = false; this.groundTime = 1;
+    this.launcher(0, this._origins[0]); this.launcher(1, this._origins[1]);
+    this.odm.step(dt, this._origins);
+    if (C.t > CFG.perch.clingTime) { this.cling = null; this.vel.addScaledVector(C.n, 1.5); }
+  }
+
+  /** Run up to a free horse and vault on (hand on the saddle, leg swung over), or drop onto it from the air. */
   _tryMount() {
     const herd = this.game.herd;
     if (!herd || this.mountCd > 0 || this.odm.attachedCount() || this.speed > CFG.horse.maxMountSpeed) return;
+    const air = !this.grounded && this.vel.y < -1;
+    const r = CFG.horse.mountRadius * (air ? 1.35 : 1);
     for (const h of herd.horses) {
       if (h.rider || h.mountCd > 0) continue;
       h.saddle(_e);
-      if (_e.distanceToSquared(this.pos) < CFG.horse.mountRadius ** 2 && this.vel.y < 2) {
-        this.riding = h; this.rideStand = 0.3; this.rideStandT = 0; h.rider = this; h.speed = Math.max(h.speed, Math.hypot(this.vel.x, this.vel.z) * 0.8);
-        h.yaw = Math.hypot(this.vel.x, this.vel.z) > 3 ? Math.atan2(this.vel.x, this.vel.z) : this.yaw;
-        this.game.audio?.land?.(0.4);
+      if (_e.distanceToSquared(this.pos) < r * r && this.vel.y < 2) {
+        const hs = hypot(this.vel.x, this.vel.z);
+        this.riding = h; h.rider = this; h.caller = null; this.lastHorse = h;
+        if (h.speed < 6) h.yaw = hs > 3 ? Math.atan2(this.vel.x, this.vel.z) : this.yaw;   // a moving horse keeps its line
+        h.speed = Math.max(h.speed, hs * 0.8);
+        this.mounting = { t: 0, air, dur: air ? 0.14 : CFG.horse.mountTime, off: new THREE.Vector3().subVectors(this.pos, h.pos), fall: -this.vel.y };
+        this.rideStand = air ? 0.55 : 1; this.rideStandT = 0;
+        if (!air) this.game.audio?.land?.(0.2);
         this.game.events.emit('player:mounted', { horse: h });
         return;
       }
     }
   }
+  /** One fixed step of climbing on: a hop over the saddle (run) or the last metre of a drop into it (air). */
+  _mountStep(dt, h) {
+    const M = this.mounting;
+    M.t += dt;
+    const k = Math.min(1, M.t / M.dur);
+    _d.copy(h.pos).add(M.off);                                   // where you took off from, carried along with the horse
+    if (!M.air) {
+      // hand on the saddle, body up and over, leg swinging across: a quick arc that lands you seated
+      const e = k * k * (3 - 2 * k);
+      h.saddle(_e, 0);
+      _a.lerpVectors(_d, _e, 0.55); _a.y = Math.max(_d.y, _e.y) + 1.4;
+      const u = 1 - e;
+      this.pos.set(0, 0, 0).addScaledVector(_d, u * u).addScaledVector(_a, 2 * u * e).addScaledVector(_e, e * e);
+      this.rideStand = 1 - THREE.MathUtils.smoothstep(k, 0.3, 0.92);   // legs go from standing to astride over the top
+      this.crouch = Math.max(this.crouch, Math.sin(Math.PI * Math.min(1, k * 1.4)) * 0.7);
+      if (k >= 1) { this.mounting = null; this.rideStand = 0; h.hit(0.15); this.game.audio?.land?.(0.3); }
+    } else {
+      // falling the last bit onto its back: accelerate into the saddle, land crouched, the horse sags under you
+      h.saddle(_e, 0.55);
+      this.pos.lerpVectors(_d, _e, k * k);
+      if (k >= 1) {
+        const s = Math.min(1.3, M.fall / 11);
+        this.mounting = null; this.rideStand = 0.55; this.rideStandT = 0; this.crouch = 0.9;
+        h.hit(s);
+        this.game.audio?.land?.(0.45 + s * 0.3);
+        this.cam.trauma = Math.min(1, this.cam.trauma + 0.12 + s * 0.15);
+      }
+    }
+  }
+  /** Fingers in mouth: your horse (or the nearest free one) comes galloping. */
+  _whistle() {
+    const herd = this.game.herd, now = this.game.time || 0;
+    if (!herd || now - (this._whistleAt ?? -9) < 1.2) return;
+    this._whistleAt = now;
+    this.game.audio?.whistle?.();
+    let best = null, bd = 450 * 450;
+    const lh = this.lastHorse;
+    if (lh && !lh.rider && lh.pos.distanceToSquared(this.pos) < 700 * 700) best = lh;
+    else for (const h of herd.horses) {
+      if (h.rider) continue;
+      const d = h.pos.distanceToSquared(this.pos);
+      if (d < bd) { bd = d; best = h; }
+    }
+    if (best) { best.call(this); this.game.hud?.message?.('YOUR HORSE IS COMING', 1.6, 'info'); }
+    else this.game.hud?.message?.('NO HORSE WITHIN EARSHOT', 1.6, 'warn');
+  }
   /** Stand up on the running horse and spring off it: you keep the horse's speed. */
   _leapOff(up) {
     const h = this.riding;
     if (!h) return;
-    this.riding = null; h.rider = null; h.mountCd = 2; this.mountCd = 1.2;
+    this.riding = null; this.mounting = null; h.rider = null; h.mountCd = 2; this.mountCd = 1.2;
     h.want.f = 0; h.want.turn = 0;
     this.vel.copy(h.vel).addScaledVector(this._heading(_e), CFG.horse.leapForward);
     this.vel.y = up;
     this.grounded = false; this.groundTime = 1;
     this.game.audio?.land?.(0.3);
+  }
+
+  /** Cut your own wire where a titan's fist has it: you drop free, it hauls on nothing. */
+  _cutWire(h) {
+    const at = _a.copy(h.anchor).sub(this.pos);
+    const L = at.length();
+    at.multiplyScalar(Math.min(2.5, L * 0.3) / (L || 1)).add(this.pos);
+    this.game.fx?.sparks?.(at, _b.copy(this.pos).sub(at).normalize(), 18);
+    this.odm.release(h.side, true);
+    this.game.audio?.slash?.(true);
+    this.vel.multiplyScalar(0.55);
+    this.cam.trauma = Math.min(1, this.cam.trauma + 0.25);
+    this.slashT = 0; this.slashHit = true;
+    this.game.events.emit('player:wireCut', {});
   }
 
   _swapBlades() {
@@ -441,8 +614,12 @@ export class Player {
         this.cam.trauma = Math.min(1, this.cam.trauma + 0.5);
         return;
       }
-      this.rideStand += ((this.rideStandT || 0) - this.rideStand) * Math.min(1, dt * 5);
-      h.saddle(this.pos, this.rideStand); this.vel.copy(h.vel);
+      if (this.mounting) this._mountStep(dt, h);
+      else {
+        this.rideStand += ((this.rideStandT || 0) - this.rideStand) * Math.min(1, dt * 5);
+        h.saddle(this.pos, this.rideStand);
+      }
+      this.vel.copy(h.vel);
       this.grounded = true; this.groundTime = 0; this.airTime = 0;
       this.yaw += Math.atan2(Math.sin(h.yaw - this.yaw), Math.cos(h.yaw - this.yaw)) * Math.min(1, dt * 9);
       this.launcher(0, this._origins[0]); this.launcher(1, this._origins[1]);
@@ -450,6 +627,9 @@ export class Player {
       return;
     }
     this._tryMount();
+    if (this.perch) { this._perchStep(dt); return; }
+    if (this.cling) { this._clingStep(dt); return; }
+    this._perchCheck();
 
     const odm = this.odm;
     this.launcher(0, this._origins[0]); this.launcher(1, this._origins[1]);
@@ -479,8 +659,9 @@ export class Player {
     // cutting speed (how Survey Corps take a titan down, and the keyboard player's assist). Ropes on anything
     // else go slack meanwhile so they don't hold you back.
     let prey = null;
+    const yanked = odm.hooks[0].yank || odm.hooks[1].yank;   // being hauled in: no swoop until you get free
     for (const hk of odm.hooks) {
-      const t = hk.attached ? hk.collider?.userData?.titan || hk.collider?.userData?.dummy : null;
+      const t = hk.attached && !yanked ? hk.collider?.userData?.titan || hk.collider?.userData?.dummy : null;
       if (t && t.alive && t.napeWorld) { prey = t; break; }
     }
     this.swooping = false; this.prey = prey; this.preyDist = 1e9;
@@ -545,7 +726,7 @@ export class Player {
         // carrying momentum from the air: skid
         v.x -= (v.x / hs) * CFG.ground.skid * dt; v.z -= (v.z / hs) * CFG.ground.skid * dt;
       } else {
-        const dx = target.x - v.x, dz = target.z - v.z, dl = Math.hypot(dx, dz);
+        const dx = target.x - v.x, dz = target.z - v.z, dl = hypot(dx, dz);
         const maxStep = CFG.ground.accel * dt * (hs > CFG.ground.run + 0.5 ? 0.4 : 1);
         const s = dl > maxStep ? maxStep / dl : 1;
         v.x += dx * s; v.z += dz * s;
@@ -705,7 +886,7 @@ export class Player {
   // ---------------------------------------------------------------- titan interaction (contract)
   grab(titan, hand) {
     if (!this.alive || this.grabbedBy || this.grabImmune > 0) return false;
-    if (this.riding) { this.riding.rider = null; this.riding = null; }
+    if (this.riding) { this.riding.rider = null; this.riding = null; this.mounting = null; }
     this.grabbedBy = titan; this.grabHand = hand; this.struggle = 0;
     this.odm.releaseAll(true);
     this.vel.set(0, 0, 0);
@@ -799,22 +980,45 @@ export class Player {
       tf.copy(v).multiplyScalar(1 / speed).addScaledVector(_e.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)), anchored ? 0.25 : 0.55);
     } else tf.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
     if (this.riding) tf.set(Math.sin(this.riding.yaw), 0, Math.cos(this.riding.yaw));
+    // coming in to land: swing upright and feet-first before touchdown (never a head-first dive into the ground)
+    this.landPrep = 0;
+    if (!this.grounded && !anchored && v.y < -2) {
+      const below = this.game.collision.raycast(this.render, _e.set(0, -1, 0), 40, { dynamic: false });
+      if (below && below.normal.y > 0.5) {
+        const tti = (below.distance - CFG.radius) / -v.y;           // seconds until touchdown
+        this.landPrep = THREE.MathUtils.clamp(1 - (tti - 0.15) / 0.55, 0, 1);
+      }
+    }
+    if (this.perch) this.landPrep = 1;
+    if (this.landPrep > 0) {
+      const hx = v.x, hz = v.z, hl = hypot(hx, hz);
+      _e.set(hl > 0.5 ? hx / hl : Math.sin(this.yaw), 0, hl > 0.5 ? hz / hl : Math.cos(this.yaw));
+      tf.normalize().lerp(_e, this.landPrep);
+    }
     tf.normalize();
-    this.forward.lerp(tf, damp(this.riding ? 30 : this.grounded ? 14 : 7, dt)).normalize();
+    this.forward.lerp(tf, damp(this.riding ? 30 : this.grounded ? 14 : this.landPrep > 0 ? 12 : 7, dt)).normalize();
     const upT = _b.copy(UP);
     const pd = this.odm.pullDir(this.render, _c);
     if (pd && !this.grounded) upT.lerp(pd, 0.55);
     if (this.wallN && this.wallTime > 0 && anchored) upT.copy(this.wallN);
     if (this.riding) this.riding.up(upT);
+    if (this.cling) {
+      // standing on the side of the trunk: feet on the bark, body out level, facing along the heading
+      upT.copy(this.cling.n);
+      const cf = _d.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)); cf.addScaledVector(this.cling.n, -cf.dot(this.cling.n));
+      if (cf.lengthSq() < 1e-3) cf.set(0, 1, 0);
+      this.forward.copy(cf.normalize());
+    }
+    if (this.landPrep > 0) upT.lerp(UP, this.landPrep);
     upT.addScaledVector(this.forward, -upT.dot(this.forward));
     if (upT.lengthSq() < 1e-3) upT.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)).addScaledVector(this.forward, -0.0);
     upT.normalize();
-    this.bodyUp.lerp(upT, damp(this.riding ? 20 : 6, dt)).normalize();
+    this.bodyUp.lerp(upT, damp(this.riding ? 20 : this.landPrep > 0 ? 14 : 6, dt)).normalize();
     this.wallTime -= dt;
 
     if (this.model) {
       const hooks = this.odm.hooks.map((h) => ({ attached: h.attached, anchor: h.attached ? h.anchor : null, state: h.state }));
-      const run = this.riding ? 0 : this.grounded ? Math.min(1, Math.hypot(v.x, v.z) / CFG.ground.run) : (this.wallN && anchored ? 1 : 0);
+      const run = this.riding ? 0 : this.grounded ? Math.min(1, hypot(v.x, v.z) / CFG.ground.run) : (this.wallN && anchored ? 1 : 0);
       const slash = this.slashT >= 0 ? this.slashT / CFG.combat.slashTime : -1;
       this.boostLevel += ((this.boosting || this._dashPuff > 0 ? 1 : 0) - this.boostLevel) * damp(18, dt);
       this.crouch = Math.max(0, this.crouch - dt * 2.6);
@@ -828,7 +1032,7 @@ export class Player {
         mu = this._flipU.copy(this.bodyUp).applyQuaternion(ax);
       }
       this.model.update(dt, {
-        riding: this.riding ? 1 - this.rideStand : 0, crouch: this.grounded ? this.crouch : 0,
+        riding: this.riding ? 1 - this.rideStand : 0, crouch: this.grounded ? this.crouch : 0, landPrep: this.landPrep,
         horseGallop: this.riding?.gallop || 0, horsePhase: this.riding?.phase || 0,
         position: this._modelPos.copy(this.render).addScaledVector(this.bodyUp, CFG.modelLift), velocity: v, forward: mf, up: mu,
         grounded: this.grounded, running: run, hooks, boosting: this.boostLevel, slash,
@@ -919,9 +1123,35 @@ export class Player {
       this.stats.damage += damage;
       if (this.blade <= 0) { this.game.audio?.bladeBreak?.(); this.game.events.emit('player:bladeBroken', {}); }
       this.cam.trauma = Math.min(1, this.cam.trauma + (res.killed ? 0.5 : 0.2));
-      if (res.killed) { this.game.hitstop = 0.06; this.game.slowmo = 0.4; }
+      if (res.killed) this._killMoment(hit, dir);
     }
     return true;
+  }
+
+  /** The nape cut: freeze-frame, slow motion, a side-on kill cam, a flash, a crescent of steel, blood and steam. */
+  _killMoment(hit, dir) {
+    const g = this.game;
+    g.hitstop = 0.09;
+    g.slowmo = CFG.kill.slowmo; g.slowmoDur = CFG.kill.slowmo;
+    g.flash?.(0.55);
+    const nape = hit.point.clone();
+    g.fx?.blood?.(nape, dir, 3);
+    g.fx?.steam?.(nape, Math.max(2, (hit.titan.height || 8) * 0.3), 2.5);
+    if (g.fx?.slashArc) {
+      _q.copy(g.camera.quaternion).multiply(_q2.setFromAxisAngle(_a.set(0, 0, 1), -0.5));
+      g.fx.slashArc(nape, _q, 3.5);
+    }
+    this.cam.trauma = Math.min(1, this.cam.trauma + 0.6);
+    if (hit.titan.kind !== 'dummy' && (g.time - (this._lastKillCam ?? -99)) > CFG.kill.camCooldown) {
+      this._lastKillCam = g.time;
+      // frame the cut from the side the soldier is passing on
+      const toN = _e.subVectors(nape, this.render).setY(0);
+      if (toN.lengthSq() < 1e-4) toN.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
+      toN.normalize();
+      const side = _b.crossVectors(UP, toN).normalize().multiplyScalar(this.vel.dot(_b) >= 0 ? 1 : -1);
+      g.killCam = { t: 0, dur: CFG.kill.camTime, nape, side: side.clone(), toN: toN.clone(), size: hit.titan.height || 8 };
+    }
+    g.hud?.message?.(hit.titan.kind === 'dummy' ? 'CUT!' : 'NAPE CUT', 1.1, 'big');
   }
 
   _camera(dt) {
@@ -936,10 +1166,10 @@ export class Player {
       let dy = Math.atan2(dx, dz) - this.yaw;
       dy = Math.atan2(Math.sin(dy), Math.cos(dy));
       this.yaw += dy * damp(3.2, dt);
-      const el = Math.atan2(nwCam.center.y - this.render.y, Math.hypot(dx, dz));
+      const el = Math.atan2(nwCam.center.y - this.render.y, hypot(dx, dz));
       this.pitch += (THREE.MathUtils.clamp(el * 0.7, -0.6, 0.45) - this.pitch) * damp(3, dt);
     } else if (this.mouseT > 1.5 && !this.grabbedBy) {
-      const v = this.vel, hs = Math.hypot(v.x, v.z);
+      const v = this.vel, hs = hypot(v.x, v.z);
       if (!this.grounded && hs > 7 && !this.turn) {
         let dy = Math.atan2(v.x, v.z) - this.yaw;
         dy = Math.atan2(Math.sin(dy), Math.cos(dy));
@@ -987,6 +1217,23 @@ export class Player {
     const fovT = CFG.cam.fov + (CFG.cam.fovMax - CFG.cam.fov) * THREE.MathUtils.smoothstep(speed, 12, 85);
     c.fov += (fovT - c.fov) * damp(4, dt);
     if (Math.abs(cam.fov - c.fov) > 0.01) { cam.fov = c.fov; cam.updateProjectionMatrix(); }
+    // kill cam: side-on, framing the soldier and the nape, eased in and out (driven by real time in main)
+    const kc = this.game.killCam;
+    if (kc) {
+      const w = Math.min(1, kc.t / 0.12) * Math.min(1, (kc.dur - kc.t) / 0.3);
+      if (w > 0) {
+        const R = 6 + kc.size * 0.45;
+        const mid = _a.copy(this.render).lerp(kc.nape, 0.55);
+        const kp = _b.copy(mid).addScaledVector(kc.side, R).addScaledVector(kc.toN, -R * 0.35).addScaledVector(UP, 1.5 + kc.size * 0.08);
+        // drift slowly round the cut while time crawls
+        kp.addScaledVector(kc.toN, kc.t * 2.5);
+        _q.copy(cam.quaternion);
+        cam.position.lerp(kp, w);
+        cam.lookAt(mid);
+        _q2.copy(cam.quaternion);
+        cam.quaternion.copy(_q).slerp(_q2, w);
+      }
+    }
   }
 
   _audio() {

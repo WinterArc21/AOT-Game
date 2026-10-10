@@ -58,6 +58,7 @@ export class OdmGear {
 
   release(side, silent) {
     const h = this.hooks[side];
+    h.yank = null;
     if (h.state === 'flying' || h.state === 'attached') {
       h.state = 'retracting';
       h.collider = null;
@@ -94,6 +95,9 @@ export class OdmGear {
         }
       } else if (h.state === 'attached') {
         const c = h.collider;
+        const y = h.yank;
+        if (y && (!y.alive || y.state !== 'yank' || y.severed?.[h.yankSide] > 0)) h.yank = null;   // it let go
+        if (h.yank) { h.anchor.setFromMatrixPosition(y.J[h.yankSide === 0 ? 'handL' : 'handR'].matrixWorld); h.tip.copy(h.anchor); continue; }
         if (c && c.dynamic) {
           if (!col.dynamics.includes(c)) { h.state = 'retracting'; h.collider = null; continue; }
           col.toWorld(c, h.local, h.anchor);
@@ -123,7 +127,7 @@ export class OdmGear {
     let level = 0;
     this.braking = Math.max(0, (this.braking || 0) - 1 / CFG.physicsHz);
     for (const h of this.hooks) {
-      if (!h.attached || h.payout > 0) continue;
+      if (!h.attached || h.payout > 0 || h.yank) continue;   // a titan has hold of this wire
       _d.subVectors(h.anchor, pos);
       const dist = _d.length();
       if (dist < CFG.hook.minLen + 0.2) continue;

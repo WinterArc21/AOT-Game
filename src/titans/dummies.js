@@ -17,6 +17,10 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { toonMaterial, addOutline } from '../core/style.js';
 
+// Math.hypot is variadic and boxes its arguments in hot loops (it was the top source of garbage); this doesn't.
+const hypot = (a, b, c = 0) => Math.sqrt(a * a + b * b + c * c);
+
+
 const V3 = THREE.Vector3;
 const UP = new V3(0, 1, 0);
 const GRAVITY = 14.5;
@@ -72,7 +76,7 @@ class Bag {
   /** a plank in an XY plane (depth z) from (ax, ay) to (bx, by) */
   strut(ax, ay, bx, by, z, w, t, hex) {
     const dx = bx - ax, dy = by - ay;
-    return this.box((ax + bx) / 2, (ay + by) / 2, z, w, Math.hypot(dx, dy), t, hex, Math.atan2(-dx, dy));
+    return this.box((ax + bx) / 2, (ay + by) / 2, z, w, hypot(dx, dy), t, hex, Math.atan2(-dx, dy));
   }
   /** a round rod (log, rope) between two points */
   rod(a, b, r, hex, seg = 6) {
@@ -481,7 +485,7 @@ class Dummy {
     this.root.getWorldQuaternion(_q0).invert();
     _v3.copy(d).applyQuaternion(_q0);   // hit direction in root space
     this.tiltDirX = _v3.x; this.tiltDirZ = _v3.z;
-    const n = Math.hypot(this.tiltDirX, this.tiltDirZ) || 1; this.tiltDirX /= n; this.tiltDirZ /= n;
+    const n = hypot(this.tiltDirX, this.tiltDirZ) || 1; this.tiltDirX /= n; this.tiltDirZ /= n;
     if (this.pulley) {
       this.swingV += -Math.sign(this.tiltDirX || 1) * (0.6 + Math.min(damage, 900) / 900);
     } else {
@@ -502,7 +506,7 @@ function boxDist(p, b, out) {
   const cy = Math.min(Math.max(p.y, b.c[1] - b.h[1]), b.c[1] + b.h[1]);
   const cz = Math.min(Math.max(p.z, b.c[2] - b.h[2]), b.c[2] + b.h[2]);
   out.set(cx, cy, cz);
-  return Math.hypot(p.x - cx, p.y - cy, p.z - cz);
+  return hypot(p.x - cx, p.y - cy, p.z - cz);
 }
 
 // ---------------------------------------------------------------------------------------------- course layout
@@ -533,12 +537,12 @@ function gatherTrees(col) {
 function segDist2D(px, pz, ax, az, bx, bz) {
   const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz;
   const t = l2 > 0 ? Math.min(1, Math.max(0, ((px - ax) * dx + (pz - az) * dz) / l2)) : 0;
-  return Math.hypot(px - (ax + dx * t), pz - (az + dz * t));
+  return hypot(px - (ax + dx * t), pz - (az + dz * t));
 }
 
 function planCourse(col) {
   const trees = gatherTrees(col).filter((t) => Math.abs(t.x) < 260 && t.z > 120 && t.z < 560);
-  const clearOf = (x, z) => { let m = Infinity; for (const t of trees) m = Math.min(m, Math.hypot(t.x - x, t.z - z) - t.r); return m; };
+  const clearOf = (x, z) => { let m = Infinity; for (const t of trees) m = Math.min(m, hypot(t.x - x, t.z - z) - t.r); return m; };
   const blocked = (p, r, ignore) => col.querySphere(p, r, { dynamic: false }).some((c) => !ignore || !ignore.has(c));
   const stations = [];
   for (let i = 0; i < N_DUMMIES; i++) stations.push(route((i + 0.5) / N_DUMMIES, new V3()));
@@ -548,12 +552,12 @@ function planCourse(col) {
   // --- pulley lines: two trunks 28-62 m apart near the station, a clear line and a clear sweep under it
   for (const i of PULLEY_SLOTS) {
     const S = stations[i];
-    const near = trees.filter((t) => Math.hypot(t.x - S.x, t.z - S.z) < 70);
+    const near = trees.filter((t) => hypot(t.x - S.x, t.z - S.z) < 70);
     const pairs = [];
     for (let a = 0; a < near.length; a++) for (let b = a + 1; b < near.length; b++) {
-      const A = near[a], B = near[b], D = Math.hypot(A.x - B.x, A.z - B.z);
+      const A = near[a], B = near[b], D = hypot(A.x - B.x, A.z - B.z);
       if (D < 28 || D > 62) continue;
-      const mx = (A.x + B.x) / 2, mz = (A.z + B.z) / 2, md = Math.hypot(mx - S.x, mz - S.z);
+      const mx = (A.x + B.x) / 2, mz = (A.z + B.z) / 2, md = hypot(mx - S.x, mz - S.z);
       if (md > 30 || Math.abs(mx) > 150 || mz < 200 || mz > 470) continue;
       if (trees.some((t) => t !== A && t !== B && segDist2D(t.x, t.z, A.x, A.z, B.x, B.z) < t.r + 5)) continue;
       if (spans.some((sp) => segDist2D(mx, mz, sp.A.x, sp.A.z, sp.B.x, sp.B.z) < 30)) continue;
@@ -600,7 +604,7 @@ function planCourse(col) {
     const s = H / H0;
     if (Math.abs(x) > 158 || z < 192 || z > 478) return false;
     if (clearOf(x, z) < 2.9 * s + 4.2) return false;
-    for (const p of placed) if (Math.hypot(p.x - x, p.z - z) < 24) return false;
+    for (const p of placed) if (hypot(p.x - x, p.z - z) < 24) return false;
     for (const sp of spans) if (segDist2D(x, z, sp.a.x, sp.a.z, sp.b.x, sp.b.z) < 10) return false;
     const gy = col.groundHeight(x, z);
     if (blocked(_v1.set(x, gy + e + H * 0.5, z), H * 0.5 + 1)) return false;
@@ -639,7 +643,7 @@ function planCourse(col) {
       if (clearOf(x, z) < 8) continue;
       const gy = col.groundHeight(x, z);
       if (blocked(_v1.set(x, gy + 8, z), 5.5) || blocked(_v1.set(x, gy + 17, z), 5)) continue;
-      if (pts.some((p) => Math.hypot(p.x - x, p.z - z) < 20)) continue;
+      if (pts.some((p) => hypot(p.x - x, p.z - z) < 20)) continue;
       tower = { x, z, gy, deck: gy + 16 };
       break;
     }

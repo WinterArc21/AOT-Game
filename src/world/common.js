@@ -44,7 +44,7 @@ export function createContext(game) {
     get cobbles() { return mat('cobbles', () => toonMaterial(0xffffff, { map: tex.cobbles(), vertexColors: true })); },
     get dirt() { return mat('dirt', () => toonMaterial(0xffffff, { map: tex.dirt(), vertexColors: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })); },
     get grass() { return mat('grass', () => toonMaterial(0xffffff, { map: tex.grass(), vertexColors: true })); },
-    get bark() { return mat('bark', () => toonMaterial(0xffffff, { map: tex.bark(), vertexColors: true })); },
+    get bark() { return mat('bark', () => barkShader(toonMaterial(0xffffff, { map: tex.bark(), vertexColors: true }))); },
     get clay() { return mat('clay', () => toonMaterial(0xffffff, { map: tex.clay(), vertexColors: true, side: THREE.DoubleSide })); },
     get slate() { return mat('slate', () => toonMaterial(0xffffff, { map: tex.slate(), vertexColors: true, side: THREE.DoubleSide })); },
     get plaster0() { return mat('p0', () => toonMaterial(0xffffff, { map: tex.plaster0(), vertexColors: true })); },
@@ -134,3 +134,33 @@ export function createContext(game) {
 export function qYaw(a, out = new Q()) { return out.setFromAxisAngle(UP, a); }
 export function qAxis(ax, ay, az, ang, out = new Q()) { return out.setFromAxisAngle(_tmpAx.set(ax, ay, az), ang); }
 const _tmpAx = new V3();
+
+
+/**
+ * Giant-tree bark, anime style: moss gathers on the tops of branches and the upward faces of the buttress roots,
+ * the lowest few metres of trunk are dark and damp, and deep vertical fissures (world-space, so every trunk differs)
+ * break the bark into plates that catch a little light on their ridges.
+ */
+function barkShader(m) {
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = 'varying vec3 vBkW; varying vec3 vBkN;\n' + sh.vertexShader.replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
+      vBkW = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;
+      vBkN = normalize( mat3( modelMatrix ) * objectNormal );`);
+    sh.fragmentShader = 'varying vec3 vBkW; varying vec3 vBkN;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+      vec3 n = normalize( vBkN );
+      // fissures: around the trunk (angle of the horizontal normal) with a slow wander up the height
+      float ang = atan( n.z, n.x );
+      float fis = sin( ang * 22.0 + sin( vBkW.y * 0.23 + vBkW.x * 0.05 ) * 2.4 + vBkW.z * 0.04 );
+      float plate = smoothstep( -0.35, 0.65, fis );
+      diffuseColor.rgb *= mix( 0.62, 1.08, plate ) * ( 1.0 - 0.5 * abs( n.y ) ) + 0.5 * abs( n.y );
+      // damp, dark base
+      float base = 1.0 - smoothstep( 0.0, 7.0, vBkW.y );
+      diffuseColor.rgb *= 1.0 - 0.35 * base;
+      // moss on upward faces (branch tops, roots), patchy
+      float mossPatch = 0.5 + 0.5 * sin( vBkW.x * 0.9 + sin( vBkW.z * 0.7 ) * 2.0 ) * sin( vBkW.z * 1.1 + vBkW.y * 0.5 );
+      float moss = smoothstep( 0.35, 0.8, n.y ) * smoothstep( 0.25, 0.7, mossPatch );
+      diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.28, 0.42, 0.16 ), moss * 0.85 );`);
+  };
+  m.customProgramCacheKey = () => 'bark-v1';
+  return m;
+}

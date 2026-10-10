@@ -20,6 +20,10 @@
 // output colour space), the particle quads honour scene.fog on the normal-blended pool.
 import * as THREE from 'three';
 
+// Math.hypot is variadic and boxes its arguments in hot loops (it was the top source of garbage); this doesn't.
+const hypot = (a, b, c = 0) => Math.sqrt(a * a + b * b + c * c);
+
+
 // ───────────────────────────────────────────────────────── helpers ──────────────────────────────────────────
 const rnd = Math.random;
 const rr = (a, b) => a + (b - a) * rnd();
@@ -78,7 +82,7 @@ function makeAtlas() {
   const edge = (r) => 1 - smooth(0.36, 0.5, r);
 
   // soft puff
-  put(0, 0, (u, v) => { const r = Math.hypot(u, v) * 2; const a = Math.pow(clamp(1 - r, 0, 1), 1.6); out[0] = out[1] = out[2] = 1; out[3] = a; return out; });
+  put(0, 0, (u, v) => { const r = hypot(u, v) * 2; const a = Math.pow(clamp(1 - r, 0, 1), 1.6); out[0] = out[1] = out[2] = 1; out[3] = a; return out; });
 
   // billowing cloud: height field from overlapping domes, lit from the upper left, banded softly (anime-ish)
   const cloud = (seed, flat, count, spread) => {
@@ -93,7 +97,7 @@ function makeAtlas() {
       const u = (x + 0.5) / TS - 0.5, v = (y + 0.5) / TS - 0.5;
       let s = 0;
       for (const m of domes) {
-        const dd = Math.hypot(u - m.x, v - m.y) / m.r;
+        const dd = hypot(u - m.x, v - m.y) / m.r;
         if (dd < 1) s += Math.pow(Math.sqrt(1 - dd * dd) * m.r, 3);
       }
       hf[(y + 1) * (TS + 2) + x + 1] = Math.pow(s, 1 / 3);
@@ -102,11 +106,11 @@ function makeAtlas() {
       const h = hf[(y + 1) * (TS + 2) + x + 1];
       const hx = hf[(y + 1) * (TS + 2) + x + 2] - hf[(y + 1) * (TS + 2) + x];
       const hy = hf[(y + 2) * (TS + 2) + x + 1] - hf[y * (TS + 2) + x + 1];
-      const r = Math.hypot(u, v) * 2;
+      const r = hypot(u, v) * 2;
       let a = smooth(0.012, 0.15, h) * (1 - smooth(0.78, 1.0, r));
       // normal from the height gradient; light from upper-left-front
       let nx = -hx * 26, ny = -hy * 26, nz = 1;
-      const l = Math.hypot(nx, ny, nz); nx /= l; ny /= l; nz /= l;
+      const l = hypot(nx, ny, nz); nx /= l; ny /= l; nz /= l;
       let lit = clamp(nx * -0.45 + ny * -0.6 + nz * 0.66, 0, 1);
       lit = 0.52 + 0.48 * lit;
       const band = Math.floor(lit * 3 + 0.5) / 3;
@@ -122,7 +126,7 @@ function makeAtlas() {
   put(2, 0, cloud(37, false, 13, 0.3));
 
   // spark: hot core + tight falloff (stretched along velocity in the shader)
-  put(3, 0, (u, v) => { const r = Math.hypot(u * 1.0, v * 1.0) * 2; const a = Math.pow(clamp(1 - r, 0, 1), 2.4) * 0.85 + Math.exp(-r * r * 38); out[0] = out[1] = out[2] = 1; out[3] = clamp(a, 0, 1); return out; });
+  put(3, 0, (u, v) => { const r = hypot(u * 1.0, v * 1.0) * 2; const a = Math.pow(clamp(1 - r, 0, 1), 2.4) * 0.85 + Math.exp(-r * r * 38); out[0] = out[1] = out[2] = 1; out[3] = clamp(a, 0, 1); return out; });
 
   // chip: hard-edged irregular polygon, two facets
   {
@@ -158,7 +162,7 @@ function makeAtlas() {
 
   // drop: round with highlight (stretches into a streak in motion)
   put(3, 1, (u, v) => {
-    const r = Math.hypot(u, v) * 2;
+    const r = hypot(u, v) * 2;
     const a = 1 - smooth(0.82, 1.0, r);
     const hl = Math.exp(-(Math.pow((u + 0.12) * 6, 2) + Math.pow((v + 0.12) * 6, 2)));
     out[0] = out[1] = out[2] = 0.78 + 0.22 * hl; out[3] = a; return out;
@@ -338,7 +342,7 @@ class Pool {
       aP[o] = X; aP[o + 1] = Y; aP[o + 2] = Z; aP[o + 3] = size;
       const st = stretch[i];
       if (st > 0) {
-        const vv = Math.hypot(vx[i], vy[i], vz[i]);
+        const vv = hypot(vx[i], vy[i], vz[i]);
         aV[o] = vx[i]; aV[o + 1] = vy[i]; aV[o + 2] = vz[i]; aV[o + 3] = Math.max(size, vv * st);
       } else aV[o + 3] = 0;
       aC[o] = this.r0[i] + (this.r1[i] - this.r0[i]) * t; aC[o + 1] = this.g0[i] + (this.g1[i] - this.g0[i]) * t;
@@ -780,9 +784,9 @@ export class Effects {
           const tx = pts[c] - pts[a], ty = pts[c + 1] - pts[a + 1], tz = pts[c + 2] - pts[a + 2];
           const vx = cx - pts[k], vy = cy - pts[k + 1], vz = cz - pts[k + 2];
           let sx = ty * vz - tz * vy, sy = tz * vx - tx * vz, sz = tx * vy - ty * vx;
-          const l = Math.hypot(sx, sy, sz) || 1;
+          const l = hypot(sx, sy, sz) || 1;
           // keep ribbon width roughly constant on screen at distance: widen with camera distance
-          const dist = Math.hypot(vx, vy, vz);
+          const dist = hypot(vx, vy, vz);
           const w = wid[s0 + i] * wm * (0.5 + Math.min(dist, 600) * 0.0035) / l;
           P[vi * 3] = pts[k] - sx * w; P[vi * 3 + 1] = pts[k + 1] - sy * w; P[vi * 3 + 2] = pts[k + 2] - sz * w;
           P[vi * 3 + 3] = pts[k] + sx * w; P[vi * 3 + 4] = pts[k + 1] + sy * w; P[vi * 3 + 5] = pts[k + 2] + sz * w;

@@ -23,6 +23,10 @@
 import * as THREE from 'three';
 import { toonMaterial } from '../core/style.js';
 
+// Math.hypot is variadic and boxes its arguments in hot loops (it was the top source of garbage); this doesn't.
+const hypot = (a, b, c = 0) => Math.sqrt(a * a + b * b + c * c);
+
+
 const TAU = Math.PI * 2;
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -135,7 +139,7 @@ class CapeSim {
     }
     const add = (a, b, stiff) => {
       const dx = rp[a * 3] - rp[b * 3], dy = rp[a * 3 + 1] - rp[b * 3 + 1];
-      ia.push(a); ib.push(b); rest.push(Math.hypot(dx, dy)); k.push(stiff);
+      ia.push(a); ib.push(b); rest.push(hypot(dx, dy)); k.push(stiff);
     };
     for (let r = 0; r < CR; r++) for (let c = 0; c < CC; c++) {
       if (c + 1 < CC) add(idx(r, c), idx(r, c + 1), 1.0);
@@ -158,7 +162,7 @@ class CapeSim {
   reset(windX, windY, windZ, backX, backY, backZ) {
     const a = this.anchor, p = this.pos;
     let dx = windX * 0.05, dy = windY * 0.05 - 3.5, dz = windZ * 0.05;
-    const l = Math.hypot(dx, dy, dz) || 1; dx /= l; dy /= l; dz /= l;
+    const l = hypot(dx, dy, dz) || 1; dx /= l; dy /= l; dz /= l;
     const dy2 = CAPE_LEN / (CR - 1);
     for (let r = 0; r < CR; r++) for (let c = 0; c < CC; c++) {
       const i = (r * CC + c) * 3, ai = c * 3;
@@ -183,7 +187,7 @@ class CapeSim {
         const ux = P[a] - P[b], uy = P[a + 1] - P[b + 1], uz = P[a + 2] - P[b + 2];
         const vx = P[d] - P[e], vy = P[d + 1] - P[e + 1], vz = P[d + 2] - P[e + 2];
         const nx = vy * uz - vz * uy, ny = vz * ux - vx * uz, nz = vx * uy - vy * ux;
-        const l = Math.hypot(nx, ny, nz) || 1;
+        const l = hypot(nx, ny, nz) || 1;
         const o = (r * CC + c) * 3;
         out[o] = nx / l; out[o + 1] = ny / l; out[o + 2] = nz / l;
       }
@@ -222,7 +226,7 @@ class CapeSim {
           const ux = P[a] - P[b], uy = P[a + 1] - P[b + 1], uz = P[a + 2] - P[b + 2];
           const vx = P[d] - P[e], vy = P[d + 1] - P[e + 1], vz = P[d + 2] - P[e + 2];
           let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-          const l = Math.hypot(nx, ny, nz) || 1;
+          const l = hypot(nx, ny, nz) || 1;
           const o = (r * CC + c) * 3;
           N[o] = nx / l; N[o + 1] = ny / l; N[o + 2] = nz / l;
         }
@@ -255,7 +259,7 @@ class CapeSim {
           const a = ia[j], b = ib[j];
           const A = a * 3, B = b * 3;
           let dx = Q[B] - Q[A], dy = Q[B + 1] - Q[A + 1], dz = Q[B + 2] - Q[A + 2];
-          const d = Math.hypot(dx, dy, dz);
+          const d = hypot(dx, dy, dz);
           if (d < 1e-7) continue;
           const diff = (d - rest[j]) / d * kk[j];
           const wa = a < CC ? 0 : 1, wb = b < CC ? 0 : 1;
@@ -392,6 +396,50 @@ const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THRE
 const _m1 = new THREE.Matrix4();
 const AX = new THREE.Vector3(1, 0, 0), AY = new THREE.Vector3(0, 1, 0), AZ = new THREE.Vector3(0, 0, 1);
 
+/** Anime face, painted once: heavy upper lids, grey-green irises with highlights, stern brows, nose, mouth. */
+let _faceTex = null;
+function faceTexture() {
+  if (_faceTex) return _faceTex;
+  const W = 256, H = 160, c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const ink = '#1a120c';
+  for (const side of [-1, 1]) {
+    const cx = W / 2 + side * 46, cy = 70;
+    // white of the eye
+    g.fillStyle = '#fbf6ee';
+    g.beginPath(); g.ellipse(cx, cy, 22, 13, 0, 0, Math.PI * 2); g.fill();
+    // iris + pupil + highlights
+    const ir = g.createRadialGradient(cx, cy - 3, 2, cx, cy, 13);
+    ir.addColorStop(0, '#6f9a86'); ir.addColorStop(0.7, '#3e6a5a'); ir.addColorStop(1, '#1f3a30');
+    g.fillStyle = ir; g.beginPath(); g.ellipse(cx + side * -2, cy + 1, 10.5, 12.5, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#0d1410'; g.beginPath(); g.ellipse(cx + side * -2, cy + 1, 4.5, 6, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#ffffff'; g.beginPath(); g.arc(cx + side * -2 - 4, cy - 4, 3, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.arc(cx + side * -2 + 3, cy + 5, 1.5, 0, Math.PI * 2); g.fill();
+    // heavy upper lid (thick, angled down toward the nose: the determined Survey Corps glare)
+    g.strokeStyle = ink; g.lineCap = 'round';
+    g.lineWidth = 6;
+    g.beginPath(); g.moveTo(cx - side * 25, cy - 4 + 2); g.quadraticCurveTo(cx, cy - 18, cx + side * 24, cy - 8); g.stroke();
+    g.lineWidth = 2;
+    g.beginPath(); g.moveTo(cx - side * 18, cy + 12); g.quadraticCurveTo(cx, cy + 16, cx + side * 18, cy + 10); g.stroke();
+    // brow: low and angled, pinched toward the centre
+    g.lineWidth = 7;
+    g.beginPath(); g.moveTo(cx - side * 26, cy - 22); g.lineTo(cx + side * 22, cy - 30); g.stroke();
+  }
+  // nose (shadow line) and mouth
+  g.strokeStyle = 'rgba(150,90,60,0.8)'; g.lineWidth = 3;
+  g.beginPath(); g.moveTo(W / 2 + 4, 92); g.lineTo(W / 2 + 7, 112); g.lineTo(W / 2 + 1, 114); g.stroke();
+  g.strokeStyle = '#6a3a2a'; g.lineWidth = 3.5;
+  g.beginPath(); g.moveTo(W / 2 - 13, 136); g.quadraticCurveTo(W / 2, 133, W / 2 + 13, 137); g.stroke();
+  _faceTex = new THREE.CanvasTexture(c);
+  _faceTex.colorSpace = THREE.SRGBColorSpace;
+  _faceTex.anisotropy = 4;
+  return _faceTex;
+}
+
+const _fa = new THREE.Vector3(), _fdown = new THREE.Vector3(0, -1, 0);
+const SOLE = 0.075;   // ankle joint height above the sole
+
 export class PlayerModel {
   constructor(game) {
     this.game = game;
@@ -404,6 +452,21 @@ export class PlayerModel {
     this._build();
     this.cape = new CapeSim();
     this._buildCapeMesh();
+    if (this._face) this.j.head.add(this._face);
+    // loose locks on top of the baked hair: they stream back with speed and flutter in the air
+    this.locks = [];
+    {
+      const hm = toonMaterial(0x2b2019);
+      const lg = new THREE.ConeGeometry(0.022, 0.1, 4); lg.translate(0, -0.05, 0);
+      for (let i = 0; i < 5; i++) {
+        const piv = new THREE.Group();
+        piv.position.set((i - 2) * 0.035, 0.235 - Math.abs(i - 2) * 0.012, -0.03 - Math.abs(i - 2) * 0.012);
+        const m = new THREE.Mesh(lg, hm); m.castShadow = false;
+        m.rotation.x = Math.PI * 0.62;          // swept back over the crown
+        piv.add(m); this.j.head.add(piv);
+        this.locks.push(piv);
+      }
+    }
 
     // smoothed state
     this.wRide = 0; this.wCrouch = 0; this.wAir = 0; this.wSpin = 0; this.wGrab = 0; this.wSlash = 0; this.wHook = 0; this.wBoost = 0; this.wRun = 0;
@@ -467,9 +530,26 @@ export class PlayerModel {
       const f = mesh(new THREE.ConeGeometry(0.03, 0.07, 6), M.hair, head, (i - 2) * 0.04, 0.197 - Math.abs(i - 2) * 0.012, 0.085, 0.004);
       f.rotation.x = Math.PI * 0.92; f.rotation.z = (i - 2) * 0.12;
     }
+    // fuller, spikier fringe and side locks (the Survey Corps cut)
+    for (let i = 0; i < 4; i++) {
+      const f = mesh(new THREE.ConeGeometry(0.026, 0.085, 5), M.hair, head, (i - 1.5) * 0.05, 0.2, 0.07, 0.004);
+      f.rotation.x = Math.PI * 0.86; f.rotation.z = (i - 1.5) * 0.25;
+    }
     for (const sx of [1, -1]) {
-      mesh(new THREE.SphereGeometry(0.012, 8, 6), M.eye, head, sx * 0.038, 0.135, 0.097, 0).scale.set(0.9, 1.7, 0.5);
-      mesh(new THREE.SphereGeometry(0.018, 8, 6), M.skin, head, sx * 0.1, 0.14, 0, 0.004);
+      const lock = mesh(new THREE.ConeGeometry(0.028, 0.11, 5), M.hair, head, sx * 0.092, 0.15, 0.03, 0.004);
+      lock.rotation.z = sx * 2.9; lock.rotation.x = 0.15;
+      const back = mesh(new THREE.ConeGeometry(0.035, 0.09, 5), M.hair, head, sx * 0.04, 0.1, -0.085, 0.004);
+      back.rotation.x = 2.6; back.rotation.z = sx * 0.3;
+      mesh(new THREE.SphereGeometry(0.018, 8, 6), M.skin, head, sx * 0.1, 0.14, 0, 0.004);   // ears
+    }
+    // the face: painted anime eyes, brows, nose shadow and mouth on a patch that hugs the skull
+    {
+      const face = new THREE.Mesh(
+        new THREE.SphereGeometry(0.1, 24, 16, Math.PI / 2 - 0.95, 1.9, 0.95, 1.15),
+        new THREE.MeshBasicMaterial({ map: faceTexture(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, fog: true }));
+      face.position.set(0, 0.145, 0.008); face.scale.set(0.96 * 1.012, 1.08 * 1.012, 1.012);
+      face.renderOrder = 1;
+      this._face = face;    // attached after the bake (not merged into the body)
     }
     // cravat (the white Survey Corps jabot)
     const cr = mesh(new THREE.ConeGeometry(0.052, 0.13, 10), M.cravat, chest, 0, 0.375, 0.12, 0.008);
@@ -690,6 +770,33 @@ export class PlayerModel {
   }
 
   // ───────────────────────────── contract helpers ─────────────────────────────
+  /** Measure each foot against the surface under it and nudge the pelvis drop / leg lifts (a tiny IK controller). */
+  _footIK(w, dt) {
+    if (!this.footLift) { this.footLift = [0, 0]; this.footDrop = 0; }
+    const col = this.game?.collision;
+    if (!col || w < 0.01) {
+      this.footDrop *= 0.8; this.footLift[0] *= 0.8; this.footLift[1] *= 0.8;
+      return;
+    }
+    this.root.updateMatrixWorld(true);
+    const d = [0, 0];
+    const legs = [this.j.legL, this.j.legR];
+    for (let i = 0; i < 2; i++) {
+      legs[i].an.getWorldPosition(_fa);
+      _fa.y += 0.8;
+      const hit = col.raycast(_fa, _fdown, 1.9, { dynamic: false });
+      const gy = hit ? hit.point.y : _fa.y - 0.8 - SOLE - 0.4;      // nothing under the foot: treat as floating
+      d[i] = gy - (_fa.y - 0.8 - SOLE);                              // > 0: the sole is below the surface
+    }
+    const k = Math.min(1, dt * 12);
+    // drop the pelvis until the lower-hanging foot touches; lift (bend) any foot that would sink in
+    // the pelvis moves so the lower foot just touches (raising it if both would sink, dropping it if both float);
+    // only the difference between the feet bends a leg
+    const dm = Math.min(d[0], d[1]);
+    this.footDrop = clamp(this.footDrop - dm * k, -0.25, 0.45);
+    for (let i = 0; i < 2; i++) this.footLift[i] = clamp(this.footLift[i] + (d[i] - dm - this.footLift[i] * 0.35) * k * 1.2, 0, 0.45);
+  }
+
   hookOrigin(side, out) {
     const tip = side === 0 ? this.launcherL : this.launcherR;
     tip.updateWorldMatrix(true, false);
@@ -715,7 +822,7 @@ export class PlayerModel {
     const p = s.position, v = s.velocity;
     _v1.set(finite(p.x), finite(p.y), finite(p.z));
     const vx = finite(v && v.x), vy = finite(v && v.y), vz = finite(v && v.z);
-    let speed = Math.hypot(vx, vy, vz);
+    let speed = hypot(vx, vy, vz);
     if (Number.isFinite(s.speed)) speed = s.speed;
     this.root.position.copy(_v1);
     this.pos.copy(_v1);
@@ -794,6 +901,9 @@ export class PlayerModel {
     let theta = lerp(thetaG, thetaAir, this.wAir);
     theta = lerp(theta, Math.PI / 2 + 0.0, this.wSpin * this.wAir);   // spin: axis = body axis, body horizontal-ish
     theta = lerp(theta, 0.05, this.wGrab);
+    // about to touch down: the body comes upright (feet first), whatever the dive angle
+    this.wLand = (this.wLand || 0) + (clamp(finite(s.landPrep), 0, 1) - (this.wLand || 0)) * (first ? 1 : k(16));
+    theta = lerp(theta, 0.12, this.wLand * this.wAir);
     if (first) this.theta = theta; else this.theta += (theta - this.theta) * k(8.5);
     let roll = -0.55 * leftness * this.wHook + clamp(-this.yawRate * 0.09, -0.5, 0.5) * airFlight + 0.05 * Math.sin(t * 1.7) * this.wAir;
     roll *= 1 - this.wSpin;
@@ -880,8 +990,18 @@ export class PlayerModel {
       }
       TR[BOB] = 0.03 * Math.sin(t * 17);
     }
-    // base mixes
-    for (let i = 0; i < NCH; i++) TC[i] = lerp(TG[i], TA[i], this.wAir);
+    // base mixes (about to touch down: the air pose gives way to a braced, feet-first stance)
+    const wAirPose = this.wAir * (1 - 0.85 * this.wLand);
+    for (let i = 0; i < NCH; i++) TC[i] = lerp(TG[i], TA[i], wAirPose);
+    if (this.wLand > 0.01) {
+      const L2 = this.wLand * this.wAir;
+      TC[SPX] += 0.18 * L2; TC[BOB] += 0;
+      for (let sd = 0; sd < 2; sd++) {
+        const o = sd * 4, oa = sd * 5;
+        TC[LHX + o] -= 0.45 * L2; TC[LKX + o] += 0.75 * L2; TC[LAX + o] -= 0.25 * L2;
+        TC[LSZ + oa] += 0.55 * L2; TC[LSX + oa] -= 0.2 * L2;
+      }
+    }
     // crouch: the knees take a landing (or load a jump); hips back, chest forward, pelvis drops, feet stay planted
     const cr = this.wCrouch * (1 - this.wAir);
     if (cr > 0.001) {
@@ -954,6 +1074,14 @@ export class PlayerModel {
     TC[HDX] += clamp(-gazeE * 0.95 - thTot + 0.12, -1.15, 0.6) * (this.wAir > 0.01 || thTot > 0.3 ? 1 : 0.0);
     if (this.wSpin > 0.01) TC[HDX] = lerp(TC[HDX], clamp(-thTot + 0.05, -1.1, 0.4), this.wSpin);
 
+    // foot planting (from last frame's measurement): bend the leg whose foot would sink into the slope
+    const ikW = (1 - this.wAir) * (1 - this.wRide) * (1 - 0.8 * this.wRun) * (s.footIK === false ? 0 : 1);
+    if (this.footLift && ikW > 0.01) {
+      for (let sd = 0; sd < 2; sd++) {
+        const o = sd * 4, l = this.footLift[sd] * ikW;
+        TC[LHX + o] -= 1.25 * l; TC[LKX + o] += 2.5 * l; TC[LAX + o] -= 1.25 * l;
+      }
+    }
     // ── damped joint values
     const fast = 11 + 26 * this.wSlash;
     for (let i = 0; i < NCH; i++) {
@@ -965,13 +1093,22 @@ export class PlayerModel {
     const jt = this.j;
     jt.spine.rotation.set(J[SPX], J[SPY], J[SPZ]);
     jt.head.rotation.set(J[HDX], J[HDY], 0);
+    if (this.locks) {
+      const wind = clamp(this.speedS / 40, 0, 1);
+      for (let i = 0; i < this.locks.length; i++) {
+        const l = this.locks[i];
+        l.rotation.x = -0.25 * wind + Math.sin(t * (9 + i * 1.7) + i) * (0.05 + 0.22 * wind);
+        l.rotation.z = Math.sin(t * (7 + i) + i * 2) * 0.12 * wind;
+      }
+    }
     jt.armL.sh.rotation.set(J[LSX], J[LSY], J[LSZ]); jt.armR.sh.rotation.set(J[RSX], J[RSY], -J[RSZ]);
     jt.armL.el.rotation.set(-J[LEX], 0, 0); jt.armR.el.rotation.set(-J[REX], 0, 0);
     jt.armL.wr.rotation.set(J[LWX], 0, 0); jt.armR.wr.rotation.set(J[RWX], 0, 0);
     jt.legL.hip.rotation.set(J[LHX], 0, J[LHZ]); jt.legR.hip.rotation.set(J[RHX], 0, -J[RHZ]);
     jt.legL.kn.rotation.set(J[LKX], 0, 0); jt.legR.kn.rotation.set(J[RKX], 0, 0);
     jt.legL.an.rotation.set(J[LAX], 0, 0); jt.legR.an.rotation.set(J[RAX], 0, 0);
-    this.pivot.position.y = J[BOB] * (1 - this.wAir);
+    this.pivot.position.y = J[BOB] * (1 - this.wAir) - (this.footDrop || 0) * ikW;
+    this._footIK(ikW, dt);
     // blades only when drawn
     for (let i = 0; i < 2; i++) jt.blades[i].visible = hasBlades;
     // blade shine: flash through the sweep
@@ -1001,7 +1138,7 @@ export class PlayerModel {
     for (let i = 0; i < this.col.length; i++) {
       const me = this.col[i].o.matrixWorld.elements;
       cp.spheres[i * 7] = me[12] - rp.x; cp.spheres[i * 7 + 1] = me[13] - rp.y; cp.spheres[i * 7 + 2] = me[14] - rp.z; cp.spheres[i * 7 + 3] = this.col[i].r;
-      const bl = Math.hypot(me[8], me[9], me[10]) || 1;
+      const bl = hypot(me[8], me[9], me[10]) || 1;
       cp.spheres[i * 7 + 4] = -me[8] / bl; cp.spheres[i * 7 + 5] = -me[9] / bl; cp.spheres[i * 7 + 6] = -me[10] / bl;
     }
     if (!cp.inited) {
@@ -1020,7 +1157,7 @@ export class PlayerModel {
     const sf = clamp(speed / 60, 0, 1);
     // apparent wind in the frame = -velocity (damped at extreme speed to keep the cloth readable)
     const wm = speed > 1 ? Math.min(1, 30 / speed) : 1;
-    { const me = this.col[0].o.matrixWorld.elements, bl = Math.hypot(me[8], me[9], me[10]) || 1;
+    { const me = this.col[0].o.matrixWorld.elements, bl = hypot(me[8], me[9], me[10]) || 1;
       cp.step(dt, -vx * wm, -vy * wm, -vz * wm, sf, -me[8] / bl, -me[9] / bl, -me[10] / bl); }
     // NaN guard
     let bad = false;
@@ -1030,7 +1167,7 @@ export class PlayerModel {
     // render copy = simulated cloth + a cheap travelling ripple (always away from the back, so it never cuts into the body)
     {
       const pa2 = pa.array, ps = cp.pos, rip = (0.012 + 0.07 * sf) * (this.wAir > 0.5 ? 1 : 0.6 + 0.4 * this.wRun);
-      const me = this.col[0].o.matrixWorld.elements, bl = Math.hypot(me[8], me[9], me[10]) || 1;
+      const me = this.col[0].o.matrixWorld.elements, bl = hypot(me[8], me[9], me[10]) || 1;
       const bx = -me[8] / bl, by = -me[9] / bl, bz = -me[10] / bl;
       for (let r = 0; r < CR; r++) {
         const rw = Math.pow(r / (CR - 1), 1.3) * rip;

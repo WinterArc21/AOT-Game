@@ -462,3 +462,13 @@ export function colossalAppear(A) {
   // the world ducks under it
   A._duckMusic(0.3, 0.25, 4.5);
 }
+
+// two-note fingers-in-mouth whistle for your horse: a rising "fweet", then a longer falling call
+export function whistle(A) {
+  const r = A._rig('ui', 3); if (!r) return;
+  const t = now(A);
+  const o = A._dest(r, { rev: 0.25, vol: 0.55 });
+  r.tone(o, { f0: 1900, f1: 2900, glide: 0.09, t, peak: 0.22, a: 0.02, d: 0.13 });
+  r.tone(o, { f0: 2950, f1: 2200, glide: 0.42, t: t + 0.2, peak: 0.26, a: 0.03, d: 0.42 });
+  r.burst(o, { t, peak: 0.05, a: 0.02, d: 0.6, type: 'bandpass', f0: 2600, q: 3 });
+}

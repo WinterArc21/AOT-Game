@@ -48,6 +48,21 @@ export class Game {
     });
     ev.on('player:grabbed', () => game.hud?.message?.('GRABBED! MASH SPACE TO CUT FREE', 2.2, 'warn'));
     ev.on('player:escaped', () => game.hud?.message?.('CUT FREE!', 1.2, 'info'));
+    // the squad on the radio
+    ev.on('ally:grabbed', (e) => {
+      game.hud?.feed?.(`It's got me — HELP!`, 'warn', e.ally.name);
+      game.hud?.message?.(`${e.ally.name.toUpperCase()} IS GRABBED — CUT THE HAND OR THE NAPE!`, 2.6, 'warn');
+    });
+    ev.on('ally:freed', (e) => {
+      game.hud?.feed?.(this.g.player.alive ? 'Thanks — I owe you one!' : 'I\'m out!', 'radio', e.ally.name);
+      if (this.g.mode === 'expedition') { this.score += 300; game.hud?.message?.('COMRADE SAVED  +300', 1.6, 'info'); }
+    });
+    ev.on('ally:eaten', (e) => game.hud?.feed?.(`${e.ally.name} was eaten.`, 'warn'));
+    ev.on('player:wireGrabbed', () => game.hud?.message?.('IT HAS YOUR WIRE! LET GO OR SPACE TO CUT', 2, 'warn'));
+    ev.on('player:wireCut', () => game.hud?.message?.('WIRE CUT', 1.1, 'info'));
+    ev.on('player:shaken', () => game.hud?.message?.('SHAKEN OFF!', 1.2, 'warn'));
+    ev.on('player:trampled', () => game.hud?.message?.('THROWN FROM THE SADDLE!', 1.6, 'warn'));
+    ev.on('titan:windup', (e) => { if (e.kind === 'charge' && game.player?.riding) game.hud?.message?.('ABNORMAL CHARGING — BREAK AWAY!', 1.8, 'warn'); });
     ev.on('player:bladeBroken', () => game.hud?.message?.(game.player.spares > 0 ? 'Blades dull: swapping to a fresh pair' : 'NO BLADES LEFT: find a supply depot (crates under a flag)', 2, 'warn'));
     let lastNone = -9;
     ev.on('hook:none', () => {
@@ -83,6 +98,7 @@ export class Game {
     g.paused = false;
     g.mode = mode;
     g.titans?.clear?.();
+    for (const a of g.allies || []) a.revive?.();
     this._stopTraining();
     this.wave = 0; this.score = 0; this.combo = 1; this.comboT = 0; this.colossal = false; this.colossalSpawned = false; this.waveClear = 0;
     this.startTime = g.time;
@@ -231,8 +247,11 @@ export class Game {
 
   _onKill(e) {
     const g = this.g;
-    if (g.mode !== 'expedition') return;
     const t = e.titan;
+    const size = t?.kind === 'colossal' ? 'the Colossal Titan' : `a ${Math.round(t?.height || 8)} m ${t?.kind === 'abnormal' ? 'abnormal' : 'titan'}`;
+    if (e.by) { g.hud?.feed?.(`${e.by.name} took down ${size}`, 'kill'); if (g.mode === 'expedition') this.score += 150; return; }
+    g.hud?.feed?.(`You took down ${size}`, 'kill');
+    if (g.mode !== 'expedition') return;
     const p = g.player;
     if (this.comboT > 0) this.combo = Math.min(9, this.combo + 1); else this.combo = 1;
     this.comboT = 7;
@@ -305,6 +324,7 @@ export class Game {
     this.comboT -= dt;
     if (this.comboT <= 0) this.combo = 1;
     this._tutorial(dt);
+    this._spotting();
     if (g.mode === 'expedition' && g.player.alive) {
       const ts = g.titans?.titans || [];
       const alive = ts.filter((t) => t.alive && t.kind !== 'colossal').length;
@@ -318,6 +338,25 @@ export class Game {
       }
     }
     if (g.mode === 'training' && g.trainingActive && this.trainEnd == null && (g.training?.remaining ?? 1) === 0) this._finishTraining();
+  }
+
+  /** A comrade calls out each new titan as it comes within 110 m, by clock bearing from your heading. */
+  _spotting() {
+    const g = this.g, p = g.player;
+    if (!p.alive || g.mode === 'training') return;
+    const caller = (g.allies || []).find((a) => a.alive && !a.grabbedBy && !a.horse) || (g.allies || []).find((a) => a.alive && !a.grabbedBy);
+    if (!caller) return;
+    for (const t of g.titans?.titans || []) {
+      if (!t.alive || t._spotted || t.kind === 'colossal') continue;
+      const dx = t.position.x - p.pos.x, dz = t.position.z - p.pos.z;
+      if (dx * dx + dz * dz > 110 * 110) continue;
+      t._spotted = true;
+      const yaw = p.riding ? p.riding.yaw : p.yaw;
+      let rel = Math.atan2(dx, dz) - yaw; rel = Math.atan2(Math.sin(rel), Math.cos(rel));   // + = to your left
+      const hr = ((Math.round(-rel / (Math.PI / 6)) % 12) + 12) % 12 || 12;
+      caller.radio(t.kind === 'abnormal' ? `Abnormal, ${hr} o'clock! Watch it!` : `Titan, ${hr} o'clock — ${Math.round(t.height)}-metre class!`);
+      break;
+    }
   }
 
   timer() {
