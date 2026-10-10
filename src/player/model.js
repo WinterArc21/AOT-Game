@@ -196,7 +196,7 @@ class CapeSim {
 
   /** advance by dt. wind = apparent air velocity in the frame (−body velocity), accel = body acceleration. */
   step(dt, windX, windY, windZ, speedFrac, bkX, bkY, bkZ) {
-    const nSub = clamp(Math.ceil(dt * 120), 1, 6);
+    const nSub = clamp(Math.ceil(dt * (this.hz || 120)), 1, 6);
     const h = dt / nSub;
     const P = this.pos, Q = this.pred, V = this.vel, N = this.nrm;
     const ax = -this.accel.x, ay = -this.accel.y, az = -this.accel.z;       // inertial pseudo-force
@@ -254,7 +254,7 @@ class CapeSim {
         }
       }
       // constraints + collisions
-      for (let it = 0; it < 5; it++) {
+      for (let it = 0, nIt = this.iters || 5; it < nIt; it++) {
         for (let j = 0; j < nCon; j++) {
           const a = ia[j], b = ib[j];
           const A = a * 3, B = b * 3;
@@ -301,6 +301,30 @@ const SPX = 0, SPY = 1, SPZ = 2, HDX = 3, HDY = 4,
   LHX = 15, LHZ = 16, LKX = 17, LAX = 18,
   RHX = 19, RHZ = 20, RKX = 21, RAX = 22,
   BOB = 23, NCH = 24;
+
+// five keys at fixed times (mount sequences); eased between keys
+const MT = [0, 0.22, 0.5, 0.78, 1];
+const k5 = (q, a) => { let i = 0; while (i < 3 && q > MT[i + 1]) i++; return lerp(a[i], a[i + 1], sstep(MT[i], MT[i + 1], q)); };
+// Getting on a horse. Absolute joint targets per key; key 4 is exactly the seated riding pose (gallop 0).
+// 'run': plant a hand on the saddle, spring, swing the horse-side leg high over its back, drop astride, sit up.
+// 'air': come down legs spread, hit the saddle and fold forward over the neck, then sit up.
+// Legs: o = the leg that goes over / on the horse's side, p = the other. Arms: n = horse-side hand, f = far hand.
+const MOUNT = {
+  run: {
+    SPX: [0.1, 0.5, 0.78, 0.45, 0.12], SPZ: [0, 0.22, 0.3, 0.08, 0], HDX: [0, -0.35, -0.55, -0.3, -0.1], BOB: [0, -0.28, 0.02, -0.12, 0],
+    oHX: [-0.15, -0.25, 0.75, -0.7, -1.42], oHZ: [0.05, 0.25, 1.5, 1.0, 0.58], oKX: [0.3, 0.7, 0.45, 1.2, 1.6], oAX: [0, -0.2, -0.5, -0.3, -0.3],
+    pHX: [0.1, -1.0, 0.35, -1.0, -1.42], pHZ: [0.05, 0.08, 0.15, 0.45, 0.58], pKX: [0.3, 1.6, 0.25, 1.35, 1.6], pAX: [0, -0.6, 0.55, -0.3, -0.3],
+    nSX: [-0.3, -1.25, -1.0, -0.7, -0.6], nSZ: [0.15, -0.2, 0.0, 0.1, 0.12], nEX: [0.5, 0.35, 0.7, 1.05, 1.15],
+    fSX: [-0.3, -0.8, -0.35, -0.6, -0.6], fSZ: [0.15, 0.35, 0.75, 0.25, 0.12], fEX: [0.5, 0.6, 0.35, 0.95, 1.15],
+  },
+  air: {
+    SPX: [0.2, 0.9, 0.55, 0.3, 0.12], SPZ: [0, 0, 0, 0, 0], HDX: [-0.2, -0.7, -0.45, -0.2, -0.1], BOB: [0, -0.3, -0.12, -0.03, 0],
+    oHX: [-0.9, -1.55, -1.5, -1.45, -1.42], oHZ: [0.8, 0.66, 0.6, 0.58, 0.58], oKX: [1.1, 1.95, 1.75, 1.65, 1.6], oAX: [-0.2, -0.45, -0.35, -0.3, -0.3],
+    pHX: [-0.9, -1.55, -1.5, -1.45, -1.42], pHZ: [0.8, 0.66, 0.6, 0.58, 0.58], pKX: [1.1, 1.95, 1.75, 1.65, 1.6], pAX: [-0.2, -0.45, -0.35, -0.3, -0.3],
+    nSX: [-1.0, -1.05, -0.8, -0.65, -0.6], nSZ: [0.6, 0.25, 0.15, 0.12, 0.12], nEX: [0.3, 0.55, 0.9, 1.1, 1.15],
+    fSX: [-1.0, -1.05, -0.8, -0.65, -0.6], fSZ: [0.6, 0.25, 0.15, 0.12, 0.12], fEX: [0.3, 0.55, 0.9, 1.1, 1.15],
+  },
+};
 
 const kf = (q, v0, v1, v2, v3) => (q < 0.2 ? lerp(v0, v1, sstep(0, 0.2, q)) : q < 0.58 ? lerp(v1, v2, sstep(0.2, 0.58, q)) : lerp(v2, v3, sstep(0.58, 1, q)));
 
@@ -450,7 +474,7 @@ export class PlayerModel {
     if (game && game.scene) game.scene.add(this.root);       // idempotent: the core may add it again
     this.time = 0;
     this._build();
-    this.cape = new CapeSim();
+    this.cape = new CapeSim(); this._capeN = 0;
     this._buildCapeMesh();
     if (this._face) this.j.head.add(this._face);
     // loose locks on top of the baked hair: they stream back with speed and flutter in the air
@@ -904,6 +928,8 @@ export class PlayerModel {
     // about to touch down: the body comes upright (feet first), whatever the dive angle
     this.wLand = (this.wLand || 0) + (clamp(finite(s.landPrep), 0, 1) - (this.wLand || 0)) * (first ? 1 : k(16));
     theta = lerp(theta, 0.12, this.wLand * this.wAir);
+    // dropping onto a horse / climbing on: upright, seat first
+    theta = lerp(theta, 0.1, Math.max(clamp(finite(s.straddle), 0, 1), s.mount && s.mount.k < 1 ? 1 : 0));
     if (first) this.theta = theta; else this.theta += (theta - this.theta) * k(8.5);
     let roll = -0.55 * leftness * this.wHook + clamp(-this.yawRate * 0.09, -0.5, 0.5) * airFlight + 0.05 * Math.sin(t * 1.7) * this.wAir;
     roll *= 1 - this.wSpin;
@@ -1037,6 +1063,30 @@ export class PlayerModel {
         TC[i] = lerp(TC[i], v, rd);
       }
     }
+    // falling toward a horse's back: legs open to straddle it, arms out for balance
+    const sd0 = clamp(finite(s.straddle), 0, 1) * this.wAir;
+    if (sd0 > 0.001) {
+      for (let sd = 0; sd < 2; sd++) {
+        const o = sd * 4, oa = sd * 5;
+        TC[LHX + o] = lerp(TC[LHX + o], -0.9, sd0); TC[LHZ + o] = lerp(TC[LHZ + o], 0.8, sd0); TC[LKX + o] = lerp(TC[LKX + o], 1.1, sd0); TC[LAX + o] = lerp(TC[LAX + o], -0.2, sd0);
+        TC[LSX + oa] = lerp(TC[LSX + oa], -1.0, sd0); TC[LSZ + oa] = lerp(TC[LSZ + oa], 0.6, sd0); TC[LEX + oa] = lerp(TC[LEX + oa], 0.3, sd0);
+      }
+      TC[SPX] = lerp(TC[SPX], 0.2, sd0);
+    }
+    // getting on: a keyed sequence overrides everything else (the joints track it fast, see `mounting` below)
+    const M = s.mount;
+    const mounting = !!(M && M.k >= 0 && M.k < 1);
+    if (mounting) {
+      const K = MOUNT[M.kind] || MOUNT.run, q = clamp(M.k, 0, 1);
+      const R = (M.side || 1) > 0;                 // the horse is on our right: the right leg goes over
+      const oL = R ? 4 : 0, pL = R ? 0 : 4, nA = R ? 5 : 0, fA = R ? 0 : 5;
+      TC[SPX] = k5(q, K.SPX); TC[SPY] = 0; TC[SPZ] = k5(q, K.SPZ) * (R ? -1 : 1); TC[HDX] = k5(q, K.HDX); TC[HDY] = 0; TC[BOB] = k5(q, K.BOB);
+      TC[LHX + oL] = k5(q, K.oHX); TC[LHZ + oL] = k5(q, K.oHZ); TC[LKX + oL] = k5(q, K.oKX); TC[LAX + oL] = k5(q, K.oAX);
+      TC[LHX + pL] = k5(q, K.pHX); TC[LHZ + pL] = k5(q, K.pHZ); TC[LKX + pL] = k5(q, K.pKX); TC[LAX + pL] = k5(q, K.pAX);
+      TC[LSX + nA] = k5(q, K.nSX); TC[LSZ + nA] = k5(q, K.nSZ); TC[LEX + nA] = k5(q, K.nEX); TC[LWX + nA] = 0.3; TC[LSY + nA] = 0;
+      TC[LSX + fA] = k5(q, K.fSX); TC[LSZ + fA] = k5(q, K.fSZ); TC[LEX + fA] = k5(q, K.fEX); TC[LWX + fA] = 0.3; TC[LSY + fA] = 0;
+      this.wRide = Math.max(this.wRide, sstep(0.6, 1, q));   // hand over to the seated pose without a pop
+    }
     // spin pose: arms out wide, blades forward, legs together
     TP.set(TC);
     TP[SPX] = -0.05; TP[SPY] = 0; TP[SPZ] = 0;
@@ -1071,11 +1121,11 @@ export class PlayerModel {
     // head compensation: keep the gaze along `forward` (neck takes up the body pitch)
     const thTot = this.theta + J[SPX];
     const gazeE = lerp(eF, 0, this.wGrab);
-    TC[HDX] += clamp(-gazeE * 0.95 - thTot + 0.12, -1.15, 0.6) * (this.wAir > 0.01 || thTot > 0.3 ? 1 : 0.0);
+    if (!mounting) TC[HDX] += clamp(-gazeE * 0.95 - thTot + 0.12, -1.15, 0.6) * (this.wAir > 0.01 || thTot > 0.3 ? 1 : 0.0);
     if (this.wSpin > 0.01) TC[HDX] = lerp(TC[HDX], clamp(-thTot + 0.05, -1.1, 0.4), this.wSpin);
 
     // foot planting (from last frame's measurement): bend the leg whose foot would sink into the slope
-    const ikW = (1 - this.wAir) * (1 - this.wRide) * (1 - 0.8 * this.wRun) * (s.footIK === false ? 0 : 1);
+    const ikW = (mounting ? 0 : 1) * (1 - this.wAir) * (1 - this.wRide) * (1 - 0.8 * this.wRun) * (s.footIK === false ? 0 : 1);
     if (this.footLift && ikW > 0.01) {
       for (let sd = 0; sd < 2; sd++) {
         const o = sd * 4, l = this.footLift[sd] * ikW;
@@ -1086,7 +1136,7 @@ export class PlayerModel {
     const fast = 11 + 26 * this.wSlash;
     for (let i = 0; i < NCH; i++) {
       const isArm = i >= SPX && i <= RWX && i !== HDX && i !== HDY;
-      const rate = first ? 1e3 : (isArm ? fast : 11 + 5 * this.wGrab);
+      const rate = first ? 1e3 : mounting ? 30 : (isArm ? fast : 11 + 5 * this.wGrab);
       J[i] += (finite(TC[i]) - J[i]) * (1 - Math.exp(-rate * dt));
     }
     // ── apply
@@ -1129,59 +1179,64 @@ export class PlayerModel {
     // ── matrices, then the cape sim in the root-relative frame
     this.root.updateMatrixWorld(true);
     this.skeleton.update();               // bone matrices now (also right for a shadow pass when the body is off-screen)
-    const cp = this.cape, rp = this.root.position;
-    for (let c = 0; c < CC; c++) {
-      _v1.setFromMatrixPosition(this.pins[c].matrixWorld);
-      cp.anchor[c * 3] = _v1.x - rp.x; cp.anchor[c * 3 + 1] = _v1.y - rp.y; cp.anchor[c * 3 + 2] = _v1.z - rp.z;
-    }
-    cp.nSph = this.col.length;
-    for (let i = 0; i < this.col.length; i++) {
-      const me = this.col[i].o.matrixWorld.elements;
-      cp.spheres[i * 7] = me[12] - rp.x; cp.spheres[i * 7 + 1] = me[13] - rp.y; cp.spheres[i * 7 + 2] = me[14] - rp.z; cp.spheres[i * 7 + 3] = this.col[i].r;
-      const bl = hypot(me[8], me[9], me[10]) || 1;
-      cp.spheres[i * 7 + 4] = -me[8] / bl; cp.spheres[i * 7 + 5] = -me[9] / bl; cp.spheres[i * 7 + 6] = -me[10] / bl;
-    }
-    if (!cp.inited) {
-      const me = this.col[0].o.matrixWorld.elements;
-      cp.reset(-vx * 0.9, -vy * 0.9, -vz * 0.9, -me[8], -me[9], -me[10]);
-    }
-    // body acceleration (clamped, low-passed) as the pseudo-force
-    _v1.set(vx, vy, vz);
-    if (cp.hasPrev) {
-      _v2.copy(_v1).sub(cp.prevVel).multiplyScalar(1 / dt);
-      const am = _v2.length();
-      if (am > 60) _v2.multiplyScalar(60 / am);
-      cp.accel.lerp(_v2, k(14));
-    }
-    cp.prevVel.copy(_v1); cp.hasPrev = true;
-    const sf = clamp(speed / 60, 0, 1);
-    // apparent wind in the frame = -velocity (damped at extreme speed to keep the cloth readable)
-    const wm = speed > 1 ? Math.min(1, 30 / speed) : 1;
-    { const me = this.col[0].o.matrixWorld.elements, bl = hypot(me[8], me[9], me[10]) || 1;
-      cp.step(dt, -vx * wm, -vy * wm, -vz * wm, sf, -me[8] / bl, -me[9] / bl, -me[10] / bl); }
-    // NaN guard
-    let bad = false;
-    for (let i = 0; i < CN * 3; i += 7) if (!Number.isFinite(cp.pos[i])) { bad = true; break; }
-    if (bad) { const me = this.col[0].o.matrixWorld.elements; cp.reset(-vx * 0.9, -vy * 0.9, -vz * 0.9, -me[8], -me[9], -me[10]); }
-    const pa = this.capeGeo.attributes.position;
-    // render copy = simulated cloth + a cheap travelling ripple (always away from the back, so it never cuts into the body)
-    {
-      const pa2 = pa.array, ps = cp.pos, rip = (0.012 + 0.07 * sf) * (this.wAir > 0.5 ? 1 : 0.6 + 0.4 * this.wRun);
-      const me = this.col[0].o.matrixWorld.elements, bl = hypot(me[8], me[9], me[10]) || 1;
-      const bx = -me[8] / bl, by = -me[9] / bl, bz = -me[10] / bl;
-      for (let r = 0; r < CR; r++) {
-        const rw = Math.pow(r / (CR - 1), 1.3) * rip;
-        for (let c = 0; c < CC; c++) {
-          const i = (r * CC + c) * 3;
-          const d = rw * (0.5 + 0.5 * Math.sin(t * 15 - r * 1.15 + c * 0.8)) * (0.6 + 0.4 * Math.abs(c - 4) / 4);
-          pa2[i] = ps[i] + bx * d; pa2[i + 1] = ps[i + 1] + by * d; pa2[i + 2] = ps[i + 2] + bz * d;
+    // cape LOD (comrades): `capeEvery` = simulate every Nth frame with the summed time, `capeHz` = substep rate
+    this._capeDt = (this._capeDt || 0) + dt;
+    if (this.first || ++this._capeN % (this.capeEvery || 1) === 0) {
+      const cdt = Math.min(0.1, this._capeDt); this._capeDt = 0;
+      const cp = this.cape, rp = this.root.position;
+      for (let c = 0; c < CC; c++) {
+        _v1.setFromMatrixPosition(this.pins[c].matrixWorld);
+        cp.anchor[c * 3] = _v1.x - rp.x; cp.anchor[c * 3 + 1] = _v1.y - rp.y; cp.anchor[c * 3 + 2] = _v1.z - rp.z;
+      }
+      cp.nSph = this.col.length;
+      for (let i = 0; i < this.col.length; i++) {
+        const me = this.col[i].o.matrixWorld.elements;
+        cp.spheres[i * 7] = me[12] - rp.x; cp.spheres[i * 7 + 1] = me[13] - rp.y; cp.spheres[i * 7 + 2] = me[14] - rp.z; cp.spheres[i * 7 + 3] = this.col[i].r;
+        const bl = hypot(me[8], me[9], me[10]) || 1;
+        cp.spheres[i * 7 + 4] = -me[8] / bl; cp.spheres[i * 7 + 5] = -me[9] / bl; cp.spheres[i * 7 + 6] = -me[10] / bl;
+      }
+      if (!cp.inited) {
+        const me = this.col[0].o.matrixWorld.elements;
+        cp.reset(-vx * 0.9, -vy * 0.9, -vz * 0.9, -me[8], -me[9], -me[10]);
+      }
+      // body acceleration (clamped, low-passed) as the pseudo-force
+      _v1.set(vx, vy, vz);
+      if (cp.hasPrev) {
+        _v2.copy(_v1).sub(cp.prevVel).multiplyScalar(1 / cdt);
+        const am = _v2.length();
+        if (am > 60) _v2.multiplyScalar(60 / am);
+        cp.accel.lerp(_v2, k(14));
+      }
+      cp.prevVel.copy(_v1); cp.hasPrev = true;
+      const sf = clamp(speed / 60, 0, 1);
+      // apparent wind in the frame = -velocity (damped at extreme speed to keep the cloth readable)
+      const wm = speed > 1 ? Math.min(1, 30 / speed) : 1;
+      { const me = this.col[0].o.matrixWorld.elements, bl = hypot(me[8], me[9], me[10]) || 1;
+        cp.step(cdt, -vx * wm, -vy * wm, -vz * wm, sf, -me[8] / bl, -me[9] / bl, -me[10] / bl); }
+      // NaN guard
+      let bad = false;
+      for (let i = 0; i < CN * 3; i += 7) if (!Number.isFinite(cp.pos[i])) { bad = true; break; }
+      if (bad) { const me = this.col[0].o.matrixWorld.elements; cp.reset(-vx * 0.9, -vy * 0.9, -vz * 0.9, -me[8], -me[9], -me[10]); }
+      const pa = this.capeGeo.attributes.position;
+      // render copy = simulated cloth + a cheap travelling ripple (always away from the back, so it never cuts into the body)
+      {
+        const pa2 = pa.array, ps = cp.pos, rip = (0.012 + 0.07 * sf) * (this.wAir > 0.5 ? 1 : 0.6 + 0.4 * this.wRun);
+        const me = this.col[0].o.matrixWorld.elements, bl = hypot(me[8], me[9], me[10]) || 1;
+        const bx = -me[8] / bl, by = -me[9] / bl, bz = -me[10] / bl;
+        for (let r = 0; r < CR; r++) {
+          const rw = Math.pow(r / (CR - 1), 1.3) * rip;
+          for (let c = 0; c < CC; c++) {
+            const i = (r * CC + c) * 3;
+            const d = rw * (0.5 + 0.5 * Math.sin(t * 15 - r * 1.15 + c * 0.8)) * (0.6 + 0.4 * Math.abs(c - 4) / 4);
+            pa2[i] = ps[i] + bx * d; pa2[i + 1] = ps[i + 1] + by * d; pa2[i + 2] = ps[i + 2] + bz * d;
+          }
         }
       }
+      pa.needsUpdate = true;
+      const na = this.capeGeo.attributes.normal;
+      cp.normals(pa.array, na.array);
+      na.needsUpdate = true;
     }
-    pa.needsUpdate = true;
-    const na = this.capeGeo.attributes.normal;
-    cp.normals(pa.array, na.array);
-    na.needsUpdate = true;
 
     // ── auto gas (optional)
     if (this.autoGas && boost > 0.05 && this.game && this.game.fx) {

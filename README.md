@@ -22,7 +22,7 @@ The keyboard is all you need. The mouse is optional.
 | **Shift** | gas boost (the reel pulls harder too). Tap it on the ground to jump; clinging to a trunk, it kicks you off |
 | **Space** | cut. Hold it while flying fast for Levi's spinning slash. Swooping in on a nape, press it early: the cut fires when you arrive |
 | **Esc** / **P** | pause · **M** mute · **H** show or hide the controls card |
-| **F** | whistle: your horse (or the nearest free one) gallops over. Run into a horse to vault on, or drop onto it from the air |
+| **F** | whistle: your horse (or the nearest free one) gallops over. Run up to its flank to vault into the saddle, or fall toward one with no ropes out and you drift onto its back, legs open, and land astride |
 
 WASD mirror the arrows. Blades swap themselves when they go dull (**R** also swaps). Mouse players can click
 the game to look around with the mouse; **Q** / **E** and the right mouse button also fire ropes.

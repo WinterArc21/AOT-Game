@@ -212,7 +212,7 @@ export class Horse {
     const graze = this.state === 'graze' && s < 0.4 && !this.rider;
     const nodT = graze ? 1.85 : 0.72 + ga * (0.18 + 0.12 * Math.sin(P + 2.2)) + (1 - ga) * 0.04 * Math.sin(P * 2);
     this.neck.rotation.x += (nodT - this.neck.rotation.x) * Math.min(1, dt * (graze ? 1.5 : 8));
-    this.head.rotation.x = graze ? -0.3 : 0.05 - ga * 0.12;
+    this.head.rotation.x = (graze ? -0.3 : 0.05 - ga * 0.12) - this._dip() * 2.4;   // tosses its head when you land on it
     this.tail.rotation.x = 0.25 + ga * 0.75 + Math.sin(this.phase * 3.1) * 0.12;
     this.tail.rotation.z = Math.sin(this.phase * 1.7) * 0.15 * (0.4 + ga);
     // mane streams back with speed and ripples down the crest

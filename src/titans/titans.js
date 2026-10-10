@@ -1,7 +1,7 @@
 // TitanManager: owns every Titan, spawns / updates / removes them and answers blade hit tests.
 // See aot/ARCHITECTURE.md ("Titans"). Model: builder.js + rig.js, behaviour: titan.js.
 import * as THREE from 'three';
-import { Titan, TITAN_TUNING } from './titan.js';
+import { Titan, TITAN_TUNING, prewarmArchetypes } from './titan.js';
 
 export { Titan, TITAN_TUNING };
 
@@ -9,6 +9,7 @@ export class TitanManager {
   constructor(game) {
     this.game = game;
     this.titans = [];
+    const t0 = performance.now(); prewarmArchetypes(); this.prewarmMs = performance.now() - t0;
     /** s left during which no titan may grab (set when the player gets free of a hand) */
     this.grabBlockT = 0;
     this._grabbedPrev = null;

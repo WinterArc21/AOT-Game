@@ -901,8 +901,8 @@ export class Hud {
       const el = this.el.big;
       el.firstElementChild.textContent = String(text);
       el.classList.remove('on');
-      void el.offsetWidth; // restart the entrance animation
-      el.classList.add('on');
+      cancelAnimationFrame(this._bigRaf);
+      this._bigRaf = requestAnimationFrame(() => { this._bigRaf = requestAnimationFrame(() => el.classList.add('on')); });   // restart the entrance without forcing a layout
       clearTimeout(this._t.big);
       this._t.big = setTimeout(() => el.classList.remove('on'), dur);
       return;
@@ -910,8 +910,9 @@ export class Hud {
     const el = this.el.toast;
     el.textContent = String(text);
     el.classList.remove('on', 'info', 'warn');
-    void el.offsetWidth;
-    el.classList.add(style === 'warn' ? 'warn' : 'info', 'on');
+    el.classList.add(style === 'warn' ? 'warn' : 'info');
+    cancelAnimationFrame(this._toastRaf);
+    this._toastRaf = requestAnimationFrame(() => { this._toastRaf = requestAnimationFrame(() => el.classList.add('on')); });
     clearTimeout(this._t.toast);
     this._t.toast = setTimeout(() => el.classList.remove('on'), dur);
   }
@@ -1109,8 +1110,7 @@ export class Hud {
     for (const k of h.keys) el.hintKeys.appendChild(kbdFor(k));
     el.hintKeys.style.display = h.keys.length ? '' : 'none';
     el.hintText.textContent = h.text;
-    void el.hint.offsetWidth; // start the fade from the hidden state
-    el.hint.classList.add('on');
+    requestAnimationFrame(() => requestAnimationFrame(() => el.hint.classList.add('on')));   // fade in from hidden, no forced layout
   }
 
   _nape(i) {

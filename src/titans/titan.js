@@ -62,6 +62,13 @@ const DESIGNS = {
   ],
 };
 
+/** Build every titan body (design × size class) up front, so the first spawn of each never hitches mid-fight. */
+export function prewarmArchetypes() {
+  for (const list of [DESIGNS.normal, DESIGNS.abnormal]) for (const d of list) for (const size of ['S', 'M', 'L']) {
+    getArchetype({ ...d, size });
+  }
+}
+
 export class Titan {
   constructor(mgr, o) {
     this.mgr = mgr; this.game = mgr.game; this.id = ++UID;

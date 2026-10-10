@@ -354,6 +354,8 @@ export class Ally {
     const dist = this.render.distanceTo(this.game.camera.position);
     const visible = dist < (this.game.allyRange || 260);
     const wantOutlines = dist < 45;
+    // far comrades: a coarser, less frequent cape sim (it's 2/3 of their cost and invisible at range)
+    if (this.model?.cape) { const cape = this.model.cape; cape.hz = dist < 12 ? 120 : dist < 80 ? 60 : 30; cape.iters = dist < 12 ? 5 : 3; this.model.capeEvery = dist < 80 ? 1 : dist < 160 ? 2 : 3; }
     if (wantOutlines !== this.outlinesOn) { this.outlinesOn = wantOutlines; for (const o of this.outlines) o.visible = wantOutlines; }
     if (this.model) {
       this.model.root.visible = visible && this.alive;

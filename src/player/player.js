@@ -502,48 +502,79 @@ export class Player {
     for (const h of herd.horses) {
       if (h.rider || h.mountCd > 0) continue;
       h.saddle(_e);
-      if (_e.distanceToSquared(this.pos) < r * r && this.vel.y < 2) {
+      const dxz = (_e.x - this.pos.x) ** 2 + (_e.z - this.pos.z) ** 2;
+      // on foot you run right up to the flank before vaulting; from the air the saddle is a bigger target
+      if (_e.distanceToSquared(this.pos) < r * r && (air || dxz < 1.8 * 1.8) && this.vel.y < 2) {
         const hs = hypot(this.vel.x, this.vel.z);
         this.riding = h; h.rider = this; h.caller = null; this.lastHorse = h;
-        if (h.speed < 6) h.yaw = hs > 3 ? Math.atan2(this.vel.x, this.vel.z) : this.yaw;   // a moving horse keeps its line
         h.speed = Math.max(h.speed, hs * 0.8);
-        this.mounting = { t: 0, air, dur: air ? 0.14 : CFG.horse.mountTime, off: new THREE.Vector3().subVectors(this.pos, h.pos), fall: -this.vel.y };
-        this.rideStand = air ? 0.55 : 1; this.rideStandT = 0;
+        const off = new THREE.Vector3().subVectors(this.pos, h.pos);
+        const lateral = -off.x * Math.cos(h.yaw) + off.z * Math.sin(h.yaw);       // + = on the horse's right
+        this.mounting = { t: 0, air, dur: air ? 0.62 : CFG.horse.mountTime, off, fall: -this.vel.y, side: lateral < 0 ? 1 : -1, hit: false };
+        this.rideStand = 0; this.rideStandT = 0;
         if (!air) this.game.audio?.land?.(0.2);
         this.game.events.emit('player:mounted', { horse: h });
         return;
       }
     }
   }
-  /** One fixed step of climbing on: a hop over the saddle (run) or the last metre of a drop into it (air). */
+  /** One fixed step of climbing on. The pose is keyed in the model (s.mount); this moves the body along with it.
+   *  run: crouch and plant a hand (0-0.2), spring up and over the saddle (0.2-0.75), seat (0.78), sit up.
+   *  air: the last metre of the fall into the saddle (0-0.23), the impact folds you forward, then you sit up. */
   _mountStep(dt, h) {
     const M = this.mounting;
     M.t += dt;
-    const k = Math.min(1, M.t / M.dur);
+    const q = Math.min(1, M.t / M.dur);
     _d.copy(h.pos).add(M.off);                                   // where you took off from, carried along with the horse
+    h.saddle(_e, 0);
     if (!M.air) {
-      // hand on the saddle, body up and over, leg swinging across: a quick arc that lands you seated
-      const e = k * k * (3 - 2 * k);
-      h.saddle(_e, 0);
-      _a.lerpVectors(_d, _e, 0.55); _a.y = Math.max(_d.y, _e.y) + 1.4;
+      const e = THREE.MathUtils.smoothstep(q, 0.14, 0.78);
+      _a.lerpVectors(_d, _e, 0.75); _a.y = Math.max(_d.y, _e.y) + 0.75;   // up beside the saddle, then over it
       const u = 1 - e;
       this.pos.set(0, 0, 0).addScaledVector(_d, u * u).addScaledVector(_a, 2 * u * e).addScaledVector(_e, e * e);
-      this.rideStand = 1 - THREE.MathUtils.smoothstep(k, 0.3, 0.92);   // legs go from standing to astride over the top
-      this.crouch = Math.max(this.crouch, Math.sin(Math.PI * Math.min(1, k * 1.4)) * 0.7);
-      if (k >= 1) { this.mounting = null; this.rideStand = 0; h.hit(0.15); this.game.audio?.land?.(0.3); }
+      if (q > 0.22 && !M.sprung) { M.sprung = true; this.game.audio?.land?.(0.15); }
+      if (q >= 0.78 && !M.hit) { M.hit = true; h.hit(0.25); this.game.audio?.land?.(0.3); }
     } else {
-      // falling the last bit onto its back: accelerate into the saddle, land crouched, the horse sags under you
-      h.saddle(_e, 0.55);
+      const k = Math.min(1, q / 0.23);
       this.pos.lerpVectors(_d, _e, k * k);
-      if (k >= 1) {
+      if (k >= 1 && !M.hit) {
+        M.hit = true;
         const s = Math.min(1.3, M.fall / 11);
-        this.mounting = null; this.rideStand = 0.55; this.rideStandT = 0; this.crouch = 0.9;
-        h.hit(s);
+        h.hit(0.6 + s * 0.6);
         this.game.audio?.land?.(0.45 + s * 0.3);
         this.cam.trauma = Math.min(1, this.cam.trauma + 0.12 + s * 0.15);
       }
     }
+    if (q >= 1) { this.mounting = null; this.rideStand = 0; }
   }
+  /** Falling toward a free horse with no ropes out: drift onto its back (leading its gallop) and open the legs. */
+  _saddleMagnet(dt, acc) {
+    this.straddle = 0;
+    const herd = this.game.herd;
+    const hs = hypot(this.vel.x, this.vel.z);
+    if (!herd || this.grounded || this.odm.attachedCount() || this.vel.y > -1 || this.boosting || this.mountCd > 0 || hs > 22) return;
+    let best = null, bd = 1e9;
+    for (const h of herd.horses) {
+      if (h.rider || h.mountCd > 0) continue;
+      const dx = h.pos.x - this.pos.x, dz = h.pos.z - this.pos.z, d2 = dx * dx + dz * dz;
+      const dy = this.pos.y - (h.pos.y + 1.5);
+      if (dy < 0.5 || dy > 12 || d2 > 12 * 12) continue;
+      if (hs > 4 && dx * this.vel.x + dz * this.vel.z < 0.5 * Math.sqrt(d2) * hs) continue;   // only a horse you're heading for
+      if (d2 < bd) { bd = d2; best = h; }
+    }
+    if (!best) return;
+    // time to fall to saddle height, and where the saddle will be by then
+    const dy = this.pos.y - (best.pos.y + 1.5), vy = -this.vel.y, g = CFG.gravity;
+    const tf = Math.max(0.12, (-vy + Math.sqrt(vy * vy + 2 * g * dy)) / g);
+    best.saddle(_e, 0).addScaledVector(best.vel, tf);
+    const wx = (_e.x - this.pos.x) / tf, wz = (_e.z - this.pos.z) / tf;     // horizontal velocity that lands on it
+    const ax = THREE.MathUtils.clamp((wx - this.vel.x) * 6, -30, 30), az = THREE.MathUtils.clamp((wz - this.vel.z) * 6, -30, 30);
+    const hd = Math.sqrt(bd);
+    const w = THREE.MathUtils.clamp(1.3 - hd / 10, 0, 1);
+    acc.x += ax * w; acc.z += az * w;
+    this.straddle = THREE.MathUtils.clamp(1 - (tf - 0.15) / 0.6, 0, 1) * w;
+  }
+  _mountS(M) { const o = this._ms || (this._ms = { k: 0, kind: 'run', side: 1 }); o.k = M.t / M.dur; o.kind = M.air ? 'air' : 'run'; o.side = M.side; return o; }
   /** Fingers in mouth: your horse (or the nearest free one) comes galloping. */
   _whistle() {
     const herd = this.game.herd, now = this.game.time || 0;
@@ -648,6 +679,7 @@ export class Player {
     const hasGas = this.infiniteGas || odm.gas > 0;
     const anchored = odm.attachedCount();
     const groundedNow = this.grounded;
+    this._saddleMagnet(dt, acc);
     this.boosting = this.wantBoost && hasGas && this.stun <= 0 && (!groundedNow || this.spaceHeld > 0.16 || anchored > 0);
 
     // winch (↓ on a rope stops it and pays the wire out for a longer, lower swing)
@@ -979,7 +1011,14 @@ export class Player {
       // fly along the velocity, but never a pure vertical dive: keep a heading so the pose stays readable
       tf.copy(v).multiplyScalar(1 / speed).addScaledVector(_e.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)), anchored ? 0.25 : 0.55);
     } else tf.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
-    if (this.riding) tf.set(Math.sin(this.riding.yaw), 0, Math.cos(this.riding.yaw));
+    if (this.riding) {
+      tf.set(Math.sin(this.riding.yaw), 0, Math.cos(this.riding.yaw));
+      const M = this.mounting;
+      if (M && !M.air) {
+        const q = M.t / M.dur, w = 1 - THREE.MathUtils.smoothstep(q, 0.25, 0.75);
+        _e.set(-M.off.x, 0, -M.off.z); if (_e.lengthSq() > 1e-4) tf.addScaledVector(_e.normalize(), 0.3 * w);   // a quarter-turn in to the flank, no more
+      }
+    }
     // coming in to land: swing upright and feet-first before touchdown (never a head-first dive into the ground)
     this.landPrep = 0;
     if (!this.grounded && !anchored && v.y < -2) {
@@ -1032,7 +1071,8 @@ export class Player {
         mu = this._flipU.copy(this.bodyUp).applyQuaternion(ax);
       }
       this.model.update(dt, {
-        riding: this.riding ? 1 - this.rideStand : 0, crouch: this.grounded ? this.crouch : 0, landPrep: this.landPrep,
+        riding: this.riding ? 1 - this.rideStand : 0, crouch: this.grounded ? this.crouch : 0, landPrep: this.straddle > 0.05 ? 0 : this.landPrep,
+        mount: this.mounting ? this._mountS(this.mounting) : null, straddle: this.straddle || 0,
         horseGallop: this.riding?.gallop || 0, horsePhase: this.riding?.phase || 0,
         position: this._modelPos.copy(this.render).addScaledVector(this.bodyUp, CFG.modelLift), velocity: v, forward: mf, up: mu,
         grounded: this.grounded, running: run, hooks, boosting: this.boostLevel, slash,

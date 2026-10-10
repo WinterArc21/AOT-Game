@@ -33,7 +33,7 @@ export const CFG = {
   impact: { safe: 30, dmg: 0.022, stun: 48 },
   wire: { snapSpeed: 7, rebound: 0.08 },   // a wire snapping taut faster than this kicks back a little
   modelLift: 0.4,           // the model's body centre sits this far above the collision sphere's centre
-  horse: { mountRadius: 2.6, mountTime: 0.6, maxMountSpeed: 24, leap: 9.5, ropeLeap: 5, leapForward: 2 },
+  horse: { mountRadius: 2.6, mountTime: 0.72, maxMountSpeed: 24, leap: 9.5, ropeLeap: 5, leapForward: 2 },
   perch: { reach: 6, maxSpeed: 25, clingTime: 1.8 },   // keep holding a rope, come in slowly: land on it
   kill: { slowmo: 0.9, camTime: 1.05, camCooldown: 2.5 },   // the nape-cut moment
   release: { boost: 7, lift: 3, flipTime: 0.6 },   // a well-timed release (bottom of the swing) slings you out

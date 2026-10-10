@@ -30,6 +30,7 @@ const store = {
 
 export class Game {
   constructor(game) {
+    this._spawnQ = []; this._spawnT = 0;
     this.g = game;
     this.wave = 0; this.score = 0; this.combo = 1; this.comboT = 0;
     this.waveClear = 0; this.run = 0;
@@ -102,6 +103,7 @@ export class Game {
     this._stopTraining();
     this.wave = 0; this.score = 0; this.combo = 1; this.comboT = 0; this.colossal = false; this.colossalSpawned = false; this.waveClear = 0;
     this.startTime = g.time;
+    this._spawnQ = []; this._spawnT = 0;
     this.trainStart = null; this.trainEnd = null; this.trainSpeeds = [];
 
     // where you start: the wall top for the Expedition, the forest edge for Free Flight, the course start for Training
@@ -192,8 +194,8 @@ export class Game {
       }
       pos.y = g.collision.groundHeight(pos.x, pos.z);
       const h = sizes[0] + Math.random() * (sizes[1] - sizes[0]);
-      try { g.titans.spawn({ kind: i < abnormals ? 'abnormal' : 'normal', height: h, position: pos, yaw: Math.random() * Math.PI * 2 }); }
-      catch (err) { console.warn('spawn failed', err); }
+      // queued: building a titan takes milliseconds, so a wave arrives over a few frames instead of in one long hitch
+      this._spawnQ.push({ kind: i < abnormals ? 'abnormal' : 'normal', height: h, position: pos, yaw: Math.random() * Math.PI * 2 });
     }
   }
 
@@ -325,6 +327,10 @@ export class Game {
     if (this.comboT <= 0) this.combo = 1;
     this._tutorial(dt);
     this._spotting();
+    if (this._spawnQ?.length && (this._spawnT -= dt) <= 0) {
+      this._spawnT = 0.05;
+      try { g.titans?.spawn(this._spawnQ.shift()); } catch (err) { console.warn('spawn failed', err); }
+    }
     if (g.mode === 'expedition' && g.player.alive) {
       const ts = g.titans?.titans || [];
       const alive = ts.filter((t) => t.alive && t.kind !== 'colossal').length;
@@ -332,7 +338,7 @@ export class Game {
       if (this.waveClear > 0) {
         this.waveClear -= dt;
         if (this.waveClear <= 0) this._nextWave();
-      } else if (alive === 0 && !(this.colossalSpawned && colossalUp)) {
+      } else if (alive === 0 && !this._spawnQ?.length && !(this.colossalSpawned && colossalUp)) {
         if (this.wave > 0) g.hud?.message?.(`WAVE ${this.wave} CLEARED`, 2.5, 'info');
         this.waveClear = 4;
       }
