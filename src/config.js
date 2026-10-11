@@ -32,8 +32,9 @@ export const CFG = {
   air: { control: 7, pump: 10 },
   // brake: ↓ skids you to a stop; maxLateral: the sideways acceleration a running turn can pull (m/s²)
   ground: { run: 11, accel: 80, skid: 22, brake: 45, maxLateral: 16, jump: 7.8, coyote: 0.12 },
-  // feel: shake, dust and a thud above this; damage above safe (feet first onto a floor) or safeWall (anything else)
-  impact: { feel: 11, safe: 30, safeWall: 17, dmg: 0.022, stun: 48 },
+  // Hitting the world never hurts (soldiers are trained to land; only titans do damage). feel: shake, dust and a thud
+  // above this speed; stun: above this a crash knocks the wind out of you for a moment and your ropes let go
+  impact: { feel: 11, wall: 17, stun: 48 },
   // a wire snapping taut faster than snapSpeed jolts you; the reel's slip clutch then lets the wire run out, braking
   // the outward speed at slipDecel instead of stopping it dead in one tick (a point-blank catch at 50 m/s)
   wire: { snapSpeed: 7, rebound: 0.08, slipFrom: 2.5, slipDecel: 85 },

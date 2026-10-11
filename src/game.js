@@ -301,7 +301,7 @@ export class Game {
   _onDeath(e) {
     const g = this.g;
     const p = g.player;
-    const cause = { eaten: 'YOU WERE EATEN', impact: 'YOU HIT THE GROUND TOO HARD', struck: 'CRUSHED BY A TITAN', fell: 'YOU FELL' }[e.cause] || 'YOU DIED';
+    const cause = { eaten: 'YOU WERE EATEN', struck: 'CRUSHED BY A TITAN', fell: 'YOU FELL' }[e.cause] || 'YOU DIED';
     g.audio?.setMusic?.(0.1);
     const run = this.run, mode = g.mode;
     setTimeout(() => {

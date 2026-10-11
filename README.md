@@ -88,9 +88,10 @@ hand that holds them, or kill the titan, within about five seconds.
   off the closing speed so you land on the trunk instead of hitting it. They brake with the deceleration it
   actually takes (up to 420 m/s² when a trunk swings into view close up). Sideways passes keep all their speed.
   Held against a wall by a wire, you run up it.
-* **Impacts:** anything above 11 m/s gives a shake, dust and a thud. Above 17 m/s into a trunk or wall (30 m/s
-  feet first onto a floor) it hurts. A horse that gallops into a wall throws you up and over its head at the
-  speed you had, never faster.
+* **Impacts never hurt.** Soldiers are trained to land: the ground, trunks, walls and a titan's hide don't
+  damage you, only titans' attacks do. A hard hit is felt (above 11 m/s: shake, dust and a thud; above 48 m/s it
+  knocks the wind out of you and your ropes let go). A horse that gallops into a wall throws you up and over its
+  head at the speed you had, never faster.
 * **Collision** is a swept sphere (sub-steps of 0.3 m or less, up to 12 per tick) against analytic shapes:
   oriented boxes, vertical cylinders, capsules, spheres and a height-field. Nothing tunnels at 100 m/s.
 * **Damage:** a slash deals `(40 + relative speed × 12.5) × blade sharpness`. Small titans need about 25 m/s at

@@ -672,7 +672,6 @@ export class Player {
         this.vel.y = sp * up;
         this.flipT = CFG.release.flipTime;
         this.mountCd = 2.5;
-        this.hurt(Math.max(0, sp - 10) * 0.02, 'impact');
         this.cam.trauma = Math.min(1, this.cam.trauma + 0.5);
         return;
       }
@@ -947,16 +946,13 @@ export class Player {
 
   _impact(speed, contact) {
     this.impactCooldown = 0.35;
-    // feet first onto a floor the legs take a lot; a trunk, wall or roof edge hits the body
+    // felt, never hurt: hitting the ground, a trunk, a wall or a titan's hide doesn't damage you (titans' attacks do)
     const floor = contact.normal.y > 0.6;
-    const safe = floor ? CFG.impact.safe : CFG.impact.safeWall;
     const s = THREE.MathUtils.clamp((speed - CFG.impact.feel) / 40, 0, 1);
     this.cam.trauma = Math.min(1, this.cam.trauma + 0.1 + s * 0.75);
     this.game.audio?.impact?.(Math.max(0.15, s));
     this.game.fx?.impact?.(this.pos.clone().addScaledVector(contact.normal, -CFG.radius), contact.normal, contact.collider?.material || 'ground');
-    if (!floor && speed > CFG.impact.safeWall) this.crouch = Math.max(this.crouch, 0.5);
-    const dmg = (speed - safe) * CFG.impact.dmg;
-    if (dmg > 0.02) this.hurt(dmg, 'impact');
+    if (!floor && speed > CFG.impact.wall) this.crouch = Math.max(this.crouch, 0.5);
     if (speed > CFG.impact.stun) { this.stun = 0.45; this.odm.releaseAll(); }
   }
 

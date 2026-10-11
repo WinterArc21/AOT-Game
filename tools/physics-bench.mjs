@@ -111,7 +111,7 @@ const check = (name, ok, info) => { results.push({ name, ok, info }); console.lo
   p.reset(new THREE.Vector3(0, 100, 60), 0); g.mode = 'expedition';
   let vImpact = 0, minY = 1e9;
   for (let t = 0; t < 6; t += H) { vImpact = Math.max(vImpact, -p.vel.y); p.fixedUpdate(H); minY = Math.min(minY, p.pos.y); }
-  check('100 m fall: body never below ground, damage taken', minY >= CFG.radius - 0.02 && p.hp < 1, `vImpact=${vImpact.toFixed(1)} minY=${minY.toFixed(3)} hp=${p.hp.toFixed(2)}`);
+  check('100 m fall: body never below ground, no damage (the world never hurts)', minY >= CFG.radius - 0.02 && p.hp >= 1, `vImpact=${vImpact.toFixed(1)} minY=${minY.toFixed(3)} hp=${p.hp.toFixed(2)}`);
 }
 
 // 6. run on the ground
