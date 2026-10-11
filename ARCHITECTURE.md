@@ -61,8 +61,9 @@ game = {
 
 Controls (keyboard first; `src/player/player.js` `handleInput`): ← → turn (swing on a rope), ↑ / ↓ run / brake
 (↓ on a rope pays the wire out), Z / X hold the left / right rope at its auto-target (`player.targets[0|1]`,
-rescanned one side per frame by `Player._scan`), Shift gas (tap on the ground = jump), Space cut (primed while
-swooping), Esc / P pause, H controls card, M mute. WASD mirror the arrows; the mouse is optional.
+rescanned one side per frame by `Player._scan`), V land on what a rope is in (`Player._landOnRope`), Shift gas (tap
+on the ground = jump), Space cut (swings at once; the cut lands at the best moment of the sweep, `_bladeProbe` /
+`_applyCut`), Esc / P pause, H controls card, M mute. WASD mirror the arrows; the mouse is optional.
 
 Cuttable things share one duck type: `{ kind, alive, height, position, velocity?, root, napeWorld(),
 applyHit({ part, damage, point, dir }), anchors?(out[]) -> Vector3[], threat? (0..1) }`. Their colliders carry
