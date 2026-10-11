@@ -107,8 +107,9 @@ hand that holds them, or kill the titan, within about five seconds.
 * **The cut** lands at the best moment of the sweep (the nape closest to the middle of it, mid-swing), at the speed
   you carried into it. Depth = speed × sharpness × angle (1 from behind the neck, 0.55 beside it, 0 in front) ×
   timing (0.35 for a glancing edge-of-the-sweep cut, 1 for a clean one).
-* **Landing assist:** when you are about to hit a surface head-on while flying on a wire, the front vents bleed
-  off the closing speed so you land on the trunk instead of hitting it. They brake with the deceleration it
+* **Landing assist:** when you are about to hit a surface head-on while flying on a wire (or on gas, or just
+  carrying more than 17 m/s at a trunk or a wall), the front vents bleed off the closing speed so you land on the
+  trunk instead of stopping dead against it. A fall onto the ground is yours to take. They brake with the deceleration it
   actually takes (up to 420 m/s² when a trunk swings into view close up). Sideways passes keep all their speed.
   Held against a wall by a wire, you run up it.
 * **Impacts never hurt.** Soldiers are trained to land: the ground, trunks, walls and a titan's hide don't

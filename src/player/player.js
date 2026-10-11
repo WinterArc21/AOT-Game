@@ -908,15 +908,17 @@ export class Player {
 
     v.addScaledVector(acc, dt);
 
-    // landing assist: about to hit a surface head-on while flying on the wires (or holding gas)?
-    // the front vents fire and bleed off the closing speed, so you land on the trunk like in the anime.
-    if ((anchored || this.boosting) && hasGas && !groundedNow) {
+    // landing assist: about to hit a surface head-on while flying fast (on the wires, on gas, or just carrying
+    // speed)? the front vents fire and bleed off the closing speed, so you land on the trunk like in the anime
+    // instead of stopping dead against it
+    if ((anchored || this.boosting || v.length() > CFG.reel.arrive + 4) && hasGas && !groundedNow) {
       const sp = v.length();
       if (sp > CFG.reel.arrive) {
         const look = (sp * sp) / (2 * CFG.reel.brake) + 3;
         const hit = this.game.collision.raycast(p, _c.copy(v).multiplyScalar(1 / sp), look, { dynamic: false });
         const cosI = hit ? -hit.normal.dot(_c) : 0;
-        if (hit && cosI > 0.35) {
+        // (just carrying speed, it's trunks and walls the vents save you from; a fall onto the ground is yours)
+        if (hit && cosI > 0.35 && (anchored || this.boosting || hit.normal.y < 0.6)) {
           const vn = -v.dot(hit.normal);
           // distance to go along the normal before the body sphere touches
           const dn = Math.max(0.05, hit.distance * cosI - CFG.radius - 0.1);

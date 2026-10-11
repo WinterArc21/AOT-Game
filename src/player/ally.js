@@ -261,11 +261,11 @@ export class Ally {
       const dx = _b.x - p.x, dz = _b.z - p.z, dh = hypot(dx, dz);
       if (dh < 8) continue;
       const score = (dx * fx + dz * fz) / dh - Math.abs(dh - 25) / 40 - Math.abs(_b.y - p.y) / 40;
-      if (score > bs) { bs = score; best = _b.clone().setY(_b.y + c.r + CFG.radius + 0.02); }
+      if (score > bs) { bs = score; best = _b.clone().setY(_b.y + c.r + CFG.radius + 0.02); best.branch = c; }
     }
     if (best) {
       let clear = true;
-      for (const k of col.collideSphere(best, CFG.radius * 0.9, { dynamic: false })) if (k.depth > 0.12 && k.collider.type !== 'capsule') { clear = false; break; }
+      for (const k of col.collideSphere(best, CFG.radius * 0.9, { dynamic: false })) if (k.depth > 0.12 && k.collider !== best.branch) { clear = false; break; }
       if (clear) return best;
     }
     return this._groundSpot(p.x + fx * 25, p.z + fz * 25);
@@ -279,6 +279,14 @@ export class Ally {
     const s1 = p.clone().addScaledVector(this.vel, dur / 4);
     if (s1.distanceTo(p) > 0.3 * d + 0.5) s1.copy(p).addScaledVector(_a.subVectors(s1, p).normalize(), 0.3 * d + 0.5);
     const c = p.clone().lerp(e, 0.6); c.y = Math.max(c.y, e.y) + 1.5 + d * 0.08;
+    // the arc has to be clear (no flying through a trunk or a parapet to get there)
+    const col = this.game.collision;
+    for (let i = 1; i < 12; i++) {
+      const k = i / 12, u = 1 - k;
+      _a.set(0, 0, 0).addScaledVector(p, u * u * u).addScaledVector(s1, 3 * u * u * k).addScaledVector(c, 3 * u * k * k).addScaledVector(e, k * k * k);
+      if (_a.distanceTo(e) < 1.2) continue;
+      for (const hit of col.collideSphere(_a, CFG.radius * 0.8, { dynamic: false })) if (hit.depth > 0.05) return;
+    }
     this.land = { s: p.clone(), s1, c, e: e.clone(), t: 0, dur };
   }
   _landStep(dt) {
@@ -398,7 +406,7 @@ export class Ally {
     this.t += dt;
     // you, standing still on the ground: the squad gathers round you (and follows when you're off again)
     const pl = this.game.player;
-    this._youStillT = pl.alive && pl.grounded && !pl.riding && pl.speed < 1.5 ? (this._youStillT || 0) + dt : 0;
+    this._youStillT = this.game.mode !== 'menu' && pl.alive && pl.grounded && !pl.riding && pl.speed < 1.5 ? (this._youStillT || 0) + dt : 0;
     if (this.land) { this._landStep(dt); return; }
     if (this.rest) { this._restStep(dt); if (this.rest) return; }
     this._restCheck(dt);

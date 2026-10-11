@@ -560,6 +560,7 @@ export class Titan {
         // and casts about (it answers with a slap, a hunch or a whirl round instead: _tryGuard)
         if (this.distH < this.height * 0.7 && pl.position.y - this.position.y > this.shoulderH * 0.75 && Math.abs(this.relYaw) > 0.6) {
           this.faceYaw = this.yaw + Math.sin(this.t * 1.3) * 0.25 * dt; this.speedTarget = 0;
+          this._tryCounter(dt);   // (it still shakes off a soldier hanging on it, and snatches a wire)
           break;
         }
         this.goal = _g0.copy(pl.position);
