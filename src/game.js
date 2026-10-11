@@ -62,6 +62,7 @@ export class Game {
     ev.on('player:wireGrabbed', () => game.hud?.message?.('IT HAS YOUR WIRE! LET GO OR SPACE TO CUT', 2, 'warn'));
     ev.on('player:wireCut', () => game.hud?.message?.('WIRE CUT', 1.1, 'info'));
     ev.on('player:shaken', () => game.hud?.message?.('SHAKEN OFF!', 1.2, 'warn'));
+    ev.on('player:slapped', () => game.hud?.message?.('SWATTED OFF ITS NECK!', 1.2, 'warn'));
     ev.on('player:trampled', () => game.hud?.message?.('THROWN FROM THE SADDLE!', 1.6, 'warn'));
     ev.on('titan:windup', (e) => { if (e.kind === 'charge' && game.player?.riding) game.hud?.message?.('ABNORMAL CHARGING — BREAK AWAY!', 1.8, 'warn'); });
     ev.on('player:bladeBroken', () => game.hud?.message?.(game.player.spares > 0 ? 'Blades dull: swapping to a fresh pair' : 'NO BLADES LEFT: find a supply depot (crates under a flag)', 2, 'warn'));
@@ -242,7 +243,14 @@ export class Game {
       const x = (sp.x * 0.5 + 0.5) * innerWidth, y = (-sp.y * 0.5 + 0.5) * innerHeight;
       g.hud.damageNumber(damage, x, y, !!result?.killed);
     }
-    if (!result?.killed && part === 'nape' && result?.effect === 'shallow') g.hud?.message?.('TOO SLOW: hit the nape faster (zip in on a rope, then cut)', 1.6, 'warn');
+    if (!result?.killed && part === 'nape' && result?.effect === 'shallow') {
+      // say what went wrong: the angle, its shoulders, or the speed; and that the wound is there to finish
+      const why = result.covered ? 'IT COVERED ITS NAPE: wait for the shoulders to drop'
+        : (result.angle ?? 1) < 0.8 ? 'FROM THE SIDE: come round behind the neck and cut across it'
+          : (result.timing ?? 1) < 0.65 ? 'MISTIMED: swing just as you reach it'
+            : 'TOO SLOW: come in faster (Shift on the rope)';
+      g.hud?.message?.(e.titan?.kind === 'dummy' ? why : `WOUNDED — ${why}`, 1.8, 'warn');
+    }
     if (result?.effect === 'blind') g.hud?.message?.('BLINDED', 1, 'info');
     if (result?.effect === 'cripple') g.hud?.message?.('ANKLE CUT: IT\'S DOWN', 1.2, 'info');
   }

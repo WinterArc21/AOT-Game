@@ -20,7 +20,7 @@ The keyboard is all you need. The mouse is optional.
 | **C** | the marker isn't on the anchor you want? skip both ropes to the next-best anchors |
 | **Z + X** | both ropes: zip forward between the two anchors. If either side has a titan in view, both ropes go to the titan |
 | **Shift** | gas boost (the reel pulls harder too). Tap it on the ground to jump; clinging to a trunk, it kicks you off |
-| **Space** | cut. Hold it while flying fast for Levi's spinning slash. Swooping in on a nape, press it early: the cut fires when you arrive |
+| **Space** | cut. It swings the moment you press it: time it so the sweep meets the nape as you reach it. Hold it while flying fast for Levi's spinning slash |
 | **Esc** / **P** | pause · **M** mute · **H** show or hide the controls card |
 | **F** | whistle: your horse (or the nearest free one) gallops over. Run up to its flank to vault into the saddle, or fall toward one with no ropes out and you drift onto its back, legs open, and land astride |
 
@@ -28,8 +28,19 @@ WASD mirror the arrows. Blades swap themselves when they go dull (**R** also swa
 the game to look around with the mouse; **Q** / **E** and the right mouse button also fire ropes.
 
 **Fighting a titan:** get within about 100 m and hold **Z + X**. Both ropes lock onto its shoulders and the gear
-swoops you round behind the neck. Press **Space** as you come in. A cut that's too slow only scratches the nape,
-so add **Shift** for speed.
+swings you out round the side of its head (**←** / **→** pick which side) and round behind the neck, then lines you
+up on the nape where it last saw it. The rest is yours:
+* **The cut is yours to time.** Space swings the blades at once; they bite deepest mid-sweep with the nape square in
+  it. Too early or too late only catches it on the edge of the sweep and cuts shallow.
+* **Come in from behind.** A cut from straight behind the neck goes full depth, from beside it about half, and from
+  in front the blades only find the face.
+* **Speed is depth.** A 5 m titan needs about 25 m/s, a 15 m one about 45: hold **Shift** on the run-in.
+* **It fights back.** A titan with a soldier at its neck slaps at the back of it (the anchors tear out and you're
+  flung clear), hunches its shoulders up round the nape (cuts glance off: wait for them to drop), or whirls round
+  to face you. When, and which, varies, so no two approaches go the same way. **← →** slide you across the back of
+  the neck to put the nape back on your line.
+* **A shallow cut wounds.** It steams, and most of the damage stays for about half a minute: cut again to finish it.
+  The HUD says what went wrong (too slow, from the side, mistimed, or it covered up).
 
 **Modes:**
 * **Expedition:** waves of titans from the field, the forest and the breached gate, and the Colossal Titan on wave 3.
@@ -82,8 +93,13 @@ hand that holds them, or kill the titan, within about five seconds.
   turn tightens as you slow (a sprint carves a bend instead of pivoting on the spot).
 * **Letting the wire out** (↓ on a rope) is a brake-reel: under tension the wire runs out at up to 7 m/s, so the
   swing widens instead of the reel winding the slack back in.
-* **The nape swoop:** roped to a titan, the gear flies you in three legs: out beside the head, round behind the
-  neck, then through the nape at about 33 m/s (44 with Shift). Ropes on anything else go slack meanwhile.
+* **The nape swoop:** roped to a titan, the gear flies you in three legs: out beside the head (the side you pick),
+  round behind the neck, then in at the nape at about 33 m/s (50 with Shift). It steers for where it last saw the
+  nape (following the real one about a second behind), so a titan that turns, walks or hunches pulls it off your
+  line. Nothing aims or fires the cut for you. Ropes on anything else go slack meanwhile.
+* **The cut** lands at the best moment of the sweep (the nape closest to the middle of it, mid-swing), at the speed
+  you carried into it. Depth = speed × sharpness × angle (1 from behind the neck, 0.55 beside it, 0 in front) ×
+  timing (0.35 for a glancing edge-of-the-sweep cut, 1 for a clean one).
 * **Landing assist:** when you are about to hit a surface head-on while flying on a wire, the front vents bleed
   off the closing speed so you land on the trunk instead of hitting it. They brake with the deceleration it
   actually takes (up to 420 m/s² when a trunk swings into view close up). Sideways passes keep all their speed.
@@ -103,6 +119,9 @@ fall, a run, a wall climb, rope auto-targeting, wire payout and keyboard turning
 real forest and reports distance, altitude, how often ropes catch and stalls.
 `node tools/combat-bench.mjs 90` lets a keyboard-only bot fight the Expedition and reports kills, nape hits,
 grabs and deaths.
+`node tools/nape-bench.mjs 6` sends keyboard bots at single titans (5, 8, 12 and 15 m) in Free Flight: one times
+the cut well, one is up to 0.15 s off, one swings early (14 m out) and one never cuts. It reports kills, time to
+kill, cut depth (angle, speed, timing) and how often the titan slapped, hunched or whirled.
 `node tools/play-bench.mjs "play=free"` drives the real game in headless Chromium and screenshots a flight.
 `node tools/motion-bench.mjs` measures the animation and gear in the real game: how fast planted feet and hooves
 move over the ground (soldier walk/jog/sprint, 5 m and 15 m titans, horse walk/trot/gallop), step rates, the horse

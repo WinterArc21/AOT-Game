@@ -10,7 +10,7 @@ const hypot = (a, b, c = 0) => Math.sqrt(a * a + b * b + c * c);
 
 const UP = new THREE.Vector3(0, 1, 0);
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3();
-const _e = new THREE.Vector3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
+const _e = new THREE.Vector3(), _f = new THREE.Vector3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
 const damp = (k, dt) => 1 - Math.exp(-k * dt);
 
 export class Player {
@@ -54,7 +54,7 @@ export class Player {
     this.stun = 0; this.grabbedBy = null; this.grabHand = null; this.struggle = 0; this.grabImmune = 0;
     this.reelLevel = 0; this.impactCooldown = 0;
     this.wishF = 0; this.wishR = 0; this.turn = 0; this.wantBoost = false; this._dashPuff = 0;
-    this.shiftHeld = 0; this.payout = false; this.mouseT = 99; this.autoSwapT = 0; this.primeT = 0; this.perch = null; this.cling = null; this.flipT = 0; this.mountCd = 0; this.rideStand = 0; this.rideStandT = 0; this.crouch = 0; if (this.riding) this.riding.rider = null; this.riding = null; this.mounting = null; this.prey = null; this.preyDist = 1e9; this.swooping = false;
+    this.shiftHeld = 0; this.payout = false; this.mouseT = 99; this.autoSwapT = 0; this.perch = null; this.cling = null; this.flipT = 0; this.mountCd = 0; this.rideStand = 0; this.rideStandT = 0; this.crouch = 0; if (this.riding) this.riding.rider = null; this.riding = null; this.mounting = null; this.prey = null; this.preyDist = 1e9; this.swooping = false;
     if (this.targets) for (const t of this.targets) { t.valid = false; t.collider = null; t.titan = null; }
     this.odm.reset();
     this.cam.pos.copy(position).add(new THREE.Vector3(Math.sin(yaw) * -5, 2, Math.cos(yaw) * -5));
@@ -193,11 +193,7 @@ export class Player {
     if (input.hit('R')) this._swapBlades();
     const yh = this.odm.hooks[0].yank ? this.odm.hooks[0] : this.odm.hooks[1].yank ? this.odm.hooks[1] : null;
     if (cut && yh) this._cutWire(yh);                 // a titan has your wire: Space severs it
-    else if (cut && this.swapT <= 0) {
-      // swooping in on a nape: Space primes the cut and the blades fire the moment you reach it
-      if (this.swooping && this.preyDist < CFG.combat.primeRange) this.primeT = CFG.combat.primeTime;
-      else this._slash();
-    }
+    else if (cut && this.swapT <= 0) this._slash();   // the cut is yours to time: it swings when you press
     const cutHeld = input.held('Space') || input.held('Mouse0');
     this.spin = cutHeld && !this.grounded && this.speed > CFG.combat.spinMinSpeed && this.blade > 0 && this.swapT <= 0 && (this.slashT < 0 || this.slashT > 0.15);
     if (this.blade <= 0 && this.spares > 0 && this.swapT <= 0) {
@@ -651,7 +647,7 @@ export class Player {
 
   _slash() {
     if (this.slashT >= 0 && this.slashT < CFG.combat.slashTime * 0.7) return;
-    this.slashT = 0; this.slashHit = false; this._arcShown = false;
+    this.slashT = 0; this.slashHit = false; this._arcShown = false; this._cutBest = null; this._cutSpeed = 0;
     this.game.audio?.slash?.(false);
   }
 
@@ -723,16 +719,19 @@ export class Player {
     this.reelLevel = this.payout || this.stun > 0 ? 0 : odm.reelAccel(p, v, this.boosting, acc);
     if (anchored && !this.infiniteGas) odm.gas -= CFG.gas.reelRate * anchored * dt * (this.boosting ? 2 : 1);
 
-    // roped to a titan: the swoop. The gear carries you round behind the neck and straight through the nape at
-    // cutting speed (how Survey Corps take a titan down, and the keyboard player's assist). Ropes on anything
-    // else go slack meanwhile so they don't hold you back.
+    // roped to a titan: the swoop. The gear swings you out round the side of the neck you pick (← / →; otherwise
+    // the side you're on), round behind it, and lines you up on the nape where it last saw it. That's all it does:
+    // the titan moves, turns and hunches, so you correct the line (← → slide you across the back of the neck),
+    // choose your speed (Shift; big titans need it) and swing the blades yourself as you pass (Space). Ropes on
+    // anything else go slack meanwhile so they don't hold you back.
     let prey = null;
     const yanked = odm.hooks[0].yank || odm.hooks[1].yank;   // being hauled in: no swoop until you get free
     for (const hk of odm.hooks) {
       const t = hk.attached && !yanked ? hk.collider?.userData?.titan || hk.collider?.userData?.dummy : null;
       if (t && t.alive && t.napeWorld) { prey = t; break; }
     }
-    this.swooping = false; this.prey = prey; this.preyDist = 1e9;
+    if (prey !== this.prey) { this._swoopSide = 0; this._swoopAim = null; }
+    this.swooping = false; this.swoopLeg = 0; this.prey = prey; this.preyDist = 1e9;
     if (prey) {
       const nw = prey.napeWorld();
       const close = nw?.center && p.distanceTo(nw.center) < CFG.combat.swoopRange;
@@ -741,31 +740,48 @@ export class Player {
         const mine = hk.collider?.userData?.titan === prey || hk.collider?.userData?.dummy === prey;
         hk.payout = hk.attached && (!mine || close) ? 40 : 0;
       }
-      if (nw?.center) {
+      if (close) {
         const nrm = nw.normal || UP;
+        // where the gear thinks the nape is: it follows the real one with a lag, so a titan that turns, walks on
+        // or hunches pulls the nape off your line
+        const A = this._swoopAim || (this._swoopAim = nw.center.clone());
+        A.lerp(nw.center, damp(CFG.combat.swoopTrack, dt));
         const dN = p.distanceTo(nw.center);
-        this.preyDist = dN;
-        if (dN < CFG.combat.swoopRange) {
-          this.swooping = true;
-          // three legs: from in front, swing out beside the head; then come round behind the neck; then cut
-          // straight through the nape. (Flying straight at it from the front would only hit the face.)
-          const rx = p.x - nw.center.x, ry = p.y - nw.center.y, rz = p.z - nw.center.z;
-          const along = rx * nrm.x + ry * nrm.y + rz * nrm.z;              // > 0: behind the neck
-          const rt = _a.crossVectors(UP, nrm);
-          if (rt.lengthSq() < 1e-4) rt.set(1, 0, 0); rt.normalize();
-          const side = rx * rt.x + rz * rt.z;
+        this.preyDist = dN; this.swooping = true;
+        const rx = p.x - A.x, ry = p.y - A.y, rz = p.z - A.z;
+        const along = rx * nrm.x + ry * nrm.y + rz * nrm.z;                 // > 0: behind the neck
+        const rt = _a.crossVectors(UP, nrm);
+        if (rt.lengthSq() < 1e-4) rt.set(1, 0, 0); rt.normalize();
+        // ← / → pick the side of the neck to come round (as you see it); it sticks until you pick the other
+        if (this.turn && along < 1.2) this._swoopSide = Math.sign(this._right(_c).dot(rt) * this.turn) || 1;
+        if (!this._swoopSide) this._swoopSide = rx * rt.x + rz * rt.z >= 0 ? 1 : -1;
+        // three legs: from in front, swing out beside the head; then come round behind the neck; then in through
+        // the nape (flying straight at it from the front would only hit the face). The run-in follows the lagged
+        // nape (A), not the real one.
+        const want = _e;
+        const fast = this.boosting ? CFG.combat.swoopBoost : CFG.combat.swoop;
+        if (along < 1.2) {
+          this.swoopLeg = 1;
           const R = Math.max(3, (prey.height || 8) * 0.35);
-          const aim = _e.copy(nw.center);
-          if (along < 1.2) aim.addScaledVector(rt, (side >= 0 ? 1 : -1) * R).addScaledVector(nrm, 2).y += 1.5;
-          else if (dN > 5) aim.addScaledVector(nrm, Math.min(6, dN * 0.4)).y += 0.5;
-          else aim.addScaledVector(nrm, -2.5);
-          aim.sub(p);
-          const S = this.boosting ? CFG.combat.swoopBoost : CFG.combat.swoop;
-          aim.normalize().multiplyScalar(S).sub(v).multiplyScalar(CFG.combat.swoopGain);
-          const al = aim.length();
-          if (al > CFG.combat.swoopMax) aim.multiplyScalar(CFG.combat.swoopMax / al);
-          acc.add(aim);
-          acc.y += CFG.gravity * 0.6;   // the wires hold most of your weight through the swoop
+          want.copy(nw.center).addScaledVector(rt, this._swoopSide * R).addScaledVector(nrm, 2); want.y += 1.5;
+        } else if (dN > 5) {
+          this.swoopLeg = 2;
+          want.copy(A).addScaledVector(nrm, Math.min(6, dN * 0.4)); want.y += 0.5;
+        } else {
+          this.swoopLeg = 3;
+          want.copy(A).addScaledVector(nrm, -2.5);
+        }
+        const aim = want.sub(p).normalize().multiplyScalar(fast).sub(v).multiplyScalar(CFG.combat.swoopGain);
+        const al = aim.length();
+        if (al > CFG.combat.swoopMax) aim.multiplyScalar(CFG.combat.swoopMax / al);
+        acc.add(aim);
+        acc.y += CFG.gravity * 0.6;   // the wires hold most of your weight through the swoop
+        if (this.swoopLeg >= 2 && this.turn) {
+          // ← → slide you across the back of the neck, to put the nape back on your line
+          const toN = _c.subVectors(nw.center, p).normalize();
+          const across = this._right(_a); across.addScaledVector(toN, -across.dot(toN));
+          acc.addScaledVector(across, this.turn * CFG.combat.swoopSteer);
+          A.addScaledVector(across, this.turn * CFG.combat.swoopSteer * 0.25 * dt);
         }
       }
     } else for (const hk of odm.hooks) hk.payout = 0;
@@ -1042,21 +1058,22 @@ export class Player {
 
     // blades & combat
     if (this.slashT >= 0) {
-      // the blades are live for most of the sweep: the first nape/limb they meet in that window is cut
+      // the blades are live for most of the sweep, and they bite deepest mid-sweep with the nape square in it: the
+      // cut lands at the best moment of the swing (when the nape is closest to the middle of the sweep), so a swing
+      // timed to meet it cuts clean, and one that's early or late only catches it on the edge and cuts shallow
       this.slashT += dt;
-      const st = CFG.combat.slashTime;
-      if (!this.slashHit && this.slashT > st * 0.15 && this.slashT < st * 0.85) {
-        if (this._strike(CFG.combat.reach + speed * 0.025, false, !this._arcShown)) this.slashHit = true;
+      const st = CFG.combat.slashTime, u = this.slashT / st;
+      if (!this.slashHit && u > 0.15 && u < 0.85) {
+        const pr = this._bladeProbe(CFG.combat.reach + speed * 0.025, false, !this._arcShown);
         this._arcShown = true;
+        // the blades cut at the speed you carried into the sweep (hitting the neck a moment later doesn't blunt it)
+        this._cutSpeed = Math.max(this._cutSpeed || 0, speed);
+        if (pr) { pr.q = pr.score * (0.4 + 0.6 * Math.sin(Math.PI * u)); pr.speed = this._cutSpeed; }
+        if (pr && (!this._cutBest || pr.q >= this._cutBest.q)) this._cutBest = pr;
+        else if (this._cutBest) { this._applyCut(this._cutBest, false, this._cutBest.q); this.slashHit = true; }
       }
-      if (this.slashT > st) this.slashT = -1;
-    }
-    if (this.primeT > 0) {
-      this.primeT -= dt;
-      const nw = this.prey?.alive ? this.prey.napeWorld?.() : null;
-      if (!nw?.center) this.primeT = 0;
-      else if (nw.center.distanceTo(this.render) < CFG.combat.reach + 1.4 + speed * 0.02) { this.primeT = 0; this._slash(); }
-      else if (this.primeT <= 0) this._slash();   // never reached it: swing anyway
+      if (!this.slashHit && u >= 0.85 && this._cutBest) { this._applyCut(this._cutBest, false, this._cutBest.q); this.slashHit = true; }
+      if (this.slashT > st) { this.slashT = -1; this._cutBest = null; }
     }
     if (this.spin) {
       this.spinT += dt;
@@ -1206,43 +1223,64 @@ export class Player {
     this._supply(dt);
   }
 
-  /** One blade check. Returns true if anything was hit. */
+  /** One blade check that cuts whatever it finds (the spinning slash). Returns true if anything was hit. */
   _strike(radius, spin, showArc = true) {
-    if (this.blade <= 0 || this.swapT > 0) { if (!spin && showArc) this.game.audio?.bladeBreak?.(); return false; }
+    const pr = this._bladeProbe(radius, spin, showArc);
+    if (!pr) return false;
+    this._applyCut(pr, spin, pr.score);
+    return true;
+  }
+
+  /**
+   * Where the blades are this frame and what they would cut: { hits, dir, score } or null. score (0..1) is how
+   * squarely the best part sits in the sweep: 1 with the nape in the middle of it, falling off toward its edge.
+   */
+  _bladeProbe(radius, spin, showArc) {
+    if (this.blade <= 0 || this.swapT > 0) { if (!spin && showArc) this.game.audio?.bladeBreak?.(); return null; }
     const hitTest = this.game.hitTest;
-    if (!hitTest) return false;
+    if (!hitTest) return null;
     // reach forward along the motion (or the heading), generous like the anime's blur of steel
     const look = this._heading(_a);
     const dir = this.speed > 6 ? _b.copy(this.vel).normalize().lerp(look, 0.35).normalize() : _b.copy(look);
+    // the blades cut where you are going: no aim assist, the nape has to be in the sweep when you swing
     const center = _c.copy(this.render).addScaledVector(dir, spin ? 0.6 : 1.3);
-    // the blades find the nape: if one is within reach, strike it (anime precision at full speed)
-    let bestNape = null, bestD = radius + 2.2;
-    for (const t of this.game.targetList?.() || []) {
-      if (!t.alive || !t.napeWorld) continue;
-      const nw = t.napeWorld();
-      if (!nw?.center) continue;
-      const d = nw.center.distanceTo(this.render);
-      if (d < bestD) { bestD = d; bestNape = nw.center; }
-    }
-    if (bestNape) center.copy(bestNape);
     if (showArc && this.game.fx?.slashArc && (!spin || Math.random() < 0.5)) {
       _q.copy(this.game.camera.quaternion).multiply(_q2.setFromAxisAngle(_a.set(0, 0, 1), (Math.random() - 0.5) * 1.6));
       this.game.fx.slashArc(_e.copy(this.render).addScaledVector(dir, 1.1), _q, radius * 0.7);
     }
     const hits = hitTest(center, radius);
-    if (!hits || !hits.length) return false;
+    if (!hits || !hits.length) return null;
+    let score = 0;
+    for (const h of hits) {
+      const nw = h.part === 'nape' ? h.titan.napeWorld?.() : null;
+      const dd = (nw?.center || h.point).distanceTo(center);
+      const c = 1 - THREE.MathUtils.clamp((dd - 1.6) / Math.max(0.5, radius - 1.6), 0, 1);
+      score = Math.max(score, h.part === 'nape' ? c : 0.5 + 0.5 * c);
+    }
+    return { hits, dir: dir.clone(), score };
+  }
+
+  /** Cut what a probe found. q (0..1): how clean the cut is (timing and the sweep); a mistimed one cuts shallow. */
+  _applyCut(pr, spin, q) {
+    const { hits, dir } = pr;
     // best part: nape > eye > ankle > others
     const rank = { nape: 5, eye: 4, ankle: 3, hand: 2, arm: 2, body: 1 };
     const seen = new Set();
     hits.sort((x, y) => (rank[y.part] || 0) - (rank[x.part] || 0));
     for (const hit of hits) {
       if (seen.has(hit.titan) || !hit.titan.alive) continue;
+      // the nape is cut from behind: full depth from straight behind the neck, less from beside it, and from in
+      // front the blades only find the face or the neck (the next part down the list)
+      const angle = hit.part === 'nape' ? this._napeAngle(hit.titan) : 1;
+      if (angle < 0.05) continue;
       seen.add(hit.titan);
       const tv = hit.titan.velocity || _e.set(0, 0, 0);
-      const rel = _d.subVectors(this.vel, tv).length();
+      const rel = pr.speed ? Math.max(pr.speed - tv.length(), 0) : _d.subVectors(this.vel, tv).length();
       const sharp = 0.55 + 0.45 * this.blade;
-      const damage = Math.round((CFG.combat.dmgBase + rel * CFG.combat.dmgPerMs) * sharp * (spin ? 1.1 : 1));
+      const depth = 0.35 + 0.65 * THREE.MathUtils.clamp(q, 0, 1);
+      const damage = Math.round((CFG.combat.dmgBase + rel * CFG.combat.dmgPerMs) * sharp * (spin ? 1.1 : 1) * angle * depth);
       const res = hit.titan.applyHit({ part: hit.part, damage, point: hit.point.clone(), dir: dir.clone() }) || {};
+      res.angle = angle; res.speed = rel; res.timing = q;
       this.blade = Math.max(0, this.blade - CFG.combat.wear * (hit.part === 'nape' ? 1 : 0.35));
       this.game.audio?.slash?.(true);
       if (hit.titan.kind !== 'dummy') this.game.fx?.blood?.(hit.point, dir, res.killed ? 2 : 1);
@@ -1252,7 +1290,17 @@ export class Player {
       this.cam.trauma = Math.min(1, this.cam.trauma + (res.killed ? 0.5 : 0.2));
       if (res.killed) this._killMoment(hit, dir);
     }
-    return true;
+  }
+
+  /** How square-on a nape cut from here is: 1 from behind the neck, CFG.combat.napeAngle.side from beside it,
+   *  0 from in front. */
+  _napeAngle(t) {
+    const nw = t.napeWorld?.();
+    if (!nw?.center || !nw.normal) return 1;
+    const r = _e.subVectors(this.render, nw.center), l = r.length();
+    if (l < 0.6) return 1;                            // right on it
+    const b = r.dot(nw.normal) / l, side = CFG.combat.napeAngle.side;
+    return b >= 0 ? side + (1 - side) * Math.min(1, b / 0.45) : side * Math.max(0, 1 + b / 0.35);
   }
 
   /** The nape cut: freeze-frame, slow motion, a side-on kill cam, a flash, a crescent of steel, blood and steam. */

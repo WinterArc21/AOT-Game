@@ -60,8 +60,13 @@ export const CFG = {
     slashTime: 0.3, reach: 2.6, dmgBase: 40, dmgPerMs: 12.5,
     wear: 0.11, spinMinSpeed: 16, spinInterval: 0.09, swapTime: 0.55,
     spares: 4, grabEscapePerPress: 0.2, grabDecay: 0.18,
-    // roped to a titan: swoop round behind the neck and through the nape
-    swoopRange: 45, swoop: 33, swoopBoost: 44, swoopGain: 5.5, swoopMax: 70,
-    primeRange: 18, primeTime: 0.9,   // Space while swooping in: the cut fires on arrival at the nape
+    // roped to a titan: the gear swings you round the neck and lines you up on where it last saw the nape (it
+    // follows the real one at swoopTrack 1/s); you correct the line (swoopSteer m/s²), pick the speed and cut.
+    // swoopBoost (with Shift) is what it takes to cut a 15 m titan's nape in one clean pass
+    swoopRange: 45, swoop: 33, swoopBoost: 50, swoopGain: 5.5, swoopMax: 70,
+    swoopTrack: 2.5, swoopSteer: 22,
+    // a nape cut's depth: full from straight behind the neck, `side` of it from beside, nothing from in front; a
+    // cut that doesn't kill leaves a wound (that share of its damage stays) that the next cut adds to
+    napeAngle: { side: 0.55 }, napeWound: 0.6,
   },
 };

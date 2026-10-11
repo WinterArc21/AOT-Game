@@ -4,6 +4,7 @@ import { getArchetype, gripGeometry, HAIRS, sizeClass } from './builder.js';
 import { buildRig } from './rig.js';
 import { outlineMaterial } from '../core/style.js';
 import { solveArm } from './ik.js';
+import { CFG } from '../config.js';
 
 // Math.hypot is variadic and boxes its arguments in hot loops (it was the top source of garbage); this doesn't.
 const hypot = (a, b, c = 0) => Math.sqrt(a * a + b * b + c * c);
@@ -318,13 +319,24 @@ export class Titan {
     const dd = dir ? dir.clone().normalize() : new V3(0, 1, 0);
     if (part === 'head' || part === 'torso' || part === 'leg' || part === 'pelvis') part = 'body';
     if (part === 'foot') part = 'ankle';
-    let effect = 'none', killed = false;
+    let effect = 'none', killed = false, covered = false;
     switch (part) {
       case 'nape': {
+        damage *= 1 - 0.7 * (this.napeCover || 0);   // hunched: the shoulders come up round the nape
+        covered = (this.napeCover || 0) > 0.3;
         if (this.isColossal) {
           this.napeDamage += damage;
           if (this.napeDamage >= this.napeHp) { killed = true; effect = 'kill'; } else { effect = 'shallow'; }
-        } else if (damage >= this.napeHp) { killed = true; effect = 'kill'; } else effect = damage > 10 ? 'shallow' : 'none';
+        } else if (damage + this.napeDamage >= this.napeHp) { killed = true; effect = 'kill'; }
+        else if (damage > 10) {
+          // too shallow to kill: it leaves a wound that steams while it closes, and the next cut adds to it
+          effect = 'shallow';
+          this.napeDamage += damage * CFG.combat.napeWound;
+          this.woundT = 1;
+          this.game.fx?.steam?.(pt, Math.max(1, this.height * 0.12), 1.2);
+          // it knows where you are now: it goes for the back of its neck
+          this.guardUrge = Math.max(this.guardUrge || 0, 1);
+        } else effect = 'none';
         break;
       }
       case 'eye':
@@ -350,7 +362,7 @@ export class Titan {
     }
     if (killed) this._die(pt);
     else if (effect !== 'none' && this.rnd() < 0.35) this.game.audio?.titanGroan?.(this.position, this.height);
-    return { killed, effect };
+    return { killed, effect, covered, wound: part === 'nape' && !killed ? this.napeDamage / this.napeHp : 0 };
   }
   _sideOfPoint(p) {
     const a = this._jpos('handL', _t5).distanceToSquared(p), b = this._jpos('handR', _t6).distanceToSquared(p);
@@ -456,6 +468,7 @@ export class Titan {
       else if (st === 'yank' && a) th = 1;
       else if (st === 'shake' && a) th = a.t < a.W + 0.25 ? 1 : 0.4;
       else if (st === 'charge' && a) th = 1;
+      else if (st === 'guard' && a) th = a.kind === 'slap' ? (a.t < a.W + a.S ? 1 : 0.3) : a.kind === 'whirl' ? 0.5 : 0.25;
       else if (st === 'leap') th = this.leap.phase < 2 ? 1 : 0.45;
       else if (st === 'chase') {
         // closing in: up to ~0.45 when inside a couple of arm lengths and facing, more when the attack is ready
@@ -484,6 +497,15 @@ export class Titan {
     for (let i = 0; i < 2; i++) if (this.severed[i] > 0) { this.severed[i] -= dt; if (this.severed[i] <= 0) { this.severed[i] = 0; this._regrow(i); } }
     this.cdGroan -= dt;
     this.cdYank -= dt; this.cdCharge -= dt;
+    this.cdGuard = (this.cdGuard || 0) - dt;
+    this.guardUrge = Math.max(0, (this.guardUrge || 0) - dt * 0.35);
+    // a nape wound closes in about half a minute, steaming while it does
+    if (this.napeDamage > 0 && !this.isColossal) {
+      this.napeDamage = Math.max(0, this.napeDamage - this.napeHp * 0.035 * dt);
+      this.woundT = (this.woundT || 0) - dt;
+      if (this.woundT <= 0 && this.napeDamage > 0) { this.woundT = 0.45; const nw = this.napeWorld(); this.game.fx?.steam?.(nw.center, Math.max(0.8, this.height * 0.07), 0.8); }
+    }
+    if (this.state !== 'guard') this.napeCover = Math.max(0, (this.napeCover || 0) - dt * 4);
   }
 
   _enter(state) { this.state = state; this.stateT = 0; }
@@ -517,7 +539,9 @@ export class Titan {
       const hk = this._ropeOnMe(), slow = (pl.velocity?.length?.() || 0) < 14;
       this.clingT = hk >= 0 && slow && this.dist3 < this.height * 0.9 ? this.clingT + dt : Math.max(0, this.clingT - dt * 2);
     }
+    if ((this.state === 'idle' || this.state === 'wander' || this.state === 'chase') && this._tryGuard(dt)) return;
     switch (this.state) {
+      case 'guard': this._thinkGuard(dt); break;
       case 'idle':
         if (this._notice()) break;
         if (this.stateT > this.idleDur) { this._pickWander(); this._enter('wander'); }
@@ -532,6 +556,12 @@ export class Titan {
       }
       case 'chase': {
         if (!this.hasPlayer || this.distH > this.noticeRange * 1.7) { this.home.copy(this.position); this.idleDur = 1; this._enter('idle'); break; }
+        // a soldier up round its head, at its shoulders or behind its neck: it can't keep you in view, so it stands
+        // and casts about (it answers with a slap, a hunch or a whirl round instead: _tryGuard)
+        if (this.distH < this.height * 0.7 && pl.position.y - this.position.y > this.shoulderH * 0.75 && Math.abs(this.relYaw) > 0.6) {
+          this.faceYaw = this.yaw + Math.sin(this.t * 1.3) * 0.25 * dt; this.speedTarget = 0;
+          break;
+        }
         this.goal = _g0.copy(pl.position);
         this.speedTarget = canMove ? this.runSpeed : 0;
         // slow down inside arm reach so we do not run through the player
@@ -871,6 +901,119 @@ export class Titan {
     this.jawExtra += 0.6 * env;
   }
 
+  // ------------------------------------------------------------------ guarding the nape
+  /**
+   * A soldier at the back of our neck (roped on, or swooping round us): it doesn't just stand there. It slaps at
+   * the back of its neck, hunches its shoulders up round the nape, or whirls round to face you. Which, and when,
+   * varies (abnormals more often; a cut that only wounded makes it frantic), so no two approaches go the same way.
+   */
+  _tryGuard(dt) {
+    const pl = this.game.player;
+    if (!this.hasPlayer || !pl.alive || pl.grabbedBy || this.blindT > 0 || this.stunT > 0 || this.airborne || this.cdGuard > 0) return false;
+    if (this._ropeOnMe() < 0 && pl.prey !== this) return false;
+    const nw = this.napeWorld();
+    const r = _t11.subVectors(pl.position, nw.center), d = r.length();
+    if (d > Math.max(10, this.height * 1.4)) return false;
+    const behind = r.dot(nw.normal) / Math.max(d, 1e-3);
+    if (behind < -0.4) return false;                       // in front: the usual attacks deal with that
+    const rate = (this.abnormal ? 1.2 : 0.7) + 2.5 * this.guardUrge;
+    if (this.rnd() > dt * rate) return false;
+    const kk = Math.max(0.8, Math.sqrt(this.height / 7));
+    const left = _t12.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+    let side = _t13.subVectors(pl.position, this.position).dot(left) >= 0 ? 0 : 1;
+    if (this.severed[side]) side = 1 - side;
+    const r2 = this.rnd();
+    const kind = r2 < 0.45 && !this.severed[side] ? 'slap' : r2 < 0.75 ? 'hunch' : 'whirl';
+    if (kind === 'slap') this.act = { kind, side, t: 0, W: 0.38 * kk, S: 0.2 * kk, R: 0.55 * kk, hit: false, mid: new V3().copy(pl.position) };
+    else if (kind === 'hunch') this.act = { kind, t: 0, W: 0.22 * kk, H: 1.1 + this.rnd() * 0.8 };
+    else this.act = { kind, t: 0, W: 0.18, T: 0.8 + this.rnd() * 0.4 };
+    this._setFist(0, false); this._setFist(1, false);
+    this._enter('guard');
+    this._windupEvent(kind === 'slap' ? 'swat' : 'guard', this.act.W);
+    if (this.rnd() < 0.5) this.game.audio?.titanGroan?.(this.position, this.height);
+    return true;
+  }
+  _thinkGuard(dt) {
+    const a = this.act, pl = this.game.player;
+    if (!a) { this._enter('chase'); return; }
+    a.t += dt; this.speedTarget = 0;
+    this.faceYaw = null;
+    if (a.kind === 'slap') {
+      if (a.t < a.W && this.hasPlayer) a.mid.copy(pl.position).addScaledVector(pl.velocity || ZERO, Math.max(0, a.W + a.S * 0.5 - a.t) * 0.7);
+      if (a.t > a.W && a.t < a.W + a.S + 0.05 && !a.hit && this.hasPlayer && !pl.grabbedBy) {
+        const hp = this._jpos(a.side === 0 ? 'handL' : 'handR', _t10);
+        if (hp.distanceTo(pl.position) < 1.4 + 0.12 * this.height) {
+          a.hit = true;
+          // swatted off the back of its neck: the anchors tear out and you're flung clear
+          for (const h of pl.odm?.hooks || []) if (h.attached && h.collider?.userData?.titan === this) pl.odm.release(h.side);
+          const nw = this.napeWorld();
+          const dd = _t11.subVectors(pl.position, nw.center).setY(0);
+          if (dd.lengthSq() < 1e-4) dd.copy(nw.normal).setY(0);
+          dd.normalize().multiplyScalar(16 + 0.6 * this.height); dd.y = 6;
+          pl.applyImpulse?.(dd, 12 + 0.8 * this.height);
+          this.game.fx?.impact?.(hp, UP, 'flesh');
+          this.game.audio?.titanStep?.(hp, this.height * 0.5);
+          this.game.events?.emit?.('player:slapped', { titan: this });
+        }
+      }
+      if (a.t > a.W + a.S + a.R) this._endGuard();
+    } else if (a.kind === 'hunch') {
+      const e = Math.min(1, a.t / a.W) * clamp((a.W + a.H - a.t) / 0.3, 0, 1);
+      this.napeCover = sm(clamp(e, 0, 1));
+      if (a.t > a.W + a.H) this._endGuard();
+    } else {
+      // whirl round to face you: the nape swings away and you have to come round again
+      if (a.t > a.W && this.hasPlayer) this.faceYaw = this.yaw + this.relYaw;
+      this.turnBoost = a.t > a.W ? 3.2 : 1;
+      if (a.t > a.W + a.T) { this.turnBoost = 1; this._endGuard(); }
+    }
+  }
+  _endGuard() {
+    this.act = null; this.turnBoost = 1;
+    this.cdGuard = (this.abnormal ? 0.9 : 1.6) + this.rnd() * 1.6;
+    this._enter('chase');
+  }
+  _poseGuard() {
+    const P = this.P, a = this.act, A = this.armLen;
+    if (a.kind === 'slap') {
+      const side = a.side, sg = sideSign(side), pole = this._pole(side, 0.8, 0.9, -0.2);
+      const sh = this._jpos(side === 0 ? 'armL' : 'armR', _t18);
+      // hand up over the shoulder, then down hard across the back of the neck
+      _tw.copy(sh).add(_t19.set(sg * 0.15 * A, 0.75 * A, -0.1 * A).applyAxisAngle(UP, this.yaw));
+      if (a.t < a.W) {
+        const w = sm(a.t / a.W);
+        this._arm(side, _tw, pole, 12 * w + 2);
+        P.spine[1] += sg * 0.25 * w; P.head[0] += 0.25 * w; P.neck[0] += 0.15 * w; this.jawExtra += 0.3 * w;
+      } else if (a.t < a.W + a.S) {
+        const e = sm((a.t - a.W) / a.S);
+        _tw2.copy(a.mid);
+        // keep the swing point within reach of the shoulder
+        const dd = _t19.subVectors(_tw2, sh), l = dd.length();
+        if (l > 0.98 * A) _tw2.copy(sh).addScaledVector(dd, 0.98 * A / l);
+        _tw.lerp(_tw2, e);
+        this._arm(side, _tw, pole, 30);
+        P.spine[1] += sg * 0.25 * (1 - e); P.head[0] += 0.3; P.neck[0] += 0.15;
+      } else {
+        const r = sm((a.t - a.W - a.S) / a.R);
+        _tw.copy(a.mid).lerp(_tw3.copy(sh).add(_t19.set(sg * 0.2 * A, -0.6 * A, 0.1 * A).applyAxisAngle(UP, this.yaw)), r);
+        this._arm(side, _tw, pole, 8);
+        P.head[0] += 0.3 * (1 - r); P.neck[0] += 0.15 * (1 - r);
+      }
+    } else if (a.kind === 'hunch') {
+      // shoulders up round the ears, head down and in: the nape all but disappears
+      const c = this.napeCover || 0;
+      P.spine[0] += 0.28 * c; P.neck[0] += 0.4 * c; P.head[0] += 0.35 * c;
+      P.armL[2] += -0.35 * c; P.armR[2] += 0.35 * c; P.armL[0] += -0.25 * c; P.armR[0] += -0.25 * c;
+      P.foreL[0] += -0.6 * c; P.foreR[0] += -0.6 * c;
+      this.jawExtra += 0.25 * c;
+    } else {
+      // whirl: crouch into the turn, arms flung out
+      const w = sm(clamp(a.t / Math.max(a.W, 0.01), 0, 1)) * clamp((a.W + a.T - a.t) / 0.3, 0, 1);
+      P.spine[0] += 0.15 * w; P.armL[2] += 0.5 * w; P.armR[2] += -0.5 * w; P.head[0] += -0.15 * w; this.jawExtra += 0.4 * w;
+      this.hipT.y += -0.08 * this.d.thighLen * w;
+    }
+  }
+
   /** Abnormal: drop low, roar, then sprint straight through a soldier on horseback. */
   _thinkCharge(dt) {
     const a = this.act, pl = this.game.player;
@@ -1089,7 +1232,7 @@ export class Titan {
     }
     if (!goalDirValid && this.faceYaw !== null) wantYaw = this.faceYaw;
     const dy = wrap(wantYaw - this.yaw);
-    const turn = this.turnRate * (this.crippleT > 0 ? 0.5 : 1) * (1 + 0.5 * clamp(this.speed / Math.max(this.runSpeed, 1), 0, 1));
+    const turn = this.turnRate * (this.crippleT > 0 ? 0.5 : 1) * (1 + 0.5 * clamp(this.speed / Math.max(this.runSpeed, 1), 0, 1)) * (this.turnBoost || 1);
     this.yaw = wrap(this.yaw + clamp(dy, -turn * dt, turn * dt));
     const align = goalDirValid ? clamp(Math.cos(dy) * 1.6 - 0.35, 0, 1) : 0;
     const tgtSp = goalDirValid ? wantSpeed * align : 0;
@@ -1562,6 +1705,7 @@ export class Titan {
       case 'bite': if (a) this._poseBite(dt); break;
       case 'yank': if (a) this._poseYank(); break;
       case 'shake': if (a) this._poseShake(); break;
+      case 'guard': if (a) this._poseGuard(); break;
       case 'charge': if (a && a.t < a.W) this._poseChargeWindup(); break;
       case 'chew': {
         const t = this.stateT;
