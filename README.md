@@ -59,6 +59,9 @@ either side of the gate, one on the Garrison HQ roof and one on a platform in th
 * **Abnormals charge riders:** a crouch and a roar, then a sprint straight at your horse. Swerve, or leap off.
 
 ### Your squad
+When nothing's near, comrades come down for a breather now and then: onto a branch, a roof or the ground, feet
+first, a few seconds, then off again. Stop and stand still and the ones close by land round you; set off and they
+follow within a second. A titan coming close gets them straight back in the air.
 Comrades fly in pairs: one calls a titan and cuts its ankles, the other finishes the nape. They call out new
 titans by clock bearing, and their kills show in the feed on the right. A titan can catch a comrade: cut the
 hand that holds them, or kill the titan, within about five seconds.

@@ -1002,8 +1002,8 @@ export class Titan {
     } else if (a.kind === 'hunch') {
       // shoulders up round the ears, head down and in: the nape all but disappears
       const c = this.napeCover || 0;
-      P.spine[0] += 0.28 * c; P.neck[0] += 0.4 * c; P.head[0] += 0.35 * c;
-      P.armL[2] += -0.35 * c; P.armR[2] += 0.35 * c; P.armL[0] += -0.25 * c; P.armR[0] += -0.25 * c;
+      P.spine[0] += 0.38 * c; P.neck[0] += 0.55 * c; P.head[0] += 0.45 * c;
+      P.armL[2] += -0.45 * c; P.armR[2] += 0.45 * c; P.armL[0] += -0.35 * c; P.armR[0] += -0.35 * c;
       P.foreL[0] += -0.6 * c; P.foreR[0] += -0.6 * c;
       this.jawExtra += 0.25 * c;
     } else {

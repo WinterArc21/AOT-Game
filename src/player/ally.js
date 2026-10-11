@@ -47,6 +47,7 @@ export class Ally {
     this.name = NAMES[this.idx % NAMES.length];
     this.alive = true; this.grabbedBy = null; this.grabHand = null;
     this.job = null; this.jobCd = 9 + this.rand() * 8;
+    this.land = null; this.rest = null; this.restCd = 6 + this.rand() * 14;
   }
 
   revive() {
@@ -64,7 +65,7 @@ export class Ally {
 
   // ---------------------------------------------------------------- caught by a titan
   grab(titan, hand) {
-    this.grabbedBy = titan; this.grabHand = hand;
+    this.grabbedBy = titan; this.grabHand = hand; this.land = null; this.rest = null;
     this.odm.releaseAll(true); this._dropJob();
     this.vel.set(0, 0, 0);
     this.game.events.emit('ally:grabbed', { ally: this, titan });
@@ -206,6 +207,113 @@ export class Ally {
     }
   }
 
+  // ---------------------------------------------------------------- landing and standing about
+  /**
+   * When nothing's near, comrades come down for a breather: onto a branch, a roof or the ground, arcing in feet
+   * first like you do; they stand a few seconds and take off again. Stop and stand still yourself and the ones
+   * close by land round you. A titan coming close, or a job, gets them back in the air.
+   */
+  _restCheck(dt) {
+    const g = this.game, pl = g.player;
+    this.restCd -= dt;
+    const gather = this._youStillT > 1.2 && pl.pos.distanceTo(this.pos) < 90;
+    if (this.job || this.grabbedBy || this.horse || (!gather && this.restCd > 0)) return;
+    if (this._titanNear(80)) { this.restCd = 4; return; }
+    const spot = gather ? this._spotNear(pl.pos) : this._spotAhead();
+    this.restCd = 3 + this.rand() * 4;
+    if (!spot) return;
+    this._startLanding(spot);
+    if (this.land) this.land.gather = gather;
+  }
+  _titanNear(r) {
+    for (const t of this.game.titans?.titans || []) if (t.alive && t.position.distanceToSquared(this.pos) < r * r) return true;
+    return false;
+  }
+  /** Somewhere on the ground round you (a few metres off, each comrade its own side), clear of anything. */
+  _spotNear(c) {
+    const col = this.game.collision;
+    for (let i = 0; i < 6; i++) {
+      const a = this.idx * 1.3 + i * 0.9 + this.rand() * 0.5, r = 4 + (this.idx % 3) * 2 + this.rand() * 2;
+      const x = c.x + Math.sin(a) * r, z = c.z + Math.cos(a) * r;
+      const out = this._groundSpot(x, z);
+      if (out && Math.abs(out.y - c.y) < 4) return out;
+    }
+    return null;
+  }
+  _groundSpot(x, z) {
+    const col = this.game.collision;
+    const top = col.raycast(_a.set(x, Math.max(this.pos.y, col.groundHeight(x, z)) + 3, z), _b.set(0, -1, 0), 120, { dynamic: false });
+    if (!top || top.normal.y < 0.75) return null;
+    const out = top.point.clone(); out.y += CFG.radius + 0.02;
+    for (const k of col.collideSphere(out, CFG.radius * 0.9, { dynamic: false })) if (k.depth > 0.1) return null;
+    return out;
+  }
+  /** A branch or a roof ahead and below-ish, or failing that the ground ahead. */
+  _spotAhead() {
+    const col = this.game.collision, p = this.pos, v = this.vel;
+    const hs = hypot(v.x, v.z) || 1, fx = v.x / hs, fz = v.z / hs;
+    let best = null, bs = -1e9;
+    for (const c of col.querySphere(p, 45)) {
+      if (c.type !== 'capsule' || c.dynamic) continue;
+      _a.subVectors(c.b, c.a); const L = _a.length();
+      if (L < 5 || Math.abs(_a.y) / L > 0.35 || c.r < 0.7) continue;           // level-ish branches only
+      _b.copy(c.a).addScaledVector(_a, 0.35 + this.rand() * 0.4);
+      const dx = _b.x - p.x, dz = _b.z - p.z, dh = hypot(dx, dz);
+      if (dh < 8) continue;
+      const score = (dx * fx + dz * fz) / dh - Math.abs(dh - 25) / 40 - Math.abs(_b.y - p.y) / 40;
+      if (score > bs) { bs = score; best = _b.clone().setY(_b.y + c.r + CFG.radius + 0.02); }
+    }
+    if (best) {
+      let clear = true;
+      for (const k of col.collideSphere(best, CFG.radius * 0.9, { dynamic: false })) if (k.depth > 0.12 && k.collider.type !== 'capsule') { clear = false; break; }
+      if (clear) return best;
+    }
+    return this._groundSpot(p.x + fx * 25, p.z + fz * 25);
+  }
+  /** Arc in feet first onto the spot (leaving along the current velocity, settling onto it at zero speed). */
+  _startLanding(e) {
+    const p = this.pos, d = p.distanceTo(e);
+    if (d > 70) return;
+    this.odm.releaseAll(true);
+    const dur = THREE.MathUtils.clamp(d / 14, 0.5, 2.4);
+    const s1 = p.clone().addScaledVector(this.vel, dur / 4);
+    if (s1.distanceTo(p) > 0.3 * d + 0.5) s1.copy(p).addScaledVector(_a.subVectors(s1, p).normalize(), 0.3 * d + 0.5);
+    const c = p.clone().lerp(e, 0.6); c.y = Math.max(c.y, e.y) + 1.5 + d * 0.08;
+    this.land = { s: p.clone(), s1, c, e: e.clone(), t: 0, dur };
+  }
+  _landStep(dt) {
+    const L = this.land;
+    L.t += dt;
+    const tau = Math.min(1, L.t / L.dur), k = 1 - (1 - tau) * (1 - tau), u = 1 - k;
+    this.pos.set(0, 0, 0).addScaledVector(L.s, u * u * u).addScaledVector(L.s1, 3 * u * u * k).addScaledVector(L.c, 3 * u * k * k).addScaledVector(L.e, k * k * k);
+    const r = 3 * 2 * (1 - tau) / L.dur;
+    this.vel.set(0, 0, 0).addScaledVector(_a.subVectors(L.s1, L.s), r * u * u).addScaledVector(_a.subVectors(L.c, L.s1), 2 * r * u * k).addScaledVector(_a.subVectors(L.e, L.c), r * k * k);
+    if (tau >= 1) {
+      this.land = null;
+      this.pos.copy(L.e); this.vel.set(0, 0, 0);
+      this.rest = { t: 0, dur: 2.5 + this.rand() * 4, crouch: 0.8, gather: L.gather };
+      if (this.pos.distanceTo(this.game.camera.position) < 40) this.game.audio?.land?.(0.25);
+    }
+  }
+  _restStep(dt) {
+    const R = this.rest, pl = this.game.player;
+    R.t += dt; R.crouch = Math.max(0, R.crouch - dt * 2.4);
+    this.vel.set(0, 0, 0);
+    // face you while you're about, otherwise look out the way it came
+    const dx = pl.pos.x - this.pos.x, dz = pl.pos.z - this.pos.z;
+    if (hypot(dx, dz) < 40) this.heading.lerp(_a.set(dx, 0, dz).normalize(), 1 - Math.exp(-3 * dt)).normalize();
+    if ((this.jobCd -= dt) <= 0) { this.jobCd = 0.5; this._plan(); }   // the lead still calls targets from the ground
+    const stay = this._youStillT > 0.5 && pl.pos.distanceTo(this.pos) < 60;
+    // gathered round you and you're off: follow within a second or so (each in their own time)
+    if (R.gather && !stay && !R.leaving) { R.leaving = true; R.dur = Math.min(R.dur, R.t + 0.2 + this.rand() * 1.1); }
+    if ((R.t > R.dur && !stay) || this._titanNear(70) || this.job) this._takeOff();
+  }
+  _takeOff() {
+    this.rest = null;
+    this.vel.set(this.heading.x * 6, 9, this.heading.z * 6);
+    this.boost = 0.5; this.nextT = 0.15; this.restCd = 14 + this.rand() * 18;
+  }
+
   _pickAnchor() {
     const col = this.game.collision;
     const r = this.rand;
@@ -233,7 +341,7 @@ export class Ally {
 
   /** Ride in formation: slot = metres to the leader's right (x) and ahead (z, negative = behind). */
   mount(horse, slot) {
-    this.horse = horse; horse.rider = this; this.slot = slot;
+    this.horse = horse; horse.rider = this; this.slot = slot; this.land = null; this.rest = null;
     this.odm.releaseAll(true);
     horse.saddle(this.pos); this.prev.copy(this.pos); this.render.copy(this.pos);
     this.dismountT = -1;
@@ -288,6 +396,13 @@ export class Ally {
     this.launcher(0, this._origins[0]); this.launcher(1, this._origins[1]);
     odm.step(dt, this._origins);
     this.t += dt;
+    // you, standing still on the ground: the squad gathers round you (and follows when you're off again)
+    const pl = this.game.player;
+    this._youStillT = pl.alive && pl.grounded && !pl.riding && pl.speed < 1.5 ? (this._youStillT || 0) + dt : 0;
+    if (this.land) { this._landStep(dt); return; }
+    if (this.rest) { this._restStep(dt); if (this.rest) return; }
+    this._restCheck(dt);
+    if (this.land) return;
     this.holdT -= dt;
     this.nextT -= dt;
     const acc = _acc.set(0, -CFG.gravity, 0);
@@ -342,12 +457,16 @@ export class Ally {
     this.render.lerpVectors(this.prev, this.pos, alpha);
     const sp = this.vel.length();
     const gy = this.game.collision.groundHeight(this.render.x, this.render.z);
-    const landing = !this.horse && this.vel.y < -2 && !this.odm.attachedCount() && (this.render.y - gy) / -this.vel.y < 0.7;
+    const resting = !!this.rest;
+    const landing = !this.horse && !resting && (this.land ? this.land.t / this.land.dur > 0.55 : this.vel.y < -2 && !this.odm.attachedCount() && (this.render.y - gy) / -this.vel.y < 0.7);
     if (this.horse) {
       this.forward.set(Math.sin(this.horse.yaw), 0, Math.cos(this.horse.yaw));
       this.horse.up(this.up);
     } else if (this.grabbedBy && this._grip?.on) {
       // orientation comes from the fist (fixedUpdate)
+    } else if (resting) {
+      this.forward.lerp(this.heading, 1 - Math.exp(-6 * dt)).normalize();
+      this.up.lerp(UP, 1 - Math.exp(-10 * dt)).normalize();
     } else if (landing) {
       const hl = hypot(this.vel.x, this.vel.z) || 1;
       this.forward.lerp(_a.set(this.vel.x / hl, 0, this.vel.z / hl), 1 - Math.exp(-12 * dt)).normalize();
@@ -368,7 +487,8 @@ export class Ally {
       this.model.root.visible = visible && this.alive;
       if (visible) this.model.update(dt, {
         landPrep: landing ? 1 : 0, riding: this.horse ? 1 : 0, horseGallop: this.horse?.gallop || 0, horsePhase: this.horse?.phase || 0,
-        position: this._mp.copy(this.render).addScaledVector(this.up, 0.4), velocity: this.vel, forward: this.forward, up: this.up, grounded: !!this.horse, running: 0,
+        crouch: resting ? this.rest.crouch : 0,
+        position: this._mp.copy(this.render).addScaledVector(this.up, 0.4), velocity: this.vel, forward: this.forward, up: this.up, grounded: !!this.horse || resting, running: 0,
         hooks: this.odm.hooks.map((h) => ({ attached: h.attached, anchor: h.attached ? h.anchor : null, state: h.state })),
         boosting: this.boost > 0 ? 1 : 0, slash: -1, spin: false, grabbed: !!this.grabbedBy, blades: !this.horse, speed: sp, alive: true,
       });
