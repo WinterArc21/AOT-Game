@@ -17,6 +17,7 @@ The keyboard is all you need. The mouse is optional.
 | **← →** | turn. In free flight you twist round to face that way and your path carves after it (hard with **Shift**). On a rope: swing round the anchor |
 | **↑ / ↓** | run / brake: **↓** skids you to a stop on foot and bleeds off speed in the air (it never turns you round). On a rope: **↑** pumps the swing, **↓** lets the wire out for a longer swing, and near your anchor it sets you down on the branch or trunk |
 | **Z** / **X** (hold) | fire the left / right rope. Each one goes where you face: the anchor nearest the centre of your view, Z in the left half, X in the right, shown by a **Z** / **X** marker before you fire. Let go to release |
+| **V** | land on what your rope is in: with a rope in a branch or a roof, V reels you in and sets you down standing on it (on a trunk or a wall, on its side). From anywhere along the rope; keep holding the rope key |
 | **C** | the marker isn't on the anchor you want? skip both ropes to the next-best anchors |
 | **Z + X** | both ropes: zip forward between the two anchors. If either side has a titan in view, both ropes go to the titan |
 | **Shift** | gas boost (the reel pulls harder too). Tap it on the ground to jump; clinging to a trunk, it kicks you off |
@@ -89,6 +90,9 @@ hand that holds them, or kill the titan, within about five seconds.
   branch or roof it hit, or plant your feet on the trunk or wall. The rope stays in while you hold its key: on a
   trunk it holds you there as long as you like (↓ slides you down it, Shift kicks off, let go and you drop after
   a moment); on a branch it's a slack safety line and you stand, walk and grip the bark.
+* **On a branch** your feet stay on it: running anywhere near along it follows the branch (and eases you back onto
+  its top), and you slow to a stop 0.6 m short of the tip instead of running off the end. Face off its side, or
+  jump, to leave it.
 * **On foot** the run turns with the heading, so the body, the camera and where you're going stay lined up; the
   turn tightens as you slow (a sprint carves a bend instead of pivoting on the spot).
 * **Letting the wire out** (↓ on a rope) is a brake-reel: under tension the wire runs out at up to 7 m/s, so the

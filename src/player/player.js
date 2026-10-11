@@ -54,7 +54,7 @@ export class Player {
     this.stun = 0; this.grabbedBy = null; this.grabHand = null; this.struggle = 0; this.grabImmune = 0;
     this.reelLevel = 0; this.impactCooldown = 0;
     this.wishF = 0; this.wishR = 0; this.turn = 0; this.wantBoost = false; this._dashPuff = 0;
-    this.shiftHeld = 0; this.payout = false; this.mouseT = 99; this.autoSwapT = 0; this.perch = null; this.cling = null; this.flipT = 0; this.mountCd = 0; this.rideStand = 0; this.rideStandT = 0; this.crouch = 0; if (this.riding) this.riding.rider = null; this.riding = null; this.mounting = null; this.prey = null; this.preyDist = 1e9; this.swooping = false;
+    this.shiftHeld = 0; this.payout = false; this.mouseT = 99; this.autoSwapT = 0; this.perch = null; this.cling = null; this._climb = null; this.flipT = 0; this.mountCd = 0; this.rideStand = 0; this.rideStandT = 0; this.crouch = 0; if (this.riding) this.riding.rider = null; this.riding = null; this.mounting = null; this.prey = null; this.preyDist = 1e9; this.swooping = false;
     if (this.targets) for (const t of this.targets) { t.valid = false; t.collider = null; t.titan = null; }
     this.odm.reset();
     this.cam.pos.copy(position).add(new THREE.Vector3(Math.sin(yaw) * -5, 2, Math.cos(yaw) * -5));
@@ -179,6 +179,9 @@ export class Player {
     }
     this.spaceHeld = shiftHeld ? this.spaceHeld + dt : 0;
     this.wantBoost = shiftHeld;
+    // V: get onto what your rope is in. Reel in and land standing on the branch or roof (or on the side of the
+    // trunk or wall), from anywhere along the rope
+    if (input.hit('V') && this.stun <= 0) this._landOnRope();
     // C: the marker isn't on the anchor you want? skip both picks to the next-best ones
     if (input.hit('C') || input.hit('Tab')) {
       for (const T of this.targets) if (T.valid) {
@@ -401,6 +404,17 @@ export class Player {
   // ---------------------------------------------------------------- landing on branches, roofs and trunks
   /** Holding a rope and coming in slowly: arc up onto the branch / roof it hit, or stick to the trunk / wall. */
   _perchCheck() {
+    const C = this._climb;
+    if (C) {
+      // V pressed: hauling in on this rope. Land on it once you're close; let go of the rope (or it's gone) to stop
+      const h = C.hook;
+      if (!h.attached || !(h.side ? this._wantR : this._wantL) || this.stun > 0) { this._climb = null; }
+      else if (this.pos.distanceTo(h.anchor) <= CFG.perch.climbReach) {
+        const tgt = this._perchTarget(h);
+        this._climb = null;
+        if (tgt) { this._startPerch(tgt.pos, tgt.wall ? tgt.normal : null, h); return; }
+      }
+    }
     if (this.grounded || this.swooping || this.stun > 0) return;   // (paying out is how you slow down to land: allowed)
     const p = this.pos, v = this.vel;
     for (const h of this.odm.hooks) {
@@ -418,6 +432,21 @@ export class Player {
       this._startPerch(tgt.pos, tgt.wall ? tgt.normal : null, h);
       return;
     }
+  }
+  /** V: reel in on the rope (the one in a branch / roof / trunk, nearest first) and land on what it's in. */
+  _landOnRope() {
+    if (this.perch || this.cling || this.grounded && this._footing && !this.odm.attachedCount()) return;
+    let best = null, bd = 1e9;
+    for (const h of this.odm.hooks) {
+      if (!h.attached || !h.collider || h.collider.dynamic || h.collider.type === 'ground') continue;
+      const d = this.pos.distanceTo(h.anchor);
+      if (d < bd && this._perchTarget(h)) { bd = d; best = h; }
+    }
+    if (!best) { this.game.hud?.message?.('V lands you on what your rope is in: get a rope into a branch, roof or trunk', 1.6, 'info'); return; }
+    // close: straight up and onto it; further off: the reel hauls you in (gas-assisted) and you land as you arrive
+    if (bd <= CFG.perch.climbReach) { const tgt = this._perchTarget(best); this._startPerch(tgt.pos, tgt.wall ? tgt.normal : null, best); }
+    else { this._climb = { hook: best }; this.grounded = false; this.groundTime = 1; }
+    this.game.audio?.setGas?.(0.8);
   }
   _perchTarget(h) {
     const c = h.collider, R = CFG.radius, a = h.anchor, n = h.normal;
@@ -452,7 +481,7 @@ export class Player {
   }
   _startPerch(target, wallN, hook) {
     const d = this.pos.distanceTo(target);
-    const dur = THREE.MathUtils.clamp(d / 13, 0.28, 0.6);
+    const dur = THREE.MathUtils.clamp(d / 13, 0.28, 0.75);
     this.perch = {
       s: this.pos.clone(), e: target.clone(), wall: wallN ? wallN.clone() : null, t: 0, dur,
       c: this.pos.clone().lerp(target, 0.5).add(_e.set(0, 1.1 + d * 0.12 + (wallN ? 0 : Math.max(0, target.y - this.pos.y) * 0.3), 0)),
@@ -716,9 +745,16 @@ export class Player {
     this._saddleMagnet(dt, acc);
     this.boosting = this.wantBoost && hasGas && this.stun <= 0 && (!groundedNow || this.spaceHeld > 0.16 || anchored > 0);
 
-    // winch (↓ on a rope stops it and pays the wire out for a longer, lower swing)
-    odm.payout = this.payout ? CFG.keys.payout : 0;
-    this.reelLevel = this.payout || this.stun > 0 ? 0 : odm.reelAccel(p, v, this.boosting, acc);
+    // winch (↓ on a rope stops it and pays the wire out for a longer, lower swing; V hauls you in at full gas)
+    const climbing = !!this._climb;
+    odm.payout = this.payout && !climbing ? CFG.keys.payout : 0;
+    this.reelLevel = (this.payout && !climbing) || this.stun > 0 ? 0 : odm.reelAccel(p, v, this.boosting || climbing, acc);
+    if (climbing) {
+      // gas helps: lift against gravity and steer onto the line to the anchor (the other rope goes slack)
+      const ch = this._climb.hook;
+      const to = _e.subVectors(ch.anchor, p), dl = to.length();
+      if (dl > 1e-3) { to.multiplyScalar(1 / dl); acc.addScaledVector(to, 14).y += CFG.gravity * 0.5; }
+    }
     if (anchored && !this.infiniteGas) odm.gas -= CFG.gas.reelRate * anchored * dt * (this.boosting ? 2 : 1);
 
     // roped to a titan: the swoop. The gear swings you out round the side of the neck you pick (← / →; otherwise
@@ -786,7 +822,7 @@ export class Player {
           A.addScaledVector(across, this.turn * CFG.combat.swoopSteer * 0.25 * dt);
         }
       }
-    } else for (const hk of odm.hooks) hk.payout = 0;
+    } else for (const hk of odm.hooks) hk.payout = climbing && hk.attached && hk !== this._climb.hook ? 40 : 0;
 
     // gas thrust
     const wish = this._wish(_b);
@@ -835,6 +871,7 @@ export class Player {
       }
       // stick to slopes
       acc.addScaledVector(n, -2);
+      this._branchKeep(v, dt);
     } else if (anchored) {
       // pump the swing: ↑ drives along the heading, ← → swing you around the anchor (perpendicular to the wire)
       const pd = odm.pullDir(p, _c);
@@ -902,6 +939,7 @@ export class Player {
     const n = Math.min(12, Math.max(1, Math.ceil(travel / 0.3)));
     const h = dt / n;
     this._hitN = 0;
+    this._floorNext = null;
     let groundedStep = false;
     this.wallN = null;
     for (let i = 0; i < n; i++) {
@@ -925,7 +963,8 @@ export class Player {
     }
     if (groundedStep && this.airTime > 0.35) this._landT = Math.min(1, (this._preLandSpeed || 0) / 30) + 0.001;
     this._preLandSpeed = v.length();
-    if (groundedStep) { this.grounded = true; this.groundTime = 0; }
+    if (groundedStep) { this.grounded = true; this.groundTime = 0; this._floorC = this._floorNext; }
+    else if (!this.grounded) this._floorC = null;
     else { this.groundTime += dt; if (this.groundTime > CFG.ground.coyote) this.grounded = false; }
     if (this.grounded) this.airTime = 0; else this.airTime += dt;
 
@@ -937,6 +976,33 @@ export class Player {
     this.stats.topSpeed = Math.max(this.stats.topSpeed, this.speed);
 
     this._bounds();
+  }
+
+  /**
+   * Running along a branch: your feet stay on it. Heading anywhere near along it, the run follows the branch (and
+   * eases you back onto its top), and you slow to a stop short of the tip instead of running off the end. Turn to
+   * face off its side (or jump) to leave it.
+   */
+  _branchKeep(v, dt) {
+    const c = this._floorC;
+    if (!c || c.type !== 'capsule' || c.r > 2.5) return;
+    const ax = c.b.x - c.a.x, az = c.b.z - c.a.z, Lh = hypot(ax, az);
+    if (Lh < 2) return;
+    const ux = ax / Lh, uz = az / Lh;
+    if (Math.abs(Math.sin(this.yaw) * ux + Math.cos(this.yaw) * uz) < 0.45) return;   // facing off its side
+    const p = this.pos;
+    const t = THREE.MathUtils.clamp(((p.x - c.a.x) * ux + (p.z - c.a.z) * uz) / Lh, 0, 1);
+    // along it only, eased back over its top line
+    let along = v.x * ux + v.z * uz;
+    const ox = p.x - (c.a.x + ax * t), oz = p.z - (c.a.z + az * t);
+    const lat = ox * -uz + oz * ux;                                          // sideways off the top line
+    // short of the end you're heading for: no faster than you can stop in (0.6 m short of the tip)
+    const toEnd = (along >= 0 ? 1 - t : t) * Lh - 0.6;
+    const vmax = Math.sqrt(2 * CFG.ground.brake * Math.max(0, toEnd));
+    if (Math.abs(along) > vmax) { along = Math.sign(along) * vmax; this.skidding = vmax < 1 && Math.abs(along) > 0.5; }
+    const back = THREE.MathUtils.clamp(lat * 4, -2, 2);                     // m/s back toward the top line
+    v.x = ux * along + uz * back;
+    v.z = uz * along - ux * back;
   }
 
   /** Push the sphere out of everything it overlaps; returns true if standing on something. */
@@ -968,7 +1034,7 @@ export class Player {
             v.addScaledVector(tang, -dv / ts);
           }
         }
-        if (c.normal.y > 0.6) { grounded = true; this.groundN.copy(c.normal); }
+        if (c.normal.y > 0.6) { grounded = true; this.groundN.copy(c.normal); this._floorNext = c.collider; }
         else if (Math.abs(c.normal.y) < 0.6) { this.wallN = (this.wallN || new THREE.Vector3()).copy(c.normal); this.wallTime = 0.15; }
         if (c.collider?.dynamic && c.collider.userData?.titan) this._touchTitan = c.collider.userData.titan;
       }

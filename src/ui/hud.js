@@ -382,6 +382,7 @@ const TEMPLATE = `
     <span class="k"><kbd>&larr;</kbd><kbd>&rarr;</kbd></span><span class="t"><b>turn</b> &middot; swing</span>
     <span class="k"><kbd>&uarr;</kbd><kbd>&darr;</kbd></span><span class="t"><b>run</b> / pump &middot; <b>brake</b> / slacken</span>
     <span class="k"><kbd class="z">Z</kbd><kbd class="x">X</kbd></span><span class="t"><b>hold</b>: rope left / right &middot; both = zip</span>
+    <span class="k"><kbd>V</kbd></span><span class="t"><b>land</b> on what your rope is in</span>
     <span class="k"><kbd class="w">Shift</kbd></span><span class="t"><b>gas</b> &middot; tap on the ground = jump</span>
     <span class="k"><kbd class="w">Space</kbd></span><span class="t"><b>cut</b> &middot; hold flying fast = spin</span>
     <span class="k"><kbd>H</kbd></span><span class="t">hide this card</span>
@@ -520,7 +521,7 @@ const CONTROL_ROWS = `
   <div class="wof-grp">
     <div class="wof-grp-h">ROPES</div>
     <div class="wof-grp-k"><kbd class="z">Z</kbd><kbd class="x">X</kbd></div>
-    <ul><li>hold <b>Z</b> left &middot; <b>X</b> right</li><li>sticks at the marker</li><li><b>Z + X</b> zip forward</li></ul>
+    <ul><li>hold <b>Z</b> left &middot; <b>X</b> right</li><li>sticks at the marker</li><li><b>Z + X</b> zip forward</li><li><b>V</b>: land on the branch / roof it's in</li></ul>
   </div>
   <div class="wof-grp">
     <div class="wof-grp-h">GAS</div>

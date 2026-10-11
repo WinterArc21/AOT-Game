@@ -255,6 +255,55 @@ if (scen.includes('perch')) await run('perch', () => {
   for (let i = 0; i < 120; i++) { window.stepGame(1 / 60); if (!p.cling && dropAt < 0) dropAt = (i + 1) / 60; }
   game.input.down.clear();
   out.trunk = { ...holding, slidIn1s: slid, stillClingingWhileSliding: stillAfterSlide, letGoDropsAfter: dropAt };
+  // V: get onto the branch the rope is in, from hanging 35 m off, mid-swing at speed, and standing on the ground below
+  const vcase = (name, setup) => {
+    game.input.down.clear();
+    setup();
+    p.odm.fire(0, p.pos.clone(), top.clone());
+    game.input.down.add('Z');
+    for (let i = 0; i < 20; i++) window.stepGame(1 / 60);   // the anchor flies and bites
+    const d0 = p.pos.distanceTo(top);
+    game.input.pressed.add('V');
+    let on = -1;
+    for (let i = 0; i < 360; i++) { window.stepGame(1 / 60); if (on < 0 && !p.perch && p.grounded && p.pos.y > mid.y && p.pos.distanceTo(top) < 3) on = (i + 1) / 60; }
+    const r = { from: +d0.toFixed(1), standingOnBranchAfter: on, drift: null, wireIn: p.odm.attachedCount() };
+    const q = p.pos.clone(); for (let i = 0; i < 60; i++) window.stepGame(1 / 60); r.drift = +p.pos.distanceTo(q).toFixed(3);
+    game.input.down.clear();
+    for (let i = 0; i < 30; i++) window.stepGame(1 / 60);
+    return r;
+  };
+  // ↑ along the branch toward its tip: you stop short of the end instead of running off it
+  {
+    const tip = branch.a.distanceTo(top) > branch.b.distanceTo(top) ? branch.a : branch.b;   // further from the trunk? (the end that isn't in it)
+    const tr0 = col.statics.find((c) => c.type === 'cylinder' && Math.hypot(c.x - branch.a.x, c.z - branch.a.z) < c.r + 2);
+    const outer = tr0 && Math.hypot(tr0.x - branch.a.x, tr0.z - branch.a.z) < Math.hypot(tr0.x - branch.b.x, tr0.z - branch.b.z) ? branch.b : branch.a;
+    const inner = outer === branch.a ? branch.b : branch.a;
+    const start = inner.clone().lerp(outer, 0.3); start.y += branch.r + 0.55;
+    game.input.down.clear();
+    const yaw = Math.atan2(outer.x - inner.x, outer.z - inner.z);
+    p.reset(start, yaw); p.vel.set(0, 0, 0);
+    for (let i = 0; i < 20; i++) window.stepGame(1 / 60);
+    let fell = -1, maxT = 0;
+    for (let i = 0; i < 300; i++) {
+      game.input.down.add('ArrowUp'); window.stepGame(1 / 60);
+      if (fell < 0 && p.pos.y < start.y - 2) fell = (i + 1) / 60;
+    }
+    game.input.down.clear();
+    const L = inner.distanceTo(outer);
+    const tEnd = p.pos.clone().sub(inner).dot(outer.clone().sub(inner).normalize()) / L;
+    // and slightly off-line (heading 25° off the branch): still runs along it
+    p.reset(start, yaw + 0.44); p.vel.set(0, 0, 0);
+    for (let i = 0; i < 20; i++) window.stepGame(1 / 60);
+    let fell2 = -1;
+    for (let i = 0; i < 300; i++) { game.input.down.add('ArrowUp'); window.stepGame(1 / 60); if (fell2 < 0 && p.pos.y < start.y - 2) fell2 = (i + 1) / 60; }
+    game.input.down.clear();
+    out.runToTip = { branchLength: +L.toFixed(1), radius: +branch.r.toFixed(2), fellOffAt: fell, stoppedAtFraction: +tEnd.toFixed(2), metresShortOfTip: +((1 - tEnd) * L).toFixed(2), fellOffWhenAngled: fell2 };
+  }
+  out.V = {
+    hanging: vcase('hanging', () => { p.reset(new V(mid.x + 25, mid.y - 20, mid.z - 15), 0); p.grounded = false; p.vel.set(0, 0, 0); }),
+    swinging: vcase('swinging', () => { p.reset(new V(mid.x - 20, mid.y - 8, mid.z - 14), 0); p.grounded = false; p.vel.set(22, 4, 10); }),
+    fromGround: vcase('ground', () => { const gy = col.groundHeight(mid.x + 6, mid.z - 6); p.reset(new V(mid.x + 6, gy + 0.5, mid.z - 6), 0); B.steps(10); }),
+  };
   return out;
 });
 
