@@ -200,9 +200,11 @@ class CapeSim {
     const h = dt / nSub;
     const P = this.pos, Q = this.pred, V = this.vel, N = this.nrm;
     const ax = -this.accel.x, ay = -this.accel.y, az = -this.accel.z;       // inertial pseudo-force
-    const fT = 1 - Math.exp(-1.15 * h), fN = 1 - Math.exp(-4.4 * h);
+    // air drag pulls the cloth to the apparent wind (so it trails behind where you're going, rather than being
+    // flung out sideways when you turn); gravity a little under g keeps it lively
+    const fT = 1 - Math.exp(-3.2 * h), fN = 1 - Math.exp(-9 * h);
     const damp = Math.exp(-0.5 * h);
-    const gy = -9.8 * 0.55;
+    const gy = -9.8 * 0.8;
     const ia = this.ia, ib = this.ib, rest = this.rest, kk = this.k, nCon = this.nCon;
     const sph = this.spheres, nSph = this.nSph;
     // flutter and billow come from the apparent wind only: standing still, the cape just hangs under gravity
@@ -469,6 +471,7 @@ const THIGH = 0.43, SHIN = 0.4, LEG_REACH = 0.815, LEG_H = 0.805, FOOT_BALL = 0.
 const _l1 = new THREE.Vector3(), _l2 = new THREE.Vector3(), _l3 = new THREE.Vector3(), _l4 = new THREE.Vector3(), _l5 = new THREE.Vector3();
 const _l6 = new THREE.Vector3(), _lv = new THREE.Vector3(), _l1b = new THREE.Vector3(), _lm = new THREE.Matrix4(), _lq = new THREE.Quaternion(), _lq2 = new THREE.Quaternion();
 const _sol = { hx: 0, hz: 0, kx: 0 };
+const _up = new THREE.Vector3(0, 1, 0);
 /** Ankle position for a foot whose ball is pinned at `ball`, pointing along `fd`, heel raised by `heel` rad. */
 function ankleFromBall(ball, fd, heel, up, out) {
   const c = Math.cos(heel), s = Math.sin(heel);
@@ -918,16 +921,23 @@ export class PlayerModel {
     const lift = lerp(0.07, 0.42, sstep(1.5, 7, v));
     const cycT = 2 * G.step / Math.max(v, 0.05);
     // where a foot coming down now should land: under the pelvis, a share of the stance ahead, out to its side
+    // turning: the body will have swung round by the time a foot lands, and the feet land out to the outside of the
+    // bend (that's what pushes a runner round it)
+    const yr = G.moving ? clamp(this.yawRate, -4, 4) : 0;
+    const outward = -Math.sign(yr) * Math.min(0.12, Math.abs(yr) * v * 0.005);
     const foothold = (i, tAhead, outBall) => {
+      const t = G.moving ? tAhead : 0, turn = yr * t;
       const ahead = G.moving ? G.stance * lerp(0.47, 0.4, sprint) : (i ? -0.03 : 0.05);
-      const side = (i ? -1 : 1) * lerp(0.1, 0.055, sstep(1, 8, v));
-      outBall.copy(pelvis).addScaledVector(vel, G.moving ? tAhead : 0)
-        .addScaledVector(dirM, ahead + FOOT_BALL * 0.5).addScaledVector(lat, side);
+      const side = (i ? -1 : 1) * lerp(0.1, 0.055, sstep(1, 8, v)) + outward;
+      _l6.copy(vel).applyAxisAngle(_up, turn * 0.5);
+      _l3.copy(dirM).applyAxisAngle(_up, turn); _l1b.copy(lat).applyAxisAngle(_up, turn);
+      outBall.copy(pelvis).addScaledVector(_l6, t).addScaledVector(_l3, ahead + FOOT_BALL * 0.5).addScaledVector(_l1b, side);
       return ground(outBall.x, pelvis.y - LEG_H, outBall.z, outBall);
     };
     const startSwing = (f, timedDur) => {
       f.swing = true; f.timed = timedDur > 0; f.t = 0; f.dur = timedDur; f.u = 0;
       f.from.copy(f.ankle); f.fromPitch = f.pitch;
+      f.fromLat = _l5.subVectors(f.ankle, pelvis).dot(lat);              // its side of the body, as it lifts
     };
     for (let i = 0; i < 2; i++) {
       const f = G.feet[i];
@@ -963,11 +973,16 @@ export class PlayerModel {
       const f = G.feet[i];
       if (f.swing) {
         foothold(i, f.tRem || 0, f.toBall);
-        f.toFd.copy(dirM).lerp(hd, 0.6).normalize();
+        f.toFd.copy(hd).applyAxisAngle(_up, yr * (f.tRem || 0)).lerp(dirM, 0.3).normalize();
         f.toHeel = lerp(0.12, 0.3, sprint) * sprint;
         ankleFromBall(f.toBall, f.toFd, f.toHeel, up, f.to);
         const e = sstep(0, 1, f.u), arcE = lerp(1, 0.7, sprint);
         f.ankle.lerpVectors(f.from, f.to, e);
+        // mid-swing the foot keeps to its own side of the body (a straight world path would sweep it across the
+        // other leg while the body turns over it); at lift-off and touchdown it follows the world path exactly
+        const nowLat = _l5.subVectors(f.ankle, pelvis).dot(lat);
+        const toLat = _l5.subVectors(f.to, pelvis).dot(lat);
+        f.ankle.addScaledVector(lat, (lerp(f.fromLat ?? nowLat, toLat, e) - nowLat) * Math.sin(Math.PI * f.u));
         f.ankle.addScaledVector(up, (f.timed ? 0.07 : lift) * Math.sin(Math.PI * Math.pow(f.u, arcE)));
         // toes: still pointing down off the push, level (or a touch up) to come down on the heel, toe-first at a sprint
         f.pitch = lerp(f.fromPitch, f.toHeel - 0.12 * (1 - sprint), sstep(0.15, 0.85, f.u)) + 0.5 * sprint * Math.sin(Math.PI * f.u);
@@ -1071,7 +1086,7 @@ export class PlayerModel {
     _v3.set(finite(s.forward && s.forward.x), finite(s.forward && s.forward.y), finite(s.forward && s.forward.z));
     if (_v3.lengthSq() < 1e-6) _v3.copy(this.fwd);
     _v3.normalize();
-    if (first) this.fwd.copy(_v3); else this.fwd.lerp(_v3, k(this.wAir > 0.5 ? 9 : 14)).normalize();
+    if (first) this.fwd.copy(_v3); else this.fwd.lerp(_v3, k(this.wAir > 0.5 ? 9 : 40)).normalize();
     const fwd = this.fwd;
     const sinE = clamp(fwd.dot(up), -1, 1);
     let eF = Math.asin(sinE);
@@ -1095,7 +1110,7 @@ export class PlayerModel {
     const hl = _v2.length();
     if (hl > 0.12) {
       _v2.multiplyScalar(1 / hl);
-      if (first) this.heading.copy(_v2); else this.heading.lerp(_v2, k(this.wAir > 0.5 ? 10 : 16)).normalize();
+      if (first) this.heading.copy(_v2); else this.heading.lerp(_v2, k(this.wAir > 0.5 ? 10 : 40)).normalize();
     }
     this.heading.addScaledVector(up, -this.heading.dot(up)).normalize();
     // yaw rate (for banking into turns)
@@ -1119,6 +1134,8 @@ export class PlayerModel {
     theta = lerp(theta, 0.1, Math.max(clamp(finite(s.straddle), 0, 1), s.mount && s.mount.k < 1 ? 1 : 0));
     if (first) this.theta = theta; else this.theta += (theta - this.theta) * k(8.5);
     let roll = -0.55 * leftness * this.wHook + clamp(-this.yawRate * 0.09, -0.5, 0.5) * airFlight + 0.05 * Math.sin(t * 1.7) * this.wAir;
+    // running round a bend: lean into it (feet out, body in)
+    roll += clamp(-this.yawRate * this.speedS * 0.011, -0.28, 0.28) * (1 - this.wAir) * this.wRun;
     roll *= 1 - this.wSpin;
     if (first) this.roll = roll; else this.roll += (roll - this.roll) * k(7);
     const flightish = clamp(this.theta / 1.15, 0, 1);
@@ -1168,7 +1185,7 @@ export class PlayerModel {
       TG[LSZ + oa] = 0.1 + 0.1 * ra; TG[LSY + oa] = 0;
       TG[LEX + oa] = 0.32 + 0.95 * ra + 0.1 * ra * Math.sin(ph2);
       // wrists cocked: the blades sweep back, tips well off the ground (more as the arm swings forward)
-      TG[LWX + oa] = 1.4 + 0.15 * ra + 0.85 * Math.max(0, -armSw);
+      TG[LWX + oa] = 1.55 + 0.35 * ra + 0.85 * Math.max(0, -armSw);
     }
     TG[BOB] = 0;                     // on the ground the pelvis height comes from the legs (_legs)
     // air: flight / swing / fall
@@ -1341,8 +1358,9 @@ export class PlayerModel {
     jt.legL.an.rotation.set(J[LAX], 0, 0); jt.legR.an.rotation.set(J[RAX], 0, 0);
     this.pivot.position.y = J[BOB] * (1 - this.wAir);
     this._legs(dt, ikW, vx, vz);
-    // blades only when drawn
-    for (let i = 0; i < 2; i++) jt.blades[i].visible = hasBlades;
+    // blades only when drawn; at rest and running they splay out from the body (tips out wide, not down the legs)
+    const splay = 0.38 * (1 - this.wSlash) * (1 - this.wSpin) * (1 - this.wGrab) * (1 - this.wAir * L);
+    for (let i = 0; i < 2; i++) { jt.blades[i].visible = hasBlades; jt.blades[i].rotation.z = (i ? -1 : 1) * splay; }
     // blade shine: flash through the sweep
     const flashT = slashing ? Math.sin(clamp(this.slashP, 0, 1) * Math.PI) : 0;
     this.bladeFlash += (Math.max(flashT, this.wSpin) - this.bladeFlash) * k(30);
@@ -1389,7 +1407,7 @@ export class PlayerModel {
         _v2.copy(_v1).sub(cp.prevVel);
         const dv = _v2.length();
         if (dv > 24) _v2.multiplyScalar(24 / dv);
-        cp.accel.lerp(_v2.multiplyScalar(1 / cdt), k(30));
+        cp.accel.lerp(_v2.multiplyScalar(1 / cdt), k(18));
       }
       cp.prevVel.copy(_v1); cp.hasPrev = true;
       const sf = clamp(speed / 60, 0, 1);

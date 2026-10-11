@@ -48,7 +48,7 @@ export class OdmGear {
       if (this.gas <= 0) { this.player.silent || this.game.audio?.hookMiss?.(); return false; }
       this.gas = Math.max(0, this.gas - CFG.gas.fireCost);
     }
-    h.state = 'flying';
+    h.state = 'flying'; h.parked = false;
     h.tip.copy(origin);
     if (target) h.dir.subVectors(target, origin).normalize(); else h.dir.copy(fallbackDir);
     h.travelled = 0; h.age = 0; h.collider = null;
@@ -127,7 +127,7 @@ export class OdmGear {
     let level = 0;
     this.braking = Math.max(0, (this.braking || 0) - 1 / CFG.physicsHz);
     for (const h of this.hooks) {
-      if (!h.attached || h.payout > 0 || h.yank) continue;   // a titan has hold of this wire
+      if (!h.attached || h.payout > 0 || h.yank || h.parked) continue;   // a titan has hold of this wire / it's a safety line
       _d.subVectors(h.anchor, pos);
       const dist = _d.length();
       if (dist < CFG.hook.minLen + 0.2) continue;
@@ -199,7 +199,7 @@ export class OdmGear {
       }
     }
     for (const h of this.hooks) {
-      if (!h.attached || G > 0 || h.payout > 0 || h.slipping) continue;
+      if (!h.attached || G > 0 || h.payout > 0 || h.slipping || h.parked) continue;
       const dist = pos.distanceTo(h.anchor);
       h.length = Math.max(CFG.hook.minLen, Math.min(h.length, dist));
     }

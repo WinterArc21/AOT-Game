@@ -36,7 +36,30 @@ const data = await page.evaluate(async ({ scene, arg }) => {
   };
   const step = (n = 1) => { for (let i = 0; i < n; i++) window.stepGame(1 / 60); };
   const info = {};
-  if (scene === 'run' || scene === 'idle') {
+  if (scene === 'weave') {
+    // a run steering left and right, through the game's own camera (what the player sees)
+    const gx = 30, gz = 60, gy = col.groundHeight(gx, gz);
+    p.reset(new V(gx, gy + 0.5, gz), Math.PI / 2);
+    step(30);
+    for (let i = 0; i < 400 && shots < 12; i++) {
+      game.input.down.add('ArrowUp');
+      const seg = Math.floor(i / 36) % 4;
+      game.input.down.delete('ArrowLeft'); game.input.down.delete('ArrowRight');
+      if (seg === 0) game.input.down.add('ArrowLeft'); else if (seg === 2) game.input.down.add('ArrowRight');
+      step(1);
+      if (i >= 60 && (i - 60) % 5 === 0) {
+        game.renderer.render(game.scene, cam);
+        const x = (shots % COLS) * W, y = Math.floor(shots / COLS) * H;
+        // crop round the soldier (centre-bottom of the frame)
+        const c = game.renderer.domElement, cw = c.width, ch = c.height;
+        ctx.drawImage(c, cw * 0.25, ch * 0.3, cw * 0.5, ch * 0.6, x, y, W, H);
+        const lab = `${['left', 'straight', 'right', 'straight'][seg]} v=${p.speed.toFixed(1)}`;
+        ctx.strokeText(lab, x + 6, y + 18); ctx.fillText(lab, x + 6, y + 18);
+        shots++;
+      }
+    }
+    game.input.down.clear();
+  } else if (scene === 'run' || scene === 'idle') {
     const v = scene === 'idle' ? 0 : +(arg || 11);
     const gx = 30, gz = 60, gy = col.groundHeight(gx, gz);
     p.reset(new V(gx, gy + 0.5, gz), Math.PI / 2);

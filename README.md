@@ -15,7 +15,7 @@ The keyboard is all you need. The mouse is optional.
 | Keys | What they do |
 |---|---|
 | **← →** | turn. On a rope: swing round the anchor |
-| **↑ / ↓** | run / brake. In the air: steer. On a rope: **↑** pumps the swing, **↓** lets the wire out for a longer swing |
+| **↑ / ↓** | run / brake: **↓** skids you to a stop on foot and bleeds off speed in the air (it never turns you round). On a rope: **↑** pumps the swing, **↓** lets the wire out for a longer swing, and near your anchor it sets you down on the branch or trunk |
 | **Z** / **X** (hold) | fire the left / right rope. Each one goes where you face: the anchor nearest the centre of your view, Z in the left half, X in the right, shown by a **Z** / **X** marker before you fire. Let go to release |
 | **C** | the marker isn't on the anchor you want? skip both ropes to the next-best anchors |
 | **Z + X** | both ropes: zip forward between the two anchors. If either side has a titan in view, both ropes go to the titan |
@@ -74,6 +74,12 @@ hand that holds them, or kill the titan, within about five seconds.
   spot about 40 m), height above you, alignment with where you're going, and side, then the best few are
   confirmed by line of sight. The previous pick wins ties, so markers hold still. Small props (cannons, crates)
   are never picked.
+* **Landing and staying:** hold a rope and come in slowly (or let the wire out near the anchor) and you land on the
+  branch or roof it hit, or plant your feet on the trunk or wall. The rope stays in while you hold its key: on a
+  trunk it holds you there as long as you like (↓ slides you down it, Shift kicks off, let go and you drop after
+  a moment); on a branch it's a slack safety line and you stand, walk and grip the bark.
+* **On foot** the run turns with the heading, so the body, the camera and where you're going stay lined up; the
+  turn tightens as you slow (a sprint carves a bend instead of pivoting on the spot).
 * **Letting the wire out** (↓ on a rope) is a brake-reel: under tension the wire runs out at up to 7 m/s, so the
   swing widens instead of the reel winding the slack back in.
 * **The nape swoop:** roped to a titan, the gear flies you in three legs: out beside the head, round behind the
@@ -101,7 +107,9 @@ grabs and deaths.
 move over the ground (soldier walk/jog/sprint, 5 m and 15 m titans, horse walk/trot/gallop), step rates, the horse
 pitch against the slope, per-frame speed loss on point-blank rope catches and trunk hits, the horse-crash throw,
 and the cape angle at rest and on landing. `node tools/filmstrip.mjs run|titan|horse|grab|idle|cape|land out.png`
-films a side-on contact sheet of any of those.
+films a side-on contact sheet of any of those (`weave` films a run steering left and right through the game camera).
+The bench also covers `weave` (body vs camera, crossing legs, cape and blades while steering), `stop` (↓ on foot and
+in the air) and `perch` (landing on a branch with and without letting the wire out, hanging on a trunk).
 **Feet:** soldiers, titans and horses plant their feet. The gait clock runs at the cadence the step length gives
 (a sprint is ~2.1 m steps at ~5 a second; titans use the same curve scaled to their leg length). A planted foot is
 pinned to the ground while the leg is solved onto it and the pelvis sinks just enough to reach. Horses also pitch

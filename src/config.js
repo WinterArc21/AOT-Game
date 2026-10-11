@@ -30,7 +30,8 @@ export const CFG = {
     fireCost: 0.003,
   },
   air: { control: 7, pump: 10 },
-  ground: { run: 11, accel: 80, skid: 22, jump: 7.8, coyote: 0.12 },
+  // brake: ↓ skids you to a stop; maxLateral: the sideways acceleration a running turn can pull (m/s²)
+  ground: { run: 11, accel: 80, skid: 22, brake: 45, maxLateral: 16, jump: 7.8, coyote: 0.12 },
   // feel: shake, dust and a thud above this; damage above safe (feet first onto a floor) or safeWall (anything else)
   impact: { feel: 11, safe: 30, safeWall: 17, dmg: 0.022, stun: 48 },
   // a wire snapping taut faster than snapSpeed jolts you; the reel's slip clutch then lets the wire run out, braking
@@ -38,7 +39,9 @@ export const CFG = {
   wire: { snapSpeed: 7, rebound: 0.08, slipFrom: 2.5, slipDecel: 85 },
   modelLift: 0.4,           // the model's body centre sits this far above the collision sphere's centre
   horse: { mountRadius: 2.6, mountTime: 0.72, maxMountSpeed: 24, leap: 9.5, ropeLeap: 5, leapForward: 2 },
-  perch: { reach: 6, maxSpeed: 25, clingTime: 1.8 },   // keep holding a rope, come in slowly: land on it
+  // keep holding a rope, come in slowly: land on it. On a wall the rope holds you; ↓ slides at `slide` m/s; let go
+  // of the rope and you drop off after `letGo` s
+  perch: { reach: 6, maxSpeed: 25, slide: 2.5, letGo: 0.6 },
   kill: { slowmo: 0.9, camTime: 1.05, camCooldown: 2.5 },   // the nape-cut moment
   release: { boost: 7, lift: 3, flipTime: 0.6 },   // a well-timed release (bottom of the swing) slings you out
   aim: { cone: 0.55, facingWeight: 3.2, banTime: 4 },   // ropes go where you face (cos of the cone edge)

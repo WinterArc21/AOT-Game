@@ -7,7 +7,7 @@ import { serve } from './serve.mjs';
 import path from 'node:path';
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const want = process.argv.slice(2);
-const all = ['run', 'titan', 'horse', 'rope', 'trunk', 'throw', 'cape'];
+const all = ['run', 'weave', 'stop', 'perch', 'titan', 'horse', 'rope', 'trunk', 'throw', 'cape'];
 const scen = want.length ? want : all;
 const { srv, url } = await serve(ROOT);
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
@@ -89,6 +89,129 @@ if (scen.includes('run')) await run('run', () => {
     const secs = frames / 60;
     out['v' + target] = { bodySpeed: +(sumV / frames).toFixed(2), ...T.report(frames, secs) };
   }
+  return out;
+});
+
+if (scen.includes('weave')) await run('weave', () => {
+  // running while steering left and right (the way a player runs at something), seen from the game camera:
+  // how far the body faces off the camera, whether the legs cross, how far the cape swings out sideways,
+  // how low the blade tips hang, and whether the planted feet hold
+  const B = window.__B, p = game.player, m = p.model, V = B.V;
+  const gx = 30, gz = 60, gy = game.collision.groundHeight(gx, gz);
+  p.reset(new V(gx, gy + 0.5, gz), Math.PI / 2);
+  game.input.down.clear();
+  B.steps(30);
+  const T = B.tracker(2);
+  const heel = new V(), ball = new V(), last = [[null, null], [null, null]], a0 = new V(), a1 = new V(), tip = new V();
+  let frames = 0, faceErr = [], crossed = 0, minSep = 9, capeSide = [], tipH = [];
+  for (let i = 0; i < 480; i++) {
+    game.input.down.add('ArrowUp');
+    const seg = Math.floor(i / 36) % 4;           // 0.6 s each: left, straight, right, straight
+    game.input.down.delete('ArrowLeft'); game.input.down.delete('ArrowRight');
+    if (seg === 0) game.input.down.add('ArrowLeft'); else if (seg === 2) game.input.down.add('ArrowRight');
+    window.stepGame(1 / 60);
+    if (i < 60) continue;
+    frames++;
+    const camYaw = Math.atan2(game.camera.getWorldDirection(new V()).x, game.camera.getWorldDirection(new V()).z);
+    const hd = m.heading, bodyYaw = Math.atan2(hd.x, hd.z);
+    faceErr.push(Math.abs(Math.atan2(Math.sin(bodyYaw - camYaw), Math.cos(bodyYaw - camYaw))) * 180 / Math.PI);
+    const lat = new V(hd.z, 0, -hd.x);            // the soldier's left
+    m.j.legL.an.getWorldPosition(a0); m.j.legR.an.getWorldPosition(a1);
+    const sep = a0.clone().sub(a1).dot(lat);      // > 0: left foot to the left of the right one
+    if (sep < 0) crossed++;
+    minSep = Math.min(minSep, sep);
+    // cape: hem centre relative to the pin row, sideways (body frame) vs down
+    const P = m.cape.pos, top = 4 * 3, bot = (9 * 9 + 4) * 3;
+    const dx = P[bot] - P[top], dy = P[bot + 1] - P[top + 1], dz = P[bot + 2] - P[top + 2];
+    capeSide.push(Math.abs(Math.atan2(dx * lat.x + dz * lat.z, -dy)) * 180 / Math.PI);
+    for (const b of m.j.blades) { b.updateWorldMatrix(true, true); tip.set(0, -1.0, 0).applyMatrix4(b.matrixWorld); tipH.push(tip.y - game.collision.groundHeight(tip.x, tip.z)); }
+    for (let s = 0; s < 2; s++) {
+      const an = s ? m.j.legR.an : m.j.legL.an;
+      an.updateWorldMatrix(true, false);
+      heel.set(0, -0.075, -0.06).applyMatrix4(an.matrixWorld); ball.set(0, -0.075, 0.15).applyMatrix4(an.matrixWorld);
+      const k = heel.y < ball.y ? 0 : 1, lo = k ? ball : heel;
+      T.add(s, lo, game.collision.groundHeight(lo.x, lo.z), 1 / 60, last[s][k]);
+      last[s][0] = heel.clone(); last[s][1] = ball.clone();
+    }
+  }
+  game.input.down.clear();
+  const st = (a) => { const b = a.slice().sort((x, y) => x - y); return { mean: +(a.reduce((x, y) => x + y, 0) / a.length).toFixed(1), p90: +b[Math.floor(0.9 * b.length)].toFixed(1), max: +b[b.length - 1].toFixed(1) }; };
+  const r = T.report(frames, frames / 60);
+  return { bodyVsCameraDeg: st(faceErr), legsCrossedFrac: +(crossed / frames).toFixed(3), minFootSep: +minSep.toFixed(3),
+    capeSidewaysDeg: st(capeSide), bladeTipHeight: { min: +Math.min(...tipH).toFixed(2), mean: +(tipH.reduce((x, y) => x + y, 0) / tipH.length).toFixed(2) },
+    plantedSpeed: r.plantedSpeed, onGroundSpeed: r.onGroundSpeed };
+});
+
+if (scen.includes('stop')) await run('stop', () => {
+  // ↓ while sprinting on the ground, and in free flight: how far to a stop, and never a step backwards
+  const B = window.__B, p = game.player, V = B.V;
+  const gx = 30, gz = 60, gy = game.collision.groundHeight(gx, gz);
+  p.reset(new V(gx, gy + 0.5, gz), Math.PI / 2); game.input.down.clear();
+  B.steps(10);
+  for (let i = 0; i < 60; i++) { game.input.down.add('ArrowUp'); window.stepGame(1 / 60); }
+  game.input.down.delete('ArrowUp');
+  const fwd = new V(Math.sin(p.yaw), 0, Math.cos(p.yaw)), x0 = p.pos.clone(), v0 = p.speed;
+  let stopT = -1, minFwdV = 9;
+  for (let i = 0; i < 90; i++) { game.input.down.add('ArrowDown'); window.stepGame(1 / 60); const fv = p.vel.dot(fwd); minFwdV = Math.min(minFwdV, fv); if (stopT < 0 && Math.hypot(p.vel.x, p.vel.z) < 0.05) stopT = (i + 1) / 60; }
+  const ground = { from: +v0.toFixed(1), stopTime: stopT, skid: +p.pos.clone().sub(x0).dot(fwd).toFixed(2), slowestForwardSpeed: +minFwdV.toFixed(2), afterHolding1_5s: +p.pos.clone().sub(x0).dot(fwd).toFixed(2) };
+  game.input.down.clear();
+  p.reset(new V(gx, gy + 80, gz), Math.PI / 2); p.vel.set(14, 0, 0); p.grounded = false;
+  let minVx = 99;
+  for (let i = 0; i < 150; i++) { game.input.down.add('ArrowDown'); window.stepGame(1 / 60); minVx = Math.min(minVx, p.vel.x); }
+  game.input.down.clear();
+  return { ground, air: { from: 14, horizontalAfter2_5s: +Math.hypot(p.vel.x, p.vel.z).toFixed(2), mostBackward: +minVx.toFixed(2) } };
+});
+
+if (scen.includes('perch')) await run('perch', () => {
+  // rope onto a forest branch / trunk and come in: land, stay put, the rope's still in; on a trunk hold the rope to
+  // hang, ↓ to slide, let go to drop
+  const B = window.__B, p = game.player, V = B.V, col = game.collision;
+  const out = {};
+  // a thick, near-level branch at the forest edge
+  const branch = col.statics.filter((c) => c.type === 'capsule' && c.material === 'bark' && c.r > 1.1 && c.a.y < 40 && c.a.z > 300 && c.a.z < 400
+    && Math.abs(c.b.y - c.a.y) / c.a.distanceTo(c.b) < 0.3)[0];
+  const mid = branch.a.clone().lerp(branch.b, 0.5);
+  const top = mid.clone(); top.y += branch.r;
+  for (const mode of ['hold', 'payout']) {
+    game.input.down.clear();
+    p.reset(new V(mid.x + 18, mid.y - 6, mid.z - 8), 0); p.grounded = false; p.vel.set(0, 0, 0);
+    p.odm.fire(0, p.pos.clone(), top.clone());
+    game.input.down.add('Z');
+    let perched = -1, landed = -1, landPos = null, roll = 0;
+    for (let i = 0; i < 360; i++) {
+      // payout: reel in, then let the wire out (↓) to slow down for the last few metres, as a player does
+      if (mode === 'payout' && perched < 0 && p.odm.hooks[0].attached && p.pos.distanceTo(p.odm.hooks[0].anchor) < 11 + Math.max(0, p.vel.dot(p.odm.hooks[0].anchor.clone().sub(p.pos).normalize())) * 0.12) game.input.down.add('ArrowDown'); else game.input.down.delete('ArrowDown');
+      window.stepGame(1 / 60);
+      if (p.perch && perched < 0) perched = i / 60;
+      if (perched >= 0 && !p.perch && landed < 0 && p.grounded) { landed = i / 60; landPos = p.pos.clone(); }
+    }
+    const wireIn = p.odm.attachedCount();
+    const drift = landPos ? +p.pos.distanceTo(landPos).toFixed(3) : null;
+    game.input.down.delete('Z');
+    const p1 = p.pos.clone();
+    for (let i = 0; i < 120; i++) window.stepGame(1 / 60);
+    out[mode] = { perchedAt: perched, landedAt: landed, wireStillInAfter4s: wireIn, driftHoldingRope: drift, driftAfterLettingGo2s: +p.pos.distanceTo(p1).toFixed(3), stillOnBranch: p.grounded && p.pos.y > mid.y };
+  }
+  // a trunk: come in level, cling
+  const tr = col.statics.filter((c) => c.type === 'cylinder' && c.material === 'bark' && c.r > 2.5 && c.z > 220 && c.z < 400)[0];
+  game.input.down.clear();
+  const ang = 0.3, y = 30;
+  const side = new V(Math.sin(ang), 0, Math.cos(ang));
+  p.reset(new V(tr.x + side.x * (tr.r + 8), y, tr.z + side.z * (tr.r + 8)), Math.atan2(-side.x, -side.z)); p.grounded = false;
+  p.odm.fire(0, p.pos.clone(), new V(tr.x + side.x * tr.r, y + 0.5, tr.z + side.z * tr.r));
+  game.input.down.add('Z');
+  let clungAt = -1;
+  for (let i = 0; i < 300; i++) { window.stepGame(1 / 60); if (p.cling && clungAt < 0) clungAt = i / 60; }
+  const holding = { clungAt, stillClingingAfter5s: !!p.cling, y: +p.pos.y.toFixed(2) };
+  const y0 = p.pos.y;
+  for (let i = 0; i < 60; i++) { game.input.down.add('ArrowDown'); window.stepGame(1 / 60); }
+  game.input.down.delete('ArrowDown');
+  const slid = +(y0 - p.pos.y).toFixed(2), stillAfterSlide = !!p.cling;
+  game.input.down.delete('Z');
+  let dropAt = -1;
+  for (let i = 0; i < 120; i++) { window.stepGame(1 / 60); if (!p.cling && dropAt < 0) dropAt = (i + 1) / 60; }
+  game.input.down.clear();
+  out.trunk = { ...holding, slidIn1s: slid, stillClingingWhileSliding: stillAfterSlide, letGoDropsAfter: dropAt };
   return out;
 });
 

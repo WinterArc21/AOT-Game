@@ -114,7 +114,9 @@ export class Player {
     // steering: the arrows turn your heading; the camera rides behind it
     this.turn = R - L;
     const anchored = this.odm.attachedCount();
-    const rate = this.grounded && !anchored ? CFG.keys.turnGround : anchored ? CFG.keys.turnRope : CFG.keys.turnAir;
+    // on foot the turn tightens as you slow: a sprint carves a bend (≈1.6 g at most) instead of pivoting on the spot
+    const groundRate = Math.min(CFG.keys.turnGround, CFG.ground.maxLateral / Math.max(1, hypot(this.vel.x, this.vel.z)));
+    const rate = this.grounded && !anchored ? groundRate : anchored ? CFG.keys.turnRope : CFG.keys.turnAir;
     this.yaw -= this.turn * rate * dt;
     this.wishF = F - B; this.wishR = this.turn;
     this.payout = B > 0 && anchored > 0 && !this.grounded;   // ↓ on a rope: stop the winch, let the wire out
@@ -401,7 +403,7 @@ export class Player {
   // ---------------------------------------------------------------- landing on branches, roofs and trunks
   /** Holding a rope and coming in slowly: arc up onto the branch / roof it hit, or stick to the trunk / wall. */
   _perchCheck() {
-    if (this.grounded || this.payout || this.swooping || this.stun > 0) return;
+    if (this.grounded || this.swooping || this.stun > 0) return;   // (paying out is how you slow down to land: allowed)
     const p = this.pos, v = this.vel;
     for (const h of this.odm.hooks) {
       if (!h.attached || !h.collider || h.collider.dynamic || h.collider.type === 'ground') continue;
@@ -410,7 +412,9 @@ export class Player {
       _e.subVectors(h.anchor, p).multiplyScalar(1 / Math.max(d, 1e-3));
       const vin = v.dot(_e);
       // coming in slowly: the whole speed counts (flying away from a fresh anchor at speed is no landing)
-      if (d > CFG.perch.reach + Math.max(0, vin) * 0.12 || v.length() > CFG.perch.maxSpeed || vin < -4) continue;
+      // letting the wire out (↓) near your anchor means "set me down here": you land from further off
+      const reach = CFG.perch.reach * (this.payout ? 1.7 : 1);
+      if (d > reach + Math.max(0, vin) * 0.12 || v.length() > CFG.perch.maxSpeed || vin < -4 * (this.payout ? 3 : 1)) continue;
       const tgt = this._perchTarget(h);
       if (!tgt) continue;
       this._startPerch(tgt.pos, tgt.wall ? tgt.normal : null, h);
@@ -478,7 +482,8 @@ export class Player {
     this.odm.step(dt, this._origins);
     if (tau >= 1) {
       this.perch = null;
-      this.odm.releaseAll(true);
+      // the rope stays in while you hold its key: on a wall it holds you there, on a branch it's your safety line
+      for (const h of this.odm.hooks) if (h.attached) { h.length = Math.max(CFG.hook.minLen, h.anchor.distanceTo(P.e) + 0.5); h.parked = true; }
       this.pos.copy(P.e);
       this.game.fx?.impact?.(_e.copy(P.e).addScaledVector(P.wall || UP, -CFG.radius), P.wall || UP, P.mat || 'bark');
       this.game.audio?.land?.(0.45);
@@ -489,15 +494,28 @@ export class Player {
       this.game.events.emit('player:perched', { wall: !!P.wall });
     }
   }
+  /** On the side of a trunk or wall. Holding the rope you stay as long as you like; ↓ slides you down it; let go
+   *  of the rope and you drop off after a moment (time to fire the next one). Shift kicks off. */
   _clingStep(dt) {
     const C = this.cling;
-    C.t += dt;
     this.vel.set(0, 0, 0);
     this.wallN = (this.wallN || new THREE.Vector3()).copy(C.n); this.wallTime = 0.2;
     this.grounded = false; this.groundTime = 1;
     this.launcher(0, this._origins[0]); this.launcher(1, this._origins[1]);
     this.odm.step(dt, this._origins);
-    if (C.t > CFG.perch.clingTime) { this.cling = null; this.vel.addScaledVector(C.n, 1.5); }
+    const held = this.odm.attachedCount() > 0;
+    C.t = held ? 0 : C.t + dt;
+    if (this.wishF < 0) {
+      // slide down the bark, the wire running out with you
+      const down = CFG.perch.slide * dt;
+      const below = this.game.collision.raycast(this.pos, _e.set(0, -1, 0), CFG.radius + down + 0.05, { dynamic: false });
+      if (below && below.normal.y > 0.6) { this.cling = null; this.grounded = true; this.groundTime = 0; this.crouch = 0.4; return; }
+      this.pos.y -= down; this.vel.y = -CFG.perch.slide;
+      for (const h of this.odm.hooks) if (h.attached) h.length = Math.max(h.length, h.anchor.distanceTo(this.pos));
+      this._slideT = (this._slideT || 0) - dt;
+      if (this._slideT <= 0) { this._slideT = 0.12; this.game.fx?.impact?.(_e.copy(this.pos).addScaledVector(C.n, -CFG.radius), C.n, 'bark'); }
+    }
+    if (C.t > CFG.perch.letGo) { this.cling = null; this.vel.addScaledVector(C.n, 1.5); }
   }
 
   /** Run up to a free horse and vault on (hand on the saddle, leg swung over), or drop onto it from the air. */
@@ -692,6 +710,12 @@ export class Player {
     const hasGas = this.infiniteGas || odm.gas > 0;
     const anchored = odm.attachedCount();
     const groundedNow = this.grounded;
+    // on your feet with a rope in that isn't pulling (perched on the branch it's tied to): you stand and walk, the
+    // rope is only a safety line
+    let slack = anchored > 0;
+    for (const h of odm.hooks) if (h.attached && !h.parked && p.distanceTo(h.anchor) > Math.max(h.length - 0.05, CFG.hook.minLen + 0.6)) slack = false;
+    const footing = groundedNow && (!anchored || slack);
+    this._footing = footing;
     this._saddleMagnet(dt, acc);
     this.boosting = this.wantBoost && hasGas && this.stun <= 0 && (!groundedNow || this.spaceHeld > 0.16 || anchored > 0);
 
@@ -761,12 +785,28 @@ export class Player {
     }
     if (!this.infiniteGas) odm.gas = Math.max(0, odm.gas);
 
-    if (groundedNow && !anchored) {
+    if (footing && this.wishF < 0) {
+      // ↓ on the ground is a brake: a short skid to a stop, never a step backwards
+      const hs = hypot(v.x, v.z), b = CFG.ground.brake * dt;
+      if (hs <= b) { v.x = 0; v.z = 0; } else { v.x -= (v.x / hs) * b; v.z -= (v.z / hs) * b; }
+      this.skidding = hs > 3;
+      acc.addScaledVector(this.groundN, -2);
+    } else if (footing) {
       // running: accelerate toward the wish velocity, skid off excess speed
       const n = this.groundN;
-      const target = _c.copy(wish).multiplyScalar(CFG.ground.run * (this.stun > 0 ? 0.3 : 1) * (this.wishF < 0 ? 0.45 : 1));
+      this.skidding = false;
+      const target = _c.copy(wish).multiplyScalar(CFG.ground.run * (this.stun > 0 ? 0.3 : 1));
       const hv = _e.set(v.x, 0, v.z);
-      const hs = hv.length();
+      let hs = hv.length();
+      // the run swings round with the heading (speed kept), so the body, the camera and where you're going stay
+      // lined up through a bend instead of the body sliding sideways over its feet
+      if (this.wishF > 0 && hs > 0.5 && hs < CFG.ground.run + 0.5) {
+        const ang = Math.atan2(v.z * wish.x - v.x * wish.z, v.x * wish.x + v.z * wish.z);   // yaw from v round to the wish
+        const r = THREE.MathUtils.clamp(ang, -CFG.keys.turnGround * 1.6 * dt, CFG.keys.turnGround * 1.6 * dt);
+        const c = Math.cos(r), sn = Math.sin(r), vx = v.x, vz = v.z;
+        v.x = vx * c + vz * sn; v.z = -vx * sn + vz * c;
+        hv.set(v.x, 0, v.z);
+      }
       if (hs > CFG.ground.run + 0.5 && wish.dot(hv) > 0) {
         // carrying momentum from the air: skid
         v.x -= (v.x / hs) * CFG.ground.skid * dt; v.z -= (v.z / hs) * CFG.ground.skid * dt;
@@ -788,6 +828,11 @@ export class Player {
         w.addScaledVector(pd, -w.dot(pd));
         acc.addScaledVector(w, CFG.air.pump);
       }
+    } else if (this.wishF < 0 && !groundedNow) {
+      // ↓ in free flight bleeds off your horizontal speed; it never turns you round
+      const hs = hypot(v.x, v.z);
+      if (hs > 0.3) { const b = Math.min(CFG.air.control, hs / dt); acc.x -= (v.x / hs) * b; acc.z -= (v.z / hs) * b; }
+      if (this.wishR) acc.addScaledVector(this._right(_e), this.wishR * CFG.air.control * 0.8);
     } else if (wish.lengthSq() > 0) {
       acc.addScaledVector(wish, CFG.air.control);
     }
@@ -884,7 +929,9 @@ export class Player {
           const ts = tang.length();
           if (ts > 1e-4) {
             const floor = c.normal.y > 0.6;
-            const mu = floor ? (this.odm.attachedCount() ? 0.15 : 0.0) : 0.06;
+            // standing (resting contact, no run input) grips, so you don't skate off a round branch; landings and
+            // the run controller keep their own feel
+            const mu = floor ? (this.odm.attachedCount() && !this._footing ? 0.15 : !this.wishF && -vn < 1.5 ? 0.6 : 0.0) : 0.06;
             const dv = Math.min(ts, -vn * mu);
             v.addScaledVector(tang, -dv / ts);
           }
@@ -1032,9 +1079,10 @@ export class Player {
     // body orientation for the model
     const anchored = this.odm.attachedCount();
     const tf = _a;
-    if (this.grounded && !anchored) {
+    if (this.grounded && (!anchored || this._footing)) {
+      // running: the body faces where you steer (the velocity swings round after it); coasting: where you're sliding
       tf.set(v.x, 0, v.z);
-      if (tf.lengthSq() < 0.5 || this.wishF < 0) tf.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
+      if (tf.lengthSq() < 0.5 || this.wishF !== 0 || this.turn) tf.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
     } else if (speed > 2.5) {
       // fly along the velocity, but never a pure vertical dive: keep a heading so the pose stays readable
       tf.copy(v).multiplyScalar(1 / speed).addScaledVector(_e.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)), anchored ? 0.25 : 0.55);
@@ -1063,7 +1111,7 @@ export class Player {
       tf.normalize().lerp(_e, this.landPrep);
     }
     tf.normalize();
-    this.forward.lerp(tf, damp(this.riding ? 30 : this.grounded ? 14 : this.landPrep > 0 ? 12 : 7, dt)).normalize();
+    this.forward.lerp(tf, damp(this.riding ? 30 : this.grounded ? 40 : this.landPrep > 0 ? 12 : 7, dt)).normalize();
     const upT = _b.copy(UP);
     const pd = this.odm.pullDir(this.render, _c);
     if (pd && !this.grounded) upT.lerp(pd, 0.55);
@@ -1118,6 +1166,12 @@ export class Player {
       this.cam.trauma = Math.min(1, this.cam.trauma + 0.15 + k * 0.25);
       game.audio?.impact?.(k * 0.5);
       this.odm.snap = 0;
+    }
+    // skidding to a stop on ↓: knees bent, heels dug in, dust off the feet
+    if (this.skidding && this.grounded) {
+      this.crouch = Math.max(this.crouch, 0.4);
+      this._skidT = (this._skidT || 0) - dt;
+      if (this._skidT <= 0) { this._skidT = 0.07; game.fx?.impact?.(_c.copy(this.render).addScaledVector(this.groundN, -CFG.radius), this.groundN, 'ground'); }
     }
     // landing dust
     if (this._landT > 0) {
