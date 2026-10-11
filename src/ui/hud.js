@@ -108,6 +108,18 @@ const CSS = `
 .wof-tgt[data-att="1"] i::after{background:#fff}
 @keyframes wof-tgt-pulse{0%,100%{transform:rotate(45deg) scale(1)}50%{transform:rotate(45deg) scale(1.32);box-shadow:0 0 18px var(--g),0 0 0 1px rgba(0,0,0,.5)}}
 
+/* kill cam: a clean cinematic frame. The crosshair, the Z / X hooks, rope and nape markers, threat chevrons, hints and
+   the controls card go; the panels fade back; letterbox bars slide in. The NAPE CUT title and damage stay */
+.wof-cross,.wof-napes,.wof-hint,.wof-cc,.wof-panel{transition:opacity .15s}
+.wof-root.cine .wof-cross,.wof-root.cine .wof-napes,.wof-root.cine .wof-tgts,.wof-root.cine .wof-threats,
+.wof-root.cine .wof-hint,.wof-root.cine .wof-cc{opacity:0}
+.wof-root.cine .wof-panel{opacity:.18}
+.wof-game::before,.wof-game::after{content:"";position:absolute;left:0;right:0;height:0;background:#000;z-index:1;pointer-events:none;
+  transition:height .18s ease-out}
+.wof-game::before{top:0}
+.wof-game::after{bottom:0}
+.wof-root.cine .wof-game::before,.wof-root.cine .wof-game::after{height:9vh}
+
 /* off-screen titan threat chevrons */
 .wof-thr{position:absolute;left:0;top:0;width:0;height:0;display:none;will-change:transform}
 .wof-thr svg{position:absolute;left:-11px;top:-9px;width:22px;height:18px;overflow:visible;fill:#e3402b;stroke:#2a0703;stroke-width:1.4;
@@ -835,6 +847,9 @@ export class Hud {
     const cc = !!s.controlsCard;
     if (c.cc !== cc) { c.cc = cc; el.cc.classList.toggle('on', cc); }
 
+    // kill cam: cinematic frame (see .cine)
+    const cine = !!s.cinematic;
+    if (c.cine !== cine) { c.cine = cine; this.root.classList.toggle('cine', cine); }
     // grabbed: MASH SPACE + struggle bar
     const grabbed = !!s.grabbed;
     if (c.grabbed !== grabbed) { c.grabbed = grabbed; this.root.classList.toggle('grabbed', grabbed); }

@@ -336,7 +336,7 @@ function hudState(playing) {
     objective: playing ? game.flow.objective() : '', fps: game.fps,
     grabbed: !!p.grabbedBy, struggle: p.struggle, swapping: p.swapT > 0, wave: game.flow.wave,
     timer: game.flow.timer(), targets: game.flow.trainingTargets(), hint: playing && !game.killCam ? game.flow.hint : null,
-    controlsCard: playing && game.showControls && !game.killCam,
+    controlsCard: playing && game.showControls && !game.killCam, cinematic: playing && !!game.killCam,
   };
 }
 

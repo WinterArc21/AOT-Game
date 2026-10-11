@@ -15,7 +15,12 @@ page.on('console', (m) => { if (m.type() === 'error') { errors.push(m.text()); c
 await page.goto(`${url}/index.html?noaudio&norender&allies=0&notitans&play=${mode}`);
 await page.waitForFunction(() => window.READY === true, null, { timeout: 180000 });
 await page.evaluate(() => { window.__fires = 0; window.__attach = 0; window.__none = 0; game.events.on('hook:attach', () => window.__attach++); game.events.on('hook:none', () => window.__none++); });
-const step = (s) => page.evaluate((s) => { const out = []; for (let t = 0; t < s; t += 1 / 60) { window.stepGame(1 / 60); } const p = game.player; return { x: p.pos.x, y: p.pos.y, z: p.pos.z, v: p.speed, hp: p.hp, alive: p.alive, hooks: p.odm.hooks.map((h) => h.state[0]).join(''), tv: p.targets.map((t) => t.valid ? 1 : 0).join('') }; }, s);
+// camera: how far it moves in a frame relative to the soldier (a jump = the occlusion pulling it in or letting it out)
+await page.evaluate(() => { window.__cam = { jumps: [], prevRel: null, inside: 0, frames: 0 }; });
+const step = (s) => page.evaluate((s) => { const out = []; for (let t = 0; t < s; t += 1 / 60) { window.stepGame(1 / 60);
+  const C = window.__cam, cam = game.camera.position, pr = game.player.render; const rel = cam.clone().sub(pr);
+  if (C.prevRel) C.jumps.push(rel.distanceTo(C.prevRel)); C.prevRel = rel; C.frames++;
+  if (game.collision.collideSphere(cam, 0.15, { dynamic: false }).some((k) => k.depth > 0.05)) C.inside++; } const p = game.player; return { x: p.pos.x, y: p.pos.y, z: p.pos.z, v: p.speed, hp: p.hp, alive: p.alive, hooks: p.odm.hooks.map((h) => h.state[0]).join(''), tv: p.targets.map((t) => t.valid ? 1 : 0).join('') }; }, s);
 const start = await step(0.2);
 let ymin = 1e9, ymax = -1e9, vmax = 0, stall = 0, samples = 0, fires = 0, dist = 0, prev = start;
 const keys = ['KeyX', 'KeyZ'];
@@ -37,8 +42,10 @@ for (let t = 0, i = 0; t < secs; i++) {
   if (!b.alive) break;
 }
 const end = await step(0.1);
-const r = await page.evaluate(() => ({ attach: window.__attach, none: window.__none, kills: game.player.stats.kills }));
+const r = await page.evaluate(() => { const j = window.__cam.jumps.sort((a, b) => a - b);
+  return { attach: window.__attach, none: window.__none, kills: game.player.stats.kills,
+    cam: { jumpP99: +j[Math.floor(j.length * 0.99)].toFixed(2), jumpMax: +j[j.length - 1].toFixed(2), jumpsOver1m: j.filter((x) => x > 1).length, insideGeometryFrames: window.__cam.inside, frames: window.__cam.frames } }; });
 console.log(JSON.stringify({ mode, secs, start: [start.x, start.y, start.z].map((v) => v.toFixed(0)).join(','), end: [end.x, end.y, end.z].map((v) => v.toFixed(0)).join(','),
   pathMetres: Math.round(dist), y: `${ymin.toFixed(0)}..${ymax.toFixed(0)}`, vmax: +vmax.toFixed(1), ropePresses: fires, attaches: r.attach, noTarget: r.none,
-  stalledSamples: `${stall}/${samples}`, hp: +end.hp.toFixed(2), alive: end.alive, errors: errors.length }));
+  stalledSamples: `${stall}/${samples}`, cam: r.cam, hp: +end.hp.toFixed(2), alive: end.alive, errors: errors.length }));
 await browser.close(); srv.close();

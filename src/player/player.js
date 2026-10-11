@@ -1456,12 +1456,21 @@ export class Player {
     // pivot: over the shoulder, a bit higher when standing
     const pivot = _c.copy(this.render).addScaledVector(UP, CFG.cam.height).addScaledVector(right, CFG.cam.side);
     const want = _d.copy(pivot).addScaledVector(fwd, -c.dist);
-    // keep the camera out of walls/trees: cast from the body to the wanted spot
+    // keep the camera out of walls/trees: cast from the body to the wanted spot. The camera glides in to the
+    // clear distance instead of popping there (a trunk flashing between you and it at speed used to pull it in
+    // 6 m in one frame and straight back out); it only snaps when it would otherwise end up inside something
     const toCam = _e.subVectors(want, pivot);
     const len = toCam.length();
     toCam.multiplyScalar(1 / len);
     const block = this.game.collision.raycast(pivot, toCam, len + 0.4, { dynamic: false });
-    if (block) want.copy(pivot).addScaledVector(toCam, Math.max(0.4, block.distance - 0.4));
+    const clear = block ? Math.max(0.4, block.distance - 0.4) : len;
+    if (c.reach === undefined || c.reach > len) c.reach = Math.min(c.reach ?? len, len);
+    if (clear < c.reach) {
+      c.reach += (clear - c.reach) * damp(12, dt);
+      _f.copy(pivot).addScaledVector(toCam, c.reach);
+      if (this.game.collision.collideSphere(_f, 0.2, { dynamic: false }).some((k) => k.depth > 0.02)) c.reach = clear;
+    } else c.reach += (Math.min(clear, len) - c.reach) * damp(4, dt);
+    want.copy(pivot).addScaledVector(toCam, c.reach);
     c.pos.copy(want);
     cam.position.copy(c.pos);
     cam.up.copy(UP);
@@ -1506,20 +1515,27 @@ export class Player {
     const cam = this.game.camera, c = this.cam, t = this.grabbedBy, me = this.render;
     const h = t.height || 8;
     const face = t._headWorld ? t._headWorld(_d) : _d.copy(t.position || me).addScaledVector(UP, h * 0.9);
+    // frame you in the fist and the face it's bringing you to: stand off from the pair, out to the side the fist
+    // is on and a little above, far enough back to fit both (it used to sit against its thigh or chest)
+    const mid = _f.copy(me).lerp(face, 0.4);
     const out = _a.subVectors(me, t.position || face).setY(0);
     if (out.lengthSq() < 1e-4) out.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)).negate();
     out.normalize();
     const side = _b.set(-out.z, 0, out.x);
-    const want = _c.copy(me).addScaledVector(out, 2.4 + 0.16 * h).addScaledVector(side, 0.9 + 0.06 * h).addScaledVector(UP, 0.5 + 0.05 * h);
-    // keep it out of walls and trees
-    const toCam = _e.subVectors(want, me), len = toCam.length();
+    const span = me.distanceTo(face);
+    const back = Math.max(2.9 + 0.28 * h, span * 1.4);
+    const want = _c.copy(mid).addScaledVector(out, back).addScaledVector(side, 0.35 * back).addScaledVector(UP, 0.25 * back);
+    // never inside its body: step further out until clear of it
+    for (let i = 0; i < 6 && t.hitTest?.(want, 0.6, [])?.length; i++) want.addScaledVector(out, 0.15 * h + 0.6).y += 0.3;
+    // and out of walls and trees
+    const toCam = _e.subVectors(want, mid), len = toCam.length();
     toCam.multiplyScalar(1 / len);
-    const block = this.game.collision.raycast(me, toCam, len + 0.4, { dynamic: false });
-    if (block) want.copy(me).addScaledVector(toCam, Math.max(0.6, block.distance - 0.4));
+    const block = this.game.collision.raycast(mid, toCam, len + 0.4, { dynamic: false });
+    if (block) want.copy(mid).addScaledVector(toCam, Math.max(0.8, block.distance - 0.4));
     if (!this._grabCam) this._grabCam = { pos: cam.position.clone(), look: me.clone() };
-    const G = this._grabCam, k = damp(5, dt);
-    G.pos.lerp(want, k);
-    G.look.lerp(_d.copy(me).lerp(face, 0.35), damp(8, dt));
+    const G = this._grabCam;
+    G.pos.lerp(want, damp(4, dt));
+    G.look.lerp(_d.copy(me).lerp(face, 0.55), damp(8, dt));
     c.pos.copy(G.pos);
     cam.position.copy(G.pos).addScaledVector(UP, shy * 0.05);
     cam.up.copy(UP);
