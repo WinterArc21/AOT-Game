@@ -7,7 +7,7 @@ import { serve } from './serve.mjs';
 import path from 'node:path';
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const want = process.argv.slice(2);
-const all = ['run', 'weave', 'stop', 'perch', 'titan', 'horse', 'rope', 'trunk', 'throw', 'cape'];
+const all = ['run', 'weave', 'airturn', 'stop', 'perch', 'titan', 'horse', 'rope', 'trunk', 'throw', 'cape'];
 const scen = want.length ? want : all;
 const { srv, url } = await serve(ROOT);
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
@@ -158,6 +158,31 @@ if (scen.includes('weave')) await run('weave', () => {
   return { bodyVsCameraDeg: st(faceErr), legsCrossedFrac: +(crossed / frames).toFixed(3), minFootSep: +minSep.toFixed(3),
     capeSidewaysDeg: st(capeSide), bladeTipHeight: { min: +Math.min(...tipH).toFixed(2), mean: +(tipH.reduce((x, y) => x + y, 0) / tipH.length).toFixed(2) },
     plantedSpeed: r.plantedSpeed, onGroundSpeed: r.onGroundSpeed };
+});
+
+if (scen.includes('airturn')) await run('airturn', () => {
+  // free flight (no rope), holding → for a second: how far the camera, the flight path and the body have turned
+  // (degrees), with and without gas, and whether the rope markers stay in the half of the view you're turning to
+  const B = window.__B, p = game.player, m = p.model, V = B.V;
+  const out = {};
+  const ang = (x, z) => Math.atan2(x, z) * 180 / Math.PI;
+  const wrap = (a) => ((a + 540) % 360) - 180;
+  for (const gas of [false, true]) {
+    game.input.down.clear();
+    p.reset(new V(0, 150, 120), 0); p.vel.set(0, 2, 25); p.grounded = false; p.infiniteGas = true;
+    B.steps(20);
+    const cam0 = ang(Math.sin(p.yaw), Math.cos(p.yaw)), path0 = ang(p.vel.x, p.vel.z), body0 = ang(m.heading.x, m.heading.z);
+    const rows = [];
+    for (let i = 1; i <= 60; i++) {
+      game.input.down.add('ArrowRight'); if (gas) game.input.down.add('ShiftLeft');
+      window.stepGame(1 / 60);
+      if (i % 10 === 0) rows.push({ t: +(i / 60).toFixed(2), camera: +wrap(ang(Math.sin(p.yaw), Math.cos(p.yaw)) - cam0).toFixed(0),
+        path: +wrap(ang(p.vel.x, p.vel.z) - path0).toFixed(0), body: +wrap(ang(m.heading.x, m.heading.z) - cam0).toFixed(0), fwd: +wrap(ang(p.forward.x, p.forward.z) - cam0).toFixed(0), up: [p.bodyUp.x, p.bodyUp.y, p.bodyUp.z].map((x) => +x.toFixed(2)), speed: +p.speed.toFixed(1) });
+    }
+    game.input.down.clear();
+    out[gas ? 'withGas' : 'noGas'] = rows;
+  }
+  return out;
 });
 
 if (scen.includes('stop')) await run('stop', () => {

@@ -29,7 +29,8 @@ export const CFG = {
     reelRate: 0.004,        // per second per anchored wire
     fireCost: 0.003,
   },
-  air: { control: 7, pump: 10 },
+  // carve / carveGas: how hard (m/s² sideways) free flight swings round after the way you face, without / with gas
+  air: { control: 7, pump: 10, carve: 9, carveGas: 30 },
   // brake: ↓ skids you to a stop; maxLateral: the sideways acceleration a running turn can pull (m/s²)
   ground: { run: 11, accel: 80, skid: 22, brake: 45, maxLateral: 16, jump: 7.8, coyote: 0.12 },
   // Hitting the world never hurts (soldiers are trained to land; only titans do damage). feel: shake, dust and a thud

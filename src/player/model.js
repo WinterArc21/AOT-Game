@@ -1130,7 +1130,7 @@ export class PlayerModel {
     const hl = _v2.length();
     if (hl > 0.12) {
       _v2.multiplyScalar(1 / hl);
-      if (first) this.heading.copy(_v2); else this.heading.lerp(_v2, k(this.wAir > 0.5 ? 10 : 40)).normalize();
+      if (first) this.heading.copy(_v2); else this.heading.lerp(_v2, k(this.wAir > 0.5 ? 16 : 40)).normalize();
     }
     this.heading.addScaledVector(up, -this.heading.dot(up)).normalize();
     // yaw rate (for banking into turns)

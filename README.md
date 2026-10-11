@@ -14,7 +14,7 @@ The keyboard is all you need. The mouse is optional.
 
 | Keys | What they do |
 |---|---|
-| **← →** | turn. On a rope: swing round the anchor |
+| **← →** | turn. In free flight you twist round to face that way and your path carves after it (hard with **Shift**). On a rope: swing round the anchor |
 | **↑ / ↓** | run / brake: **↓** skids you to a stop on foot and bleeds off speed in the air (it never turns you round). On a rope: **↑** pumps the swing, **↓** lets the wire out for a longer swing, and near your anchor it sets you down on the branch or trunk |
 | **Z** / **X** (hold) | fire the left / right rope. Each one goes where you face: the anchor nearest the centre of your view, Z in the left half, X in the right, shown by a **Z** / **X** marker before you fire. Let go to release |
 | **C** | the marker isn't on the anchor you want? skip both ropes to the next-best anchors |

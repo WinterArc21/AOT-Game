@@ -265,7 +265,9 @@ export class Player {
     const sgn = side === 0 ? -1 : 1;
     const fwd = this._heading(_a), right = this._right(_b);
     const v = this.vel, hs = hypot(v.x, v.z);
-    const ax = hs > 8 ? v.x / hs : fwd.x, az = hs > 8 ? v.z / hs : fwd.z;
+    // "ahead": where you're going, leaning toward where you face (turn the view and the ropes look there too)
+    let ax = hs > 8 ? v.x / hs + fwd.x * 0.8 : fwd.x, az = hs > 8 ? v.z / hs + fwd.z * 0.8 : fwd.z;
+    const al = hypot(ax, az) || 1; ax /= al; az /= al;
     const range = CFG.hook.range - 3;
     const gy = col.groundHeight(p.x, p.z);
     // the height we'd like to anchor at: above us, lower when we're already high over the canopy
@@ -843,6 +845,21 @@ export class Player {
         w.addScaledVector(pd, -w.dot(pd));
         acc.addScaledVector(w, CFG.air.pump);
       }
+    } else if (!groundedNow && this.wishF >= 0 && this.stun <= 0) {
+      // free flight: the path carves round after the way you face (the body twists, the cape and a puff of gas
+      // bend it a little; with Shift the gas swings it round hard), speed kept
+      const hs = hypot(v.x, v.z);
+      if (hs > 3) {
+        const hx = Math.sin(this.yaw), hz = Math.cos(this.yaw);
+        const ang = Math.atan2(v.x * hz - v.z * hx, v.x * hx + v.z * hz);       // from the path round to the heading
+        if (Math.abs(ang) < 2.6) {
+          const lat = this.boosting && hasGas ? CFG.air.carveGas : CFG.air.carve;
+          const r = THREE.MathUtils.clamp(-ang, -lat / hs * dt, lat / hs * dt);
+          const c = Math.cos(r), sn = Math.sin(r), vx = v.x, vz = v.z;
+          v.x = vx * c + vz * sn; v.z = -vx * sn + vz * c;
+        }
+      }
+      if (wish.lengthSq() > 0) acc.addScaledVector(wish, CFG.air.control);
     } else if (this.wishF < 0 && !groundedNow) {
       // ↓ in free flight bleeds off your horizontal speed; it never turns you round
       const hs = hypot(v.x, v.z);
@@ -1097,8 +1114,10 @@ export class Player {
       tf.set(v.x, 0, v.z);
       if (tf.lengthSq() < 0.5 || this.wishF !== 0 || this.turn) tf.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
     } else if (speed > 2.5) {
-      // fly along the velocity, but never a pure vertical dive: keep a heading so the pose stays readable
-      tf.copy(v).multiplyScalar(1 / speed).addScaledVector(_e.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)), anchored ? 0.25 : 0.55);
+      // fly along the velocity, but never a pure vertical dive: keep a heading so the pose stays readable. In free
+      // flight the body twists round to face where you're looking (the path carves after it)
+      this._airLook = (this._airLook || 0) + ((!anchored && this.turn ? 1 : 0) - (this._airLook || 0)) * damp(this.turn ? 6 : 1.5, dt);
+      tf.copy(v).multiplyScalar(1 / speed).addScaledVector(_e.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)), anchored ? 0.25 : 0.55 + 2.2 * this._airLook);
     } else tf.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
     if (this.riding) {
       tf.set(Math.sin(this.riding.yaw), 0, Math.cos(this.riding.yaw));
@@ -1124,7 +1143,7 @@ export class Player {
       tf.normalize().lerp(_e, this.landPrep);
     }
     tf.normalize();
-    this.forward.lerp(tf, damp(this.riding ? 30 : this.grounded ? 40 : this.landPrep > 0 ? 12 : 7, dt)).normalize();
+    this.forward.lerp(tf, damp(this.riding ? 30 : this.grounded ? 40 : this.landPrep > 0 ? 12 : 7 + 9 * (this._airLook || 0), dt)).normalize();
     const upT = _b.copy(UP);
     const pd = this.odm.pullDir(this.render, _c);
     if (pd && !this.grounded) upT.lerp(pd, 0.55);
