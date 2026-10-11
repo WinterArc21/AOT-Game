@@ -66,6 +66,9 @@ if (scen.includes('run')) await run('run', () => {
     const T = B.tracker(2);
     const heel = new V(), ball = new V(), last = [[null, null], [null, null]];
     let frames = 0, sumV = 0;
+    // leg shape: angle of hip -> ankle from straight down (+ = foot behind the hip), and how straight the leg is
+    const legA = [], hipP = new V(), ankP = new V();
+    let straightBack = 0, legFrames = 0, behindMax = 0;
     const run0 = window.__CFG.ground.run;
     window.__CFG.ground.run = target;          // hold ↑ at this run speed (a walk, a jog, a sprint)
     for (let i = 0; i < 300; i++) {
@@ -74,6 +77,17 @@ if (scen.includes('run')) await run('run', () => {
       const hv = Math.hypot(p.vel.x, p.vel.z);
       if (i < 90) continue;
       frames++; sumV += hv;
+      const hd = new V(p.vel.x, 0, p.vel.z).normalize();
+      for (let s = 0; s < 2; s++) {
+        const L = s ? m.j.legR : m.j.legL;
+        L.an.updateWorldMatrix(true, false); L.hip.updateWorldMatrix(true, false);
+        hipP.setFromMatrixPosition(L.hip.matrixWorld); ankP.setFromMatrixPosition(L.an.matrixWorld);
+        const dx = ankP.x - hipP.x, dz = ankP.z - hipP.z, dy = hipP.y - ankP.y;
+        const back = -(dx * hd.x + dz * hd.z), len = Math.hypot(dx, dy, dz);
+        const ang = Math.atan2(back, dy) * 180 / Math.PI;
+        legA.push(ang); legFrames++; behindMax = Math.max(behindMax, back);
+        if (ang > 45 && len > 0.8) straightBack++;
+      }
       for (let s = 0; s < 2; s++) {
         const an = s ? m.j.legR.an : m.j.legL.an;
         an.updateWorldMatrix(true, false);
@@ -87,7 +101,11 @@ if (scen.includes('run')) await run('run', () => {
     window.__CFG.ground.run = run0;
     game.input.down.delete('ArrowUp');
     const secs = frames / 60;
-    out['v' + target] = { bodySpeed: +(sumV / frames).toFixed(2), ...T.report(frames, secs) };
+    legA.sort((a, b) => a - b);
+    const q = (f) => +legA[Math.min(legA.length - 1, Math.floor(f * legA.length))].toFixed(0);
+    out['v' + target] = { bodySpeed: +(sumV / frames).toFixed(2), ...T.report(frames, secs),
+      legAngleDeg: { frontMost: q(0), p05: q(0.05), p95: q(0.95), backMost: q(0.999) }, ankleBehindHipMax: +behindMax.toFixed(2),
+      straightLegFlatBehindFrac: +(straightBack / legFrames).toFixed(3) };
   }
   return out;
 });

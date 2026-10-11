@@ -872,7 +872,9 @@ export class PlayerModel {
     G.base = 0.015 + 0.035 * sstep(0.2, 1.6, v) + 0.065 * sstep(2.5, 10, v);
     const H = LEG_H - G.base, half = Math.sqrt(Math.max(0.01, LEG_REACH * LEG_REACH - H * H));
     const maxStance = 1.9 * half + 0.06;                                  // + the heel peeling up at the end
-    const duty0 = lerp(0.62, 0.36, sstep(2.0, 4.5, v));
+    // a sprinter is on the ground for barely a quarter of the stride: the foot lands under the hips and is off again
+    // before the leg has swung far behind (a long contact leaves the back leg dead straight and flat out behind)
+    const duty0 = lerp(lerp(0.62, 0.36, sstep(2.0, 4.5, v)), 0.27, sstep(6, 10.5, v));
     G.duty = clamp(Math.min(duty0, maxStance / (2 * G.step)), 0.15, 0.65);
     G.stance = G.duty * 2 * G.step;
     const moving = grounded && v > MOVE_V;
@@ -918,7 +920,7 @@ export class PlayerModel {
       G.init = true; G.drop = 0;
     }
     const pelvis = _l4.copy(this.root.position);
-    const lift = lerp(0.07, 0.42, sstep(1.5, 7, v));
+    const lift = lerp(0.07, 0.36, sstep(1.5, 7, v));
     const cycT = 2 * G.step / Math.max(v, 0.05);
     // where a foot coming down now should land: under the pelvis, a share of the stance ahead, out to its side
     // turning: the body will have swung round by the time a foot lands, and the feet land out to the outside of the
@@ -938,6 +940,7 @@ export class PlayerModel {
       f.swing = true; f.timed = timedDur > 0; f.t = 0; f.dur = timedDur; f.u = 0;
       f.from.copy(f.ankle); f.fromPitch = f.pitch;
       f.fromLat = _l5.subVectors(f.ankle, pelvis).dot(lat);              // its side of the body, as it lifts
+      (f.fromRel || (f.fromRel = new THREE.Vector3())).subVectors(f.ankle, pelvis);   // where it lifts, from the hips
     };
     for (let i = 0; i < 2; i++) {
       const f = G.feet[i];
@@ -976,14 +979,31 @@ export class PlayerModel {
         f.toFd.copy(hd).applyAxisAngle(_up, yr * (f.tRem || 0)).lerp(dirM, 0.3).normalize();
         f.toHeel = lerp(0.12, 0.3, sprint) * sprint;
         ankleFromBall(f.toBall, f.toFd, f.toHeel, up, f.to);
-        const e = sstep(0, 1, f.u), arcE = lerp(1, 0.7, sprint);
+        // walking, the foot travels over the ground from one foothold to the next; running, it moves relative to the
+        // hips: it stays back while the heel kicks up (a world-space path leaves it trailing straight out behind as
+        // the body runs on), comes through under the knee, reaches a touch past where it lands and paws back onto it
+        const e = sstep(0, 1, f.u), arcE = lerp(1, 0.75, sprint);
         f.ankle.lerpVectors(f.from, f.to, e);
+        if (sprint > 0 && !f.timed && f.fromRel) {
+          const h = sstep(0.12, 0.8, f.u) + 0.12 * Math.sin(Math.PI * clamp((f.u - 0.6) / 0.4, 0, 1));
+          // the foothold, seen from where the hips will be at touchdown
+          _l3.copy(f.to).sub(pelvis).addScaledVector(vel, -(f.tRem || 0));
+          _l6.copy(f.fromRel).lerp(_l3, h).add(pelvis);
+          // it peels off its foothold first and settles onto the next one in place (no skid either end)
+          f.ankle.lerp(_l6, sprint * sstep(0, 0.15, f.u) * (1 - sstep(0.6, 0.92, f.u)));
+        }
         // mid-swing the foot keeps to its own side of the body (a straight world path would sweep it across the
         // other leg while the body turns over it); at lift-off and touchdown it follows the world path exactly
         const nowLat = _l5.subVectors(f.ankle, pelvis).dot(lat);
         const toLat = _l5.subVectors(f.to, pelvis).dot(lat);
         f.ankle.addScaledVector(lat, (lerp(f.fromLat ?? nowLat, toLat, e) - nowLat) * Math.sin(Math.PI * f.u));
         f.ankle.addScaledVector(up, (f.timed ? 0.07 : lift) * Math.sin(Math.PI * Math.pow(f.u, arcE)));
+        // heel recovery: early in the swing, still behind the hips, the foot folds up under the seat
+        if (!f.timed && sprint > 0) {
+          const back = -_l5.subVectors(f.ankle, pelvis).dot(dirM);              // how far behind the hips
+          const k = sprint * Math.sin(Math.PI * Math.min(1, f.u / 0.6)) * clamp(back / 0.5, 0, 1);
+          f.ankle.addScaledVector(dirM, 0.2 * k).addScaledVector(up, 0.08 * k);
+        }
         // toes: still pointing down off the push, level (or a touch up) to come down on the heel, toe-first at a sprint
         f.pitch = lerp(f.fromPitch, f.toHeel - 0.12 * (1 - sprint), sstep(0.15, 0.85, f.u)) + 0.5 * sprint * Math.sin(Math.PI * f.u);
       } else {
