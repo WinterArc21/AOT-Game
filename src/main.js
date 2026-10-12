@@ -251,6 +251,7 @@ function step(dt) {
   game.collision.updateDynamic();
   if (playing) player.update(simDt, acc / STEP);
   else menuCamera(dt);
+  game.world?.setFoliageFocus?.(playing ? player.render : null);
   for (const a of game.allies) a.update(simDt, acc / STEP);
   game.herd?.update(simDt);
   game.flow.update(simDt);

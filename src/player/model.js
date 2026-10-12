@@ -115,6 +115,7 @@ function makeCapeTexture() {
 // ───────────────────────────────────────────────── cape cloth sim ───────────────────────────────────────────
 const CC = 9, CR = 10, CN = CC * CR;
 const CAPE_LEN = 1.22, CAPE_W0 = 0.46, CAPE_W1 = 0.98;
+const CAPE_UPDRAFT = 3;   // m/s: the most upward apparent wind the cape feels (a fall)
 
 class CapeSim {
   constructor() {
@@ -199,12 +200,17 @@ class CapeSim {
     const nSub = clamp(Math.ceil(dt * (this.hz || 120)), 1, 6);
     const h = dt / nSub;
     const P = this.pos, Q = this.pred, V = this.vel, N = this.nrm;
-    const ax = -this.accel.x, ay = -this.accel.y, az = -this.accel.z;       // inertial pseudo-force
     // air drag pulls the cloth to the apparent wind (so it trails behind where you're going, rather than being
     // flung out sideways when you turn); gravity a little under g keeps it lively
     const fT = 1 - Math.exp(-3.2 * h), fN = 1 - Math.exp(-9 * h);
     const damp = Math.exp(-0.5 * h);
     const gy = -9.8 * 0.8;
+    // inertial pseudo-force. Falling, the body accelerates down at the game's (stronger) gravity, which would more
+    // than cancel the cloth's own weight and float it up over the head with no wind at all: the upward part is held
+    // to most of the cloth's weight, so a falling cape only rises as far as the updraft lifts it
+    const ax = -this.accel.x, ay = Math.min(-this.accel.y, -gy * 0.6), az = -this.accel.z;
+    // settling (feet-first for a landing, or on the ground): cloth above the shoulders is pulled down off the head
+    const settle = this.settle || 0, pinY = this.anchor[4 * 3 + 1], ceil = pinY + lerp(CAPE_LEN, 0.02, settle);
     const ia = this.ia, ib = this.ib, rest = this.rest, kk = this.k, nCon = this.nCon;
     const sph = this.spheres, nSph = this.nSph;
     // flutter and billow come from the apparent wind only: standing still, the cape just hangs under gravity
@@ -246,6 +252,7 @@ class CapeSim {
           const gust = sn * gustAmp * (0.25 + r / CR) * edge;
           const lf = lift * (0.5 + 0.5 * Math.sin(ph * 0.8 - c * 0.5)) * Math.pow(r / CR, 1.4) * edge;   // billow away from the back
           vx += (ax + N[i] * gust + bkX * lf) * h; vy += (gy + ay + N[i + 1] * gust + bkY * lf) * h; vz += (az + N[i + 2] * gust + bkZ * lf) * h;
+          if (settle > 0 && P[i + 1] > pinY + 0.05) vy -= settle * 30 * h;
           // drag against the wind: isotropic part + extra along the normal (cloth catches air)
           const rx = windX - vx, ry = windY - vy, rz = windZ - vz;
           const nd = N[i] * rx + N[i + 1] * ry + N[i + 2] * rz;
@@ -274,6 +281,9 @@ class CapeSim {
         }
         for (let i = CC; i < CN; i++) {
           const o = i * 3;
+          // settling, the cloth can only ride so far above the shoulders: what would stand higher folds back behind
+          // them instead (never draped over the head)
+          if (settle > 0 && Q[o + 1] > ceil) { const ex = Q[o + 1] - ceil; Q[o + 1] = ceil; Q[o] += bkX * ex; Q[o + 2] += bkZ * ex; }
           for (let s = 0; s < nSph; s++) {
             const so = s * 7;
             const dx = Q[o] - sph[so], dy = Q[o + 1] - sph[so + 1], dz = Q[o + 2] - sph[so + 2];
@@ -1011,6 +1021,18 @@ export class PlayerModel {
         f.pitch = f.heel;
       }
     }
+    // never the splits: each foot stays in a natural band out to its own side of the hips. Sliding sideways (a fast
+    // landing at an angle, a rope tugging you across the grass) the footholds run off to the side of the body; past
+    // the band the foot skids along with you instead of being left behind
+    for (let i = 0; i < 2; i++) {
+      const f = G.feet[i], sgn = i ? -1 : 1;
+      const off = _l5.subVectors(f.ankle, pelvis).dot(lat) * sgn;
+      const c = clamp(off, -0.04, 0.26);
+      if (c !== off) {
+        f.ankle.addScaledVector(lat, (c - off) * sgn);
+        if (!f.swing) f.ball.addScaledVector(lat, (c - off) * sgn);
+      }
+    }
     // the pelvis sinks until the planted feet are in reach (and rides a little lower at speed); a soft bounce
     let need = G.base;
     for (let i = 0; i < 2; i++) {
@@ -1433,8 +1455,14 @@ export class PlayerModel {
       const sf = clamp(speed / 60, 0, 1);
       // apparent wind in the frame = -velocity (damped at extreme speed to keep the cloth readable)
       const wm = speed > 1 ? Math.min(1, 30 / speed) : 1;
+      // falling, the updraft only lifts the cape so far: it streams up and back off the shoulders instead of standing
+      // straight up over the head like a tent (which hides the soldier from the camera behind)
+      const wy = Math.min(-vy * wm, CAPE_UPDRAFT);
+      // settle: on the ground at a walk (running, it streams out behind), coming in to land, or dropping feet-first
+      const fall = sstep(4, 12, -vy) * clamp((this.up.y - 0.6) / 0.35, 0, 1) * this.wAir;
+      cp.settle = Math.max(this.wLand || 0, (1 - this.wAir) * (1 - sstep(3, 7, speed)), 0.8 * fall);
       { const me = this.col[0].o.matrixWorld.elements, bl = hypot(me[8], me[9], me[10]) || 1;
-        cp.step(cdt, -vx * wm, -vy * wm, -vz * wm, sf, -me[8] / bl, -me[9] / bl, -me[10] / bl); }
+        cp.step(cdt, -vx * wm, wy, -vz * wm, sf, -me[8] / bl, -me[9] / bl, -me[10] / bl); }
       // NaN guard
       let bad = false;
       for (let i = 0; i < CN * 3; i += 7) if (!Number.isFinite(cp.pos[i])) { bad = true; break; }

@@ -223,7 +223,10 @@ export class OdmGear {
       const wobble = h.state === 'flying' ? 0.6 : h.state === 'retracting' ? 1.2 : 0;
       // a slack wire hangs: sag grows with the slack (√(slack·length), a shallow catenary)
       let sag = 0;
-      if (h.attached) { const slack = h.length - origins[i].distanceTo(h.anchor); if (slack > 0.05) sag = Math.min(6, Math.sqrt(slack * h.length) * 0.45); }
+      // (the wire's own slack, measured from the body centre the physics uses, not from the launcher on the hip). A wire
+      // running free (h.payout: the titan swoop, the other rope during a climb) is drawn taut: its reel spools the
+      // slack in as you close, it only stops holding you back (it used to hang in a long loop under you)
+      if (h.attached && !(h.payout > 0)) { const slack = h.length - this.player.pos.distanceTo(h.anchor); if (slack > 0.05) sag = Math.min(6, Math.sqrt(slack * h.length) * 0.45); }
       w.update(origins[i], h.tip, camera, wobble, time + i * 1.7, sag);
     }
   }

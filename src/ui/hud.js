@@ -889,9 +889,23 @@ export class Hud {
     while (layer.childElementCount > 40) layer.firstElementChild.remove();
     const d = document.createElement('div');
     d.className = kill ? 'wof-dmg kill' : 'wof-dmg';
-    d.textContent = String(Math.round(Number(value) || 0));
-    d.style.left = Math.round(screenX) + 'px';
-    d.style.top = Math.round(screenY) + 'px';
+    const text = String(Math.round(Number(value) || 0));
+    d.textContent = text;
+    // never on top of one still showing (two cuts in a row on the same nape used to merge into one long number):
+    // drop it below whichever it would overlap (the older one is floating up out of the way). Sizes are estimated from
+    // the font (no layout read)
+    const now = performance.now(), live = this._dmgLive || (this._dmgLive = []);
+    for (let i = live.length - 1; i >= 0; i--) if (now - live[i].t > 900 || !live[i].d.isConnected) live.splice(i, 1);
+    const fs = kill ? 58 : 34, w = text.length * fs * 0.62 + 12, h = fs * 0.95;
+    let x = screenX, y = screenY;
+    for (let tries = 0; tries < 8; tries++) {
+      const o = live.find((b) => Math.abs(b.x - x) < (b.w + w) / 2 && Math.abs(b.y - y) < (b.h + h) / 2);
+      if (!o) break;
+      y = o.y + (o.h + h) / 2 + 2;
+    }
+    live.push({ d, x, y, w, h, t: now });
+    d.style.left = Math.round(x) + 'px';
+    d.style.top = Math.round(y) + 'px';
     layer.appendChild(d);
     setTimeout(() => d.remove(), 1300);
   }
@@ -931,6 +945,15 @@ export class Hud {
     this._toastRaf = requestAnimationFrame(() => { this._toastRaf = requestAnimationFrame(() => el.classList.add('on')); });
     clearTimeout(this._t.toast);
     this._t.toast = setTimeout(() => el.classList.remove('on'), dur);
+  }
+
+  /** Take down the centre-top toast now if its text matches `re` (a RegExp; omit for any). */
+  clearMessage(re) {
+    const el = this.el.toast;
+    if (!el.classList.contains('on') || (re && !re.test(el.textContent))) return;
+    cancelAnimationFrame(this._toastRaf);
+    clearTimeout(this._t.toast);
+    el.classList.remove('on');
   }
 
   /** Title screen. onStart(mode) is called with 'expedition', 'training' or 'free'. */

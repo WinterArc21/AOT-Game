@@ -8,6 +8,7 @@ import { buildTown } from './town.js';
 import { buildField } from './field.js';
 import { buildForest } from './forest.js';
 import { buildFlags } from './flags.js';
+import { foliageFade } from './trees.js';
 
 export function buildWorld(game) {
   const ctx = createContext(game);
@@ -40,6 +41,8 @@ export function buildWorld(game) {
     titanSpawns: ctx.titanSpawns,
     sun, hemi, sunDirection: SUN_DIR.clone(), fogColor: new THREE.Color(FOG_COLOR),
     inFoliage: (pos) => ctx.foliage.test(pos),
+    /** Thin out leaves between the camera and `pos` (the soldier); null turns it off (menus). */
+    setFoliageFocus(pos) { if (pos) foliageFade.focus.value.copy(pos); foliageFade.fade.value = pos ? 1 : 0; },
     stats: Object.assign(ctx.stats, { trees: forest.trees }),
     update(dt, camPos) {
       ctx.time.value += dt;

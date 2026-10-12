@@ -65,7 +65,7 @@ export class Game {
     ev.on('player:slapped', () => game.hud?.message?.('SWATTED OFF ITS NECK!', 1.2, 'warn'));
     ev.on('player:trampled', () => game.hud?.message?.('THROWN FROM THE SADDLE!', 1.6, 'warn'));
     ev.on('titan:windup', (e) => { if (e.kind === 'charge' && game.player?.riding) game.hud?.message?.('ABNORMAL CHARGING — BREAK AWAY!', 1.8, 'warn'); });
-    ev.on('player:bladeBroken', () => game.hud?.message?.(game.player.spares > 0 ? 'Blades dull: swapping to a fresh pair' : 'NO BLADES LEFT: find a supply depot (crates under a flag)', 2, 'warn'));
+    ev.on('player:bladeBroken', () => game.hud?.message?.(game.player.spares > 0 ? 'Blades dull: swapping to a fresh pair' : 'NO BLADES LEFT: find a supply depot (crates under a flag)', game.player.spares > 0 ? 1.1 : 2.5, 'warn'));
     let lastNone = -9;
     ev.on('hook:none', () => {
       if (game.time - lastNone < 3) return;

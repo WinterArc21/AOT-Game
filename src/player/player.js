@@ -742,6 +742,14 @@ export class Player {
     for (const h of odm.hooks) if (h.attached && !h.parked && p.distanceTo(h.anchor) > Math.max(h.length - 0.05, CFG.hook.minLen + 0.6)) slack = false;
     const footing = groundedNow && (!anchored || slack);
     this._footing = footing;
+    // running on the ground (↑) with a rope in that's still pulling (not a safety line you're standing on): after a
+    // moment the gear lets it go, so you run where you steer instead of being dragged sideways along the grass
+    for (const hk of odm.hooks) {
+      const titan = hk.collider?.userData?.titan || hk.collider?.userData?.dummy;
+      const drag = hk.attached && !hk.parked && !titan && !this._climb && groundedNow && !footing && this.wishF > 0;
+      hk._groundT = drag ? (hk._groundT || 0) + dt : 0;
+      if (hk._groundT > 0.6) { odm.release(hk.side); hk._groundT = 0; }
+    }
     this._saddleMagnet(dt, acc);
     this.boosting = this.wantBoost && hasGas && this.stun <= 0 && (!groundedNow || this.spaceHeld > 0.16 || anchored > 0);
 
@@ -809,6 +817,13 @@ export class Player {
           this.swoopLeg = 3;
           want.copy(A).addScaledVector(nrm, -2.5);
         }
+        // keep the line off the grass: the swoop never aims you lower than a couple of metres above the ground,
+        // and flying low it lifts you clear instead of dragging you along it
+        // (unless the nape itself is down there: a crawler)
+        const gy = this.game.collision.groundHeight(p.x, p.z), napeUp = A.y - gy;
+        want.y = Math.max(want.y, Math.min(gy + 2, A.y));
+        const clear = p.y - CFG.radius - gy;
+        if (napeUp > 2.5 && clear < 1.5 && v.y < 2) acc.y += (1.5 - Math.max(0, clear)) * 12 - Math.min(0, v.y) * 4;
         const aim = want.sub(p).normalize().multiplyScalar(fast).sub(v).multiplyScalar(CFG.combat.swoopGain);
         const al = aim.length();
         if (al > CFG.combat.swoopMax) aim.multiplyScalar(CFG.combat.swoopMax / al);
@@ -853,9 +868,11 @@ export class Player {
       let hs = hv.length();
       // the run swings round with the heading (speed kept), so the body, the camera and where you're going stay
       // lined up through a bend instead of the body sliding sideways over its feet
-      if (this.wishF > 0 && hs > 0.5 && hs < CFG.ground.run + 0.5) {
+      // (skidding in faster than a run, from the air, the feet still pull it round, as hard as the grip allows)
+      if (this.wishF > 0 && hs > 0.5) {
         const ang = Math.atan2(v.z * wish.x - v.x * wish.z, v.x * wish.x + v.z * wish.z);   // yaw from v round to the wish
-        const r = THREE.MathUtils.clamp(ang, -CFG.keys.turnGround * 1.6 * dt, CFG.keys.turnGround * 1.6 * dt);
+        const rate = hs < CFG.ground.run + 0.5 ? CFG.keys.turnGround * 1.6 : Math.min(CFG.keys.turnGround * 1.6, 1.5 * CFG.ground.maxLateral / hs);
+        const r = THREE.MathUtils.clamp(ang, -rate * dt, rate * dt);
         const c = Math.cos(r), sn = Math.sin(r), vx = v.x, vz = v.z;
         v.x = vx * c + vz * sn; v.z = -vx * sn + vz * c;
         hv.set(v.x, 0, v.z);
@@ -1180,7 +1197,17 @@ export class Player {
     if (this.grounded && (!anchored || this._footing)) {
       // running: the body faces where you steer (the velocity swings round after it); coasting: where you're sliding
       tf.set(v.x, 0, v.z);
-      if (tf.lengthSq() < 0.5 || this.wishF !== 0 || this.turn) tf.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
+      const hs = tf.length();
+      if (tf.lengthSq() < 0.5 || this.wishF !== 0 || this.turn) {
+        tf.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
+        // ...but never more than ~35° off the way you're actually moving: carrying speed in at an angle (a landing,
+        // a skid) the body turns into the slide rather than running sideways over its own feet
+        if (hs > 3) {
+          const ang = Math.atan2(tf.x * v.z - tf.z * v.x, tf.x * v.x + tf.z * v.z);   // from the facing round to v
+          const ex = Math.abs(ang) - 0.6;
+          if (ex > 0) tf.applyAxisAngle(UP, -Math.sign(ang) * ex * THREE.MathUtils.smoothstep(hs, 3, 6));
+        }
+      }
     } else if (speed > 2.5) {
       // fly along the velocity, but never a pure vertical dive: keep a heading so the pose stays readable. In free
       // flight the body twists round to face where you're looking (the path carves after it)
@@ -1413,6 +1440,7 @@ export class Player {
       const side = _b.crossVectors(UP, toN).normalize().multiplyScalar(this.vel.dot(_b) >= 0 ? 1 : -1);
       g.killCam = { t: 0, dur: CFG.kill.camTime, nape, side: side.clone(), toN: toN.clone(), size: hit.titan.height || 8 };
     }
+    g.hud?.clearMessage?.(/^WOUNDED|^IT COVERED|^FROM THE SIDE|^MISTIMED|^TOO SLOW/);   // the kill settles what the last cut got wrong
     g.hud?.message?.(hit.titan.kind === 'dummy' ? 'CUT!' : 'NAPE CUT', 1.1, 'big');
   }
 
@@ -1464,13 +1492,14 @@ export class Player {
     const toCam = _e.subVectors(want, pivot);
     const len = toCam.length();
     toCam.multiplyScalar(1 / len);
-    const block = this.game.collision.raycast(pivot, toCam, len + 0.4, { dynamic: false });
-    const clear = block ? Math.max(0.4, block.distance - 0.4) : len;
+    // (titans too: swooping round a neck, an arm or a shoulder between you and the camera must not fill the view)
+    const block = this.game.collision.raycast(pivot, toCam, len + 0.4);
+    const clear = block ? Math.max(0.4, block.distance - (block.collider.dynamic ? 0.7 : 0.4)) : len;
     if (c.reach === undefined || c.reach > len) c.reach = Math.min(c.reach ?? len, len);
     if (clear < c.reach) {
       c.reach += (clear - c.reach) * damp(12, dt);
       _f.copy(pivot).addScaledVector(toCam, c.reach);
-      if (this.game.collision.collideSphere(_f, 0.2, { dynamic: false }).some((k) => k.depth > 0.02)) c.reach = clear;
+      if (this.game.collision.collideSphere(_f, 0.2).some((k) => k.depth > 0.02)) c.reach = clear;
     } else c.reach += (Math.min(clear, len) - c.reach) * damp(4, dt);
     want.copy(pivot).addScaledVector(toCam, c.reach);
     c.pos.copy(want);

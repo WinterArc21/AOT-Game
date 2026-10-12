@@ -134,14 +134,25 @@ export function addTree(ctx, batch, rng, x, z, spec) {
  * with a light rim on the clump edges. Shared by every foliage instance.
  */
 let _foliageMat = null;
+// leaves between the camera and the soldier thin out to a screen-door dither, so flying past (or through) a crown
+// never fills the view with a wall of green: `focus` is the soldier, `fade` 0..1 switches it on
+export const foliageFade = { focus: { value: new THREE.Vector3() }, fade: { value: 0 } };
 function foliageMaterial() {
   if (_foliageMat) return _foliageMat;
   const m = toonMaterial(0xffffff);
   m.onBeforeCompile = (sh) => {
+    sh.uniforms.uFolFocus = foliageFade.focus; sh.uniforms.uFolFade = foliageFade.fade;
     sh.vertexShader = 'varying vec3 vFolW; varying float vFolUp;\n' + sh.vertexShader.replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
       vec4 fw = modelMatrix * instanceMatrix * vec4( transformed, 1.0 ); vFolW = fw.xyz;
       vFolUp = normalize( mat3( modelMatrix ) * mat3( instanceMatrix ) * objectNormal ).y;`);
-    sh.fragmentShader = 'varying vec3 vFolW; varying float vFolUp;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+    sh.fragmentShader = 'varying vec3 vFolW; varying float vFolUp; uniform vec3 uFolFocus; uniform float uFolFade;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+      // nearer the camera than the soldier (or right at the lens): keep only a sparse dither of it
+      if ( uFolFade > 0.0 ) {
+        float dCam = distance( vFolW, cameraPosition ), dFocus = distance( uFolFocus, cameraPosition );
+        float near = max( 1.0 - smoothstep( dFocus - 1.5, dFocus + 0.5, dCam ), 1.0 - smoothstep( 2.0, 4.0, dCam ) ) * uFolFade;
+        float ign = fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) );
+        if ( ign < near * 0.72 ) discard;
+      }
       // leaf clumps: two octaves of cheap 3D value-ish noise in world space
       vec3 q = vFolW * 0.55;
       float n = sin( q.x * 1.7 + sin( q.y * 1.3 ) * 2.0 ) * sin( q.z * 1.9 + sin( q.x * 1.1 ) * 2.0 ) * sin( q.y * 2.3 + q.z * 0.7 );
@@ -153,7 +164,7 @@ function foliageMaterial() {
       diffuseColor.rgb *= lit * mix( 0.72, 1.08, clump );
       diffuseColor.rgb += vec3( 0.05, 0.08, 0.02 ) * smoothstep( 0.6, 1.0, up ) * clump;`);
   };
-  m.customProgramCacheKey = () => 'foliage-v1';
+  m.customProgramCacheKey = () => 'foliage-v2';
   return (_foliageMat = m);
 }
 
