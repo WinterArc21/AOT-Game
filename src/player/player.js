@@ -1008,17 +1008,20 @@ export class Player {
     const ax = c.b.x - c.a.x, az = c.b.z - c.a.z, Lh = hypot(ax, az);
     if (Lh < 2) return;
     const ux = ax / Lh, uz = az / Lh;
-    if (Math.abs(Math.sin(this.yaw) * ux + Math.cos(this.yaw) * uz) < 0.45) return;   // facing off its side
+    const facing = Math.sin(this.yaw) * ux + Math.cos(this.yaw) * uz;
+    if (Math.abs(facing) < 0.45) return;   // facing off its side
     const p = this.pos;
     const t = THREE.MathUtils.clamp(((p.x - c.a.x) * ux + (p.z - c.a.z) * uz) / Lh, 0, 1);
     // along it only, eased back over its top line
     let along = v.x * ux + v.z * uz;
     const ox = p.x - (c.a.x + ax * t), oz = p.z - (c.a.z + az * t);
     const lat = ox * -uz + oz * ux;                                          // sideways off the top line
-    // short of the end you're heading for: no faster than you can stop in (0.6 m short of the tip)
+    // short of the end you're heading for: no faster than you can stop in (0.6 m short of the tip). Only when you
+    // aren't walking on toward it: holding ↑ at the end, you step off the tip (a branch end, a cannon's muzzle)
+    const walkingOff = this.wishF > 0 && facing * along > 0;
     const toEnd = (along >= 0 ? 1 - t : t) * Lh - 0.6;
     const vmax = Math.sqrt(2 * CFG.ground.brake * Math.max(0, toEnd));
-    if (Math.abs(along) > vmax) { along = Math.sign(along) * vmax; this.skidding = vmax < 1 && Math.abs(along) > 0.5; }
+    if (!walkingOff && Math.abs(along) > vmax) { along = Math.sign(along) * vmax; this.skidding = vmax < 1 && Math.abs(along) > 0.5; }
     const back = THREE.MathUtils.clamp(lat * 4, -2, 2);                     // m/s back toward the top line
     v.x = ux * along + uz * back;
     v.z = uz * along - ux * back;
