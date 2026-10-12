@@ -1,0 +1,11 @@
+services:
+  web:
+    command: python3 -m http.server "$PORT" --bind 0.0.0.0
+    health: /index.html
+    portal:
+      url: /
+      title: Wings of Freedom
+      description: Dev game (ES modules). Open / for index.html.
+    portals:
+      - url: /dist/wings-of-freedom.html
+        title: Dist bundle

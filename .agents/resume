@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Fast repair after activation and each wake. Do not install packages here.
+
+PREFIX=/opt/node22
+NM="$PREFIX/lib/node_modules"
+PLAYWRIGHT="$NM/playwright/index.mjs"
+REPO_ROOT="$(cd "$(dirname "$BASH_SOURCE")/.." && pwd)"
+
+if [[ ! -f "$PLAYWRIGHT" ]]; then
+	echo "playwright missing at $PLAYWRIGHT; run .agents/setup" >&2
+	exit 1
+fi
+
+mkdir -p "$REPO_ROOT/node_modules"
+ln -sfn "$NM/three" "$REPO_ROOT/node_modules/three"
+ln -sfn "$NM/esbuild" "$REPO_ROOT/node_modules/esbuild"
+if [[ -d "$NM/@esbuild" ]]; then
+	mkdir -p "$REPO_ROOT/node_modules/@esbuild"
+	for dir in "$NM/@esbuild"/*; do
+		[[ -e "$dir" ]] || continue
+		ln -sfn "$dir" "$REPO_ROOT/node_modules/@esbuild/$(basename "$dir")"
+	done
+fi

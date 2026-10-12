@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Install toolchain and dependencies a fresh orb needs to build, bench, and serve
+# this vendored Three.js game. Idempotent: a warm snapshot should skip downloads.
+
+PREFIX=/opt/node22
+NM="$PREFIX/lib/node_modules"
+PLAYWRIGHT="$NM/playwright/index.mjs"
+REPO_ROOT="$(cd "$(dirname "$BASH_SOURCE")/.." && pwd)"
+cd "$REPO_ROOT"
+
+step() {
+	local name="$1"
+	shift
+	local start
+	start="$(date +%s)"
+	echo "==> $name"
+	"$@"
+	echo "    done in $(( $(date +%s) - start ))s"
+}
+
+need_pkg() {
+	! dpkg -s "$1" >/dev/null 2>&1
+}
+
+install_apt_deps() {
+	local pkgs=() pkg
+	for pkg in libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+		libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+		libgbm1 libasound2 libpango-1.0-0 libcairo2 libx11-xcb1 libxcb1 \
+		libxext6 libx11-6 fonts-liberation; do
+		if need_pkg "$pkg"; then
+			pkgs+=("$pkg")
+		fi
+	done
+	if ((${#pkgs[@]})); then
+		sudo apt-get update
+		sudo apt-get install -y "${pkgs[@]}"
+	else
+		echo "apt packages already present"
+	fi
+}
+
+install_node_prefix() {
+	if [[ -f "$PLAYWRIGHT" && -d "$NM/three" && -d "$NM/esbuild" ]]; then
+		echo "playwright, three, and esbuild already installed under $NM"
+		return 0
+	fi
+	sudo mkdir -p "$PREFIX"
+	# Global --prefix puts packages in lib/node_modules, which the benches import.
+	# physics-bench and build.mjs resolve `three` and `esbuild` via repo node_modules.
+	sudo env PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g --prefix "$PREFIX" \
+		playwright \
+		three@0.180.0 \
+		esbuild
+}
+
+link_repo_modules() {
+	mkdir -p "$REPO_ROOT/node_modules"
+	ln -sfn "$NM/three" "$REPO_ROOT/node_modules/three"
+	ln -sfn "$NM/esbuild" "$REPO_ROOT/node_modules/esbuild"
+	if [[ -d "$NM/@esbuild" ]]; then
+		mkdir -p "$REPO_ROOT/node_modules/@esbuild"
+		local dir
+		for dir in "$NM/@esbuild"/*; do
+			[[ -e "$dir" ]] || continue
+			ln -sfn "$dir" "$REPO_ROOT/node_modules/@esbuild/$(basename "$dir")"
+		done
+	fi
+}
+
+install_playwright_browser() {
+	if ls "$HOME/.cache/ms-playwright"/chromium-* >/dev/null 2>&1; then
+		echo "Playwright Chromium already cached"
+		return 0
+	fi
+	node "$NM/playwright/cli.js" install chromium
+}
+
+write_agent_notes() {
+	local dest="$HOME/.config/amp/AGENTS.md"
+	local marker="# AOT-Game orb notes"
+	mkdir -p "$(dirname "$dest")"
+	if [[ -f "$dest" ]] && grep -Fqx "$marker" "$dest"; then
+		echo "agent notes already present"
+		return 0
+	fi
+	cat >>"$dest" <<'EOF'
+
+# AOT-Game orb notes
+
+- Playwright lives at `/opt/node22/lib/node_modules/playwright`. The benches import that path.
+- `three` (r180) and `esbuild` are linked into `node_modules`. `node tools/physics-bench.mjs` and `node tools/build.mjs` work without a further install.
+- Serve the game with `amp orb services ensure`. Do not start a server with `nohup`, `&`, or tmux.
+- Play: open `/` (dev `index.html`) or `/dist/wings-of-freedom.html`.
+EOF
+	echo "wrote agent notes"
+}
+
+step "apt libraries for Chromium" install_apt_deps
+step "Node packages under $PREFIX" install_node_prefix
+step "link three and esbuild into node_modules" link_repo_modules
+step "Playwright Chromium" install_playwright_browser
+step "orb agent notes" write_agent_notes
+
+echo "==> verify"
+test -f "$PLAYWRIGHT"
+node --input-type=module -e "import * as THREE from 'three'; if (!THREE.REVISION) throw new Error('three missing REVISION')"
+node --input-type=module -e "import { build } from 'esbuild'; if (typeof build !== 'function') throw new Error('esbuild missing')"
+echo "setup ok"
