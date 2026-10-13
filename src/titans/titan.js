@@ -1,8 +1,7 @@
 // The Titan: procedural rig + AI + animation + hit handling. One instance per titan (see titans.js for the manager).
 import * as THREE from 'three';
-import { getArchetype, gripGeometry, HAIRS, sizeClass } from './builder.js';
+import { getArchetype, gripGeometry, HAIRS, sizeClass, evapMaterials, skeletonGeometry } from './builder.js';
 import { buildRig } from './rig.js';
-import { outlineMaterial } from '../core/style.js';
 import { solveArm } from './ik.js';
 import { CFG } from '../config.js';
 
@@ -123,7 +122,8 @@ export class Titan {
     this.blindT = 0; this.crippleT = 0; this.stunT = 0; this.flinch = 0; this.recoil = 0;
     this.severed = [0, 0]; this.fist = [false, false];
     this.toP = new V3(); this.distH = Infinity; this.dist3 = Infinity; this.relYaw = 0; this.hasPlayer = false;
-    this.gy = 0; this.gp = 0; this.stuckT = 0; this.sideBias = 0; this._lastPos = new V3();
+    this.gy = 0; this.gp = 0; this.lookW = 1; this.lookP = new V3(); this._lookOn = false; this.stepJolt = 0; this.stepJoltT = 0;
+    this.stuckT = 0; this.sideBias = 0; this._lastPos = new V3();
     this.jawExtra = 0; this.jawNow = this.arch.jawRest;
     this.vy = 0; this.airborne = false;
     this.steaming = false; this.fadeMats = null; this.deathT = 0; this.fell = false;
@@ -418,6 +418,7 @@ export class Titan {
     this.game.events?.emit?.('titan:killed', { titan: this, by: this.killedBy || null, point: point ? point.clone() : this._headWorld(new V3()) });
     this.game.audio?.napeKill?.();
     this.game.fx?.steam?.(point || this._headWorld(new V3()), Math.max(2, this.height * 0.18), 3);
+    this._beginFade();
   }
 
   // ====================================================================================== update
@@ -1393,24 +1394,43 @@ export class Titan {
     P.armL[2] += 0.2 * rc; P.armR[2] -= 0.2 * rc; P.armL[0] += -0.3 * rc; P.armR[0] += -0.3 * rc;
     P.spine[2] += 0.08 * fl * Math.sin(t * 40);
 
-    // ---- gaze: the head tracks the player (creepily), tilted
+    // ---- weight: a heavy titan's body settles onto each footfall (pelvis sinks, torso lurches, head and arms lag)
+    if (this.stepJolt > 0.003) {
+      const j = this.stepJolt, ph = this.stepJoltT;
+      const dip = j * (1 - Math.exp(-ph * 25));          // sinks in fast, recovers as the jolt decays
+      this.hipT.y -= 0.075 * d.thighLen * dip;
+      P.spine[0] += 0.05 * dip; P.neck[0] += -0.03 * dip; P.head[0] += 0.05 * dip;
+      P.armL[2] += 0.05 * dip; P.armR[2] -= 0.05 * dip; P.foreL[0] -= 0.08 * dip; P.foreR[0] -= 0.08 * dip;
+      this.jawExtra += 0.04 * dip;
+      this.stepJoltT += dt; this.stepJolt *= Math.exp(-5 * dt);
+    }
+
+    // ---- gaze: once it has noticed you, the head (and a little of the neck and chest) turns to follow you: slowly,
+    // a beat behind, at a capped speed, the blank grin locked on. Blends out while an action poses the head.
     const lean = P.spine[0] + P.pelvis[0];
+    const lwT = this.blindT > 0 ? 0 : GAZE_W[this.state] ?? 1;
+    this.lookW += (lwT - this.lookW) * (1 - Math.exp(-(lwT > this.lookW ? 1.5 : 7) * dt));
     let gy, gp;
     if (this.gazeTarget) {
+      // the stare lags: it looks where you were a moment ago
+      if (!this._lookOn) { this._lookOn = true; this.lookP.copy(this.gazeTarget); }
+      this.lookP.lerp(this.gazeTarget, 1 - Math.exp(-(this.isColossal ? 1 : 2.8) * dt));
       const hw = this._jpos('head', _t12);
-      const vx = this.gazeTarget.x - hw.x, vy = this.gazeTarget.y - hw.y, vz = this.gazeTarget.z - hw.z;
+      const vx = this.lookP.x - hw.x, vy = this.lookP.y - hw.y, vz = this.lookP.z - hw.z;
       const cy = Math.cos(this.yaw), sy = Math.sin(this.yaw);
       const xl = vx * cy - vz * sy, zl = vx * sy + vz * cy;
       gy = Math.atan2(xl, zl); gp = Math.atan2(-vy, hypot(xl, zl));
+      // you're behind it: it has lost you and the head drifts back to the front (the nape stays where it was)
       if (Math.abs(gy) > 2.2) gy = 0;
-    } else { gy = Math.sin(t * 0.33) * 0.55; gp = 0.12 + 0.08 * Math.sin(t * 0.5); }
-    const gk = 1 - Math.exp(-(this.isColossal ? 1.4 : 3.5) * dt);
-    this.gy += (clamp(gy, -1.7, 1.7) - this.gy) * gk;
-    this.gp += (clamp(gp, -0.7, 0.9) - this.gp) * gk;
-    const blindK = this.blindT > 0 ? 0 : 1;
-    P.spine[1] += this.gy * 0.2 * blindK; P.neck[1] += this.gy * 0.28 * blindK; P.head[1] += this.gy * 0.4 * blindK;
-    P.neck[0] += this.gp * 0.3 * blindK - lean * 0.3; P.head[0] += this.gp * 0.5 * blindK - lean * 0.55;
-    const tilt = (this.tiltBias + 0.12 * Math.sin(t * 0.55)) * (this.isColossal ? 0.3 : 1) * (this.gazeTarget ? 1 : 0.5);
+    } else { this._lookOn = false; gy = Math.sin(t * 0.33) * 0.55; gp = 0.12 + 0.08 * Math.sin(t * 0.5); }
+    const wMax = this.isColossal ? 0.45 : 1.4 / Math.sqrt(Math.max(this.height, 3) / 7);   // rad/s: big heads turn slowly
+    const gk = 1 - Math.exp(-(this.isColossal ? 1.4 : 3) * dt);
+    this.gy += clamp((clamp(gy, -1.7, 1.7) - this.gy) * gk, -wMax * dt, wMax * dt);
+    this.gp += clamp((clamp(gp, -0.9, 0.8) - this.gp) * gk, -wMax * dt, wMax * dt);
+    const lw = this.lookW;
+    P.spine[1] += this.gy * 0.18 * lw; P.neck[1] += this.gy * 0.3 * lw; P.head[1] += this.gy * 0.52 * lw;
+    P.spine[0] += this.gp * 0.08 * lw; P.neck[0] += this.gp * 0.32 * lw - lean * 0.3; P.head[0] += this.gp * 0.5 * lw - lean * 0.55;
+    const tilt = (this.tiltBias + 0.12 * Math.sin(t * 0.55)) * (this.isColossal ? 0.3 : 1) * (this.gazeTarget ? 1 : 0.5) * (0.4 + 0.6 * lw);
     P.head[2] += tilt; P.neck[2] += tilt * 0.35;
 
     // ---- jaw
@@ -1622,7 +1642,38 @@ export class Titan {
     const fp = this._jpos(joint, new V3()); fp.y = this._ground(fp.x, fp.z);
     this.game.audio?.titanStep?.(fp, this.height);
     this.game.events?.emit?.('titan:step', { position: fp, size: this.height, titan: this });
-    if (this.height >= 8 && this.game.fx?.impact) this.game.fx.impact(fp, UP, 'ground');
+    this._stepWeight(fp);
+  }
+
+  /**
+   * The weight of a footfall: the camera shakes and a ring of dust kicks out round the foot, both scaled by the
+   * titan's height and fading with distance (subtle for a 4 m titan or a far one, strong for a 15 m one close by);
+   * big titans also settle heavily onto the step (stepJolt, see _buildPose).
+   */
+  _stepWeight(fp) {
+    const h = this.height, g = this.game;
+    const heavy = clamp((h - 4) / 11, 0, 1.4);
+    this.stepJolt = Math.min(1.3, this.stepJolt * 0.4 + heavy); this.stepJoltT = 0;
+    const pl = g.player, pp = pl?.render || pl?.position;
+    if (pp && pl.cam) {
+      const dist = pp.distanceTo(fp), R = 2.2 * h + 6;
+      const want = 0.62 * Math.pow(clamp(h / 15, 0, 1.6), 1.6) * Math.exp(-(dist / R) * (dist / R));
+      // (the core's titan:step listener adds its own small kick; this only lifts it to the titan's weight)
+      if (want > 0.01) pl.cam.trauma = Math.min(1, Math.max(pl.cam.trauma, want));
+    }
+    const fx = g.fx, cam = g.camera?.position;
+    if (!fx?.impact) return;
+    const dc = cam ? cam.distanceTo(fp) : 0;
+    if (dc > 140 + 8 * h) return;                                        // too far to see
+    const n = dc > 70 + 4 * h ? 1 : Math.round(clamp(2 + h / 3, 3, 8));
+    const r = n === 1 ? 0 : 0.09 * h + 0.3;
+    const a0 = Math.random() * TAU;                                    // (cosmetic: keeps the AI rng sequence untouched)
+    for (let i = 0; i < n; i++) {
+      const a = a0 + i * TAU / n, ca = Math.cos(a), sa = Math.sin(a);
+      _t20.set(fp.x + ca * r, fp.y + 0.05, fp.z + sa * r);
+      _t21.set(ca, n === 1 ? 1 : 0.3, sa).normalize();                   // dust rolls outward along the ground
+      fx.impact(_t20, _t21, 'ground');
+    }
   }
 
   _poseKneel() {
@@ -2001,6 +2052,12 @@ export class Titan {
   }
 
   // ====================================================================================== death
+  /**
+   * The body collapses (knees buckle, it topples), then evaporates like in the show: thick steam pours off the whole
+   * body in rising columns for several seconds while the flesh chars dark red, the limbs and torso thin down, and a
+   * noise erosion eats the flesh away, leaving a charred ribcage-and-skull skeleton that crumbles last.
+   * Timeline (s since death, ×1.6 for the Colossal): char 0.3–2.9, thin 1.6–5.8, flesh erodes 2.6–6.4, bones 6.0–7.6.
+   */
   _updateDying(dt) {
     this.deathT += dt;
     const T = this.isColossal ? 3.2 : 1.5, tt = this.deathT;
@@ -2026,63 +2083,101 @@ export class Titan {
     if (tt > T) { const b = tt - T; extra = sgn * 0.05 * Math.exp(-b * 6) * Math.sin(b * 22); }
     this.root.rotation.x = ang + extra;
     this.position.y = this._ground(this.position.x, this.position.z) + 1.15 * s * Math.abs(Math.sin(clamp(ang, -1.55, 1.55)));
-    this.root.updateMatrixWorld(true);
     if (!this.fell && tt >= T) {
       this.fell = true;
       const hp = this._headWorld(new V3()); hp.y = this._ground(hp.x, hp.z) + 0.2;
       fx?.impact?.(hp, UP, 'ground');
       for (let i = 0; i < 3; i++) fx?.impact?.(hp.clone().add(new V3((Math.random() - 0.5) * h * 0.4, 0, (Math.random() - 0.5) * h * 0.4)), UP, 'ground');
       this.game.audio?.titanFall?.(this.position, h);
+      this.game.audio?.steamHiss?.(this.position, h);
       this.game.events?.emit?.('titan:step', { position: hp, size: h * 2.5, titan: this });
-      this._steamBurst(1.5);
-      this._beginFade();
     }
-    if (this.fell) {
-      const b = tt - T;
-      // heavy steam, then the body evaporates
-      this.steamEmit = (this.steamEmit ?? 0) - dt;
-      if (this.steamEmit <= 0 && b < 8) {
-        this.steamEmit = this.isColossal ? 0.18 : 0.3;
-        this._steamBurst(1 - 0.6 * (b / 8));
+    // ---- evaporation
+    const k = this.isColossal ? 1.6 : 1, e = tt / k;
+    const ev = this.fadeMats;
+    if (ev) {
+      const thin = sm((e - 1.6) / 4.2);
+      ev.uniforms.uDark.value = sm((e - 0.3) / 2.6);
+      ev.uniforms.uErode.value = Math.pow(clamp((e - 2.6) / 3.8, 0, 1), 0.85);
+      ev.boneUniforms.uErode.value = clamp((e - 6.0) / 1.6, 0, 1);
+      // limbs and torso thin down toward their bones (mesh-local x/z: limbs hang along -y; feet point along +z)
+      for (const m of this.rig.meshes) {
+        const key = m.key, mesh = m.mesh;
+        if (key === 'head' || key === 'jaw') continue;
+        const w = 1 - thin * (key === 'spine' || key === 'pelvis' ? 0.32 : 0.5);
+        if (key.startsWith('foot')) mesh.scale.set(w, 1, 1); else mesh.scale.set(w, 1, w);
       }
-      const f = clamp((b - 2.0) / 6.0, 0, 1);       // 0..1 over the last 6 s of 8
-      if (this.fadeMats) {
-        const k = 1 - 0.75 * f;
-        this.fadeMats.body.color.setScalar(1 - 0.7 * f);
-        this.fadeMats.body.opacity = 1 - f; this.fadeMats.outline.opacity = 1 - f;
-        void k;
-        this.root.scale.setScalar(this.s * (1 - 0.15 * f));
+      if (!ev.noShadow && ev.uniforms.uErode.value > 0.3) {     // shadows would not show the holes
+        ev.noShadow = true;
+        for (const m of this.rig.meshes) m.mesh.castShadow = false;
       }
-      if (b >= 8) this._finish();
+      this.root.scale.setScalar(this.s * (1 - 0.12 * sm((e - 3) / 4)));
     }
+    this.root.updateMatrixWorld(true);
+    this._evapSteam(dt, e);
+    if (e >= 7.7) this._finish();
   }
-  _steamBurst(k) {
+
+  /**
+   * Steam pours off the whole body: big puffs from joints round the body in turn (one per call, so fx.steam's
+   * same-spot thinning never kicks in), ramping up after the fall and tailing off as the skeleton crumbles.
+   */
+  _evapSteam(dt, e) {
     const fx = this.game.fx; if (!fx?.steam) return;
-    const h = this.height;
-    const names = ['pelvis', 'spine', 'head', 'armL', 'armR', 'thighL', 'thighR', 'shinL', 'shinR'];
-    for (let i = 0; i < (this.isColossal ? 2 : 1); i++) {
-      const nm = names[Math.floor(this.rnd() * names.length)];
-      const p = this._jpos(nm, new V3()); p.x += (this.rnd() - 0.5) * h * 0.1; p.z += (this.rnd() - 0.5) * h * 0.1;
-      fx.steam(p, Math.max(2.5, h * (this.isColossal ? 0.12 : 0.28)) * k, 3.5);
+    const I = sm(e / 0.9) * (1 - sm((e - 6.2) / 1.6));
+    if (I <= 0.01) return;
+    this.steamEmit = (this.steamEmit ?? 0) - dt;
+    if (this.steamEmit > 0) return;
+    const h = this.height, col = this.isColossal;
+    // further from the camera: fewer, bigger puffs (keeps several dying titans cheap)
+    const cam = this.game.camera?.position;
+    const far = cam ? clamp((cam.distanceTo(this.position) - 60 - 3 * h) / 150, 0, 1) : 0;
+    this.steamEmit = (col ? 0.11 : 0.085) * (1 + 1.5 * far) / Math.max(0.35, I);
+    const names = EVAP_PTS;
+    const i = this._evapIdx = ((this._evapIdx ?? Math.floor(this.rnd() * names.length)) + 1) % names.length;
+    const p = this._jpos(names[i], _t20);
+    p.x += (this.rnd() - 0.5) * h * 0.08; p.z += (this.rnd() - 0.5) * h * 0.08;
+    p.y = Math.max(p.y, this._ground(p.x, p.z) + 0.2);
+    const size = (col ? h * 0.1 : Math.max(1.1, h * 0.18)) * (0.65 + 0.35 * I) * (1 + 0.4 * far);
+    p.y += size * 0.45;                                  // it boils off the top of the body
+    fx.steam(p, size, col ? 5.5 : 4);
+    // every third puff a tall column billows up off the body: the steam towers over the corpse, not a fog on it
+    if ((this._evapCol = (this._evapCol || 0) + 1) % 3 === 0) {
+      const q = this._jpos(EVAP_PTS[(i + 5) % EVAP_PTS.length], _t21);
+      q.x += (this.rnd() - 0.5) * h * 0.1; q.z += (this.rnd() - 0.5) * h * 0.1;
+      q.y = Math.max(q.y, this._ground(q.x, q.z)) + h * (0.25 + 0.35 * this.rnd());
+      fx.steam(q, size * 1.7, col ? 6.5 : 5.5);
     }
   }
+
+  /** At death: swap in the evaporation materials and slip the charred skeleton inside the flesh. */
   _beginFade() {
     if (this.fadeMats) return;
-    const body = this.arch.material.clone();
-    body.transparent = true; body.opacity = 1;
-    const base = outlineMaterial(this.rig.outlineThickness);
-    const outline = base.clone();
-    outline.onBeforeCompile = base.onBeforeCompile; outline.customProgramCacheKey = base.customProgramCacheKey;
-    outline.transparent = true; outline.opacity = 1;
-    for (const m of this.rig.meshes) { m.mesh.material = body; m.outline.material = outline; }
-    this.fadeMats = { body, outline };
+    const ev = evapMaterials(this.arch, this.rig.outlineThickness);
+    for (const m of this.rig.meshes) { m.mesh.material = ev.body; m.outline.material = ev.outline; }
+    const G = skeletonGeometry(this.arch), J = this.J;
+    const at = { pelvis: ['pelvis'], spine: ['spine'], neck: ['neck'], head: ['head'], jaw: ['jaw'], arm: ['armL', 'armR'],
+      fore: ['foreL', 'foreR'], thigh: ['thighL', 'thighR'], shin: ['shinL', 'shinR'], foot: ['footL', 'footR'] };
+    ev.bonesMeshes = [];
+    for (const key in at) for (const jn of at[key]) {
+      const b = new THREE.Mesh(G[key], ev.bone);
+      b.castShadow = false; b.receiveShadow = true; b.raycast = () => {};
+      J[jn].add(b); ev.bonesMeshes.push(b);
+    }
+    this.fadeMats = ev;
+  }
+  _disposeFade() {
+    const ev = this.fadeMats; if (!ev) return;
+    for (const b of ev.bonesMeshes) b.removeFromParent();
+    ev.body.dispose(); ev.outline.dispose(); ev.bone.dispose();
+    this.fadeMats = null;
   }
   _finish() {
     this.dead = true; this.dying = false;
     this._removeColliders();
     this.root.visible = false;
     if (this.root.parent) this.root.parent.remove(this.root);
-    if (this.fadeMats) { this.fadeMats.body.dispose(); this.fadeMats.outline.dispose(); this.fadeMats = null; }
+    this._disposeFade();
   }
   /** Remove immediately (manager.clear()). */
   dispose() {
@@ -2090,9 +2185,14 @@ export class Titan {
     this._releasePlayer();
     this._removeColliders();
     if (this.root.parent) this.root.parent.remove(this.root);
-    if (this.fadeMats) { this.fadeMats.body.dispose(); this.fadeMats.outline.dispose(); this.fadeMats = null; }
+    this._disposeFade();
   }
 }
+
+// how much of the stare survives each action (the action poses the head itself; a bite / reach / swat still keeps
+// half an eye on its target so the mouth and the hand stay aimed)
+const GAZE_W = { grab: 0, chew: 0, yank: 0, shake: 0, guard: 0, charge: 0, leap: 0, stun: 0, bite: 0.5, reach: 0.6, swat: 0.6 };
+const EVAP_PTS = ['head', 'thighL', 'spine', 'shinR', 'armL', 'pelvis', 'foreR', 'neck', 'thighR', 'armR', 'shinL', 'spine', 'foreL', 'pelvis'];
 
 function sideSign(side) { return side === 0 ? 1 : -1; }
 /** World orientation of a foot (+z forward, +y up) pointing along horizontal `fd`, toe-down by `pitch`. */

@@ -357,7 +357,7 @@ function group(parent, x = 0, y = 0, z = 0) {
 const OUTLINE_COLOR = 0x1a1410;      // = core/style.js outlineMaterial default
 /** Toon material driven by vertex colour + a per-vertex emissive (aEmis.rgb) + aEmis.a × uFlash (the blade shine). */
 function vcMaterial(flash = 0x000000) {
-  const m = toonMaterial(0xffffff, { vertexColors: true });
+  const m = toonMaterial(0xffffff, { vertexColors: true, rim: true });
   const u = { value: new THREE.Color(flash) };
   m.userData.flash = u.value;
   m.onBeforeCompile = (sh) => {
@@ -716,33 +716,86 @@ export class PlayerModel {
       mesh(new THREE.BoxGeometry(0.028, 0.032, 0.014), M.brass, hip, 0, -0.1, 0.082, 0.003);
       mesh(new THREE.BoxGeometry(0.018, 0.38, 0.01), M.strap, hip, 0, -0.2, 0.074, 0);
       const t2 = mesh(new THREE.TorusGeometry(0.062, 0.011, 6, 14), M.strap, kn, 0, -0.12, 0, 0); t2.rotation.x = Math.PI / 2;
-      // blade scabbard box on the outer thigh
-      const sc = mesh(new THREE.BoxGeometry(0.052, 0.26, 0.1), M.steel, hip, sx * 0.09, -0.16, -0.01, 0.007);
-      mesh(new THREE.BoxGeometry(0.056, 0.03, 0.105), M.steelDark, sc, 0, 0.11, 0, 0.004);
-      for (let i = 0; i < 3; i++) mesh(new THREE.BoxGeometry(0.012, 0.075, 0.012), M.steelDark, sc, sx * 0.0, 0.17, -0.032 + i * 0.032, 0.003);
       return { hip, kn, an };
     };
     J.legL = leg(0); J.legR = leg(1);
 
-    // ── ODM gear: central unit + canisters on the lower back, launchers on the hips
+    // ── ODM gear (the anime's Survey Corps rig): the reel unit on the lower back, a steel frame round the hips to the
+    // anchor launchers, and under them the two long blade boxes hanging along the outer thighs, raked down and back,
+    // each holding spare blades (tangs out of the front slot) with its gas cylinder strapped along the top.
+    // All on the pelvis (baked into the body mesh, no extra draw calls): on the thigh bones the 0.5 m boxes would
+    // lever up into the back at every stride.
     const odm = group(P, 0, 0.0, 0);
     this.odm = odm;
-    mesh(new THREE.BoxGeometry(0.21, 0.17, 0.1), M.steelDark, odm, 0, 0.045, -0.15, 0.007);
-    mesh(new THREE.BoxGeometry(0.15, 0.06, 0.04), M.steel, odm, 0, 0.06, -0.205, 0.005);
-    mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.06, 10), M.brass, odm, 0, 0.0, -0.215, 0.004).rotation.x = Math.PI / 2;
+    const tube = (pts, r, mat, parent, ol = 0.004) => {
+      const m = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 12, r, 6, false), mat);
+      m.userData.ol = ol; parent.add(m); return m;
+    };
+    // central unit: mounting plate on the belt, twin wire reels (discs facing back), the gas regulator between them
+    mesh(new THREE.BoxGeometry(0.25, 0.12, 0.05), M.steelDark, odm, 0, -0.03, -0.13, 0.006);
+    mesh(new THREE.BoxGeometry(0.2, 0.025, 0.06), M.steel, odm, 0, 0.035, -0.135, 0.004);              // top rail
     for (const sx of [1, -1]) {
-      const can = mesh(new THREE.CylinderGeometry(0.046, 0.046, 0.3, 14), M.steel, odm, sx * 0.19, 0.0, -0.158, 0.007);
-      can.rotation.z = Math.PI / 2 + sx * 0.12;
-      mesh(new THREE.CylinderGeometry(0.048, 0.048, 0.03, 14), M.brass, can, 0, 0.13, 0, 0.004);
-      mesh(new THREE.CylinderGeometry(0.048, 0.048, 0.025, 14), M.brass, can, 0, -0.1, 0, 0.004);
-      // launcher housing at the hip + barrel
-      const lh = group(odm, sx * 0.2, -0.04, 0.035);
-      mesh(new THREE.BoxGeometry(0.075, 0.13, 0.15), M.steelDark, lh, 0, 0, 0, 0.007);
-      const barrel = mesh(new THREE.CylinderGeometry(0.02, 0.026, 0.12, 10), M.steel, lh, 0, 0.0, 0.1, 0.005);
+      const reel = mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.05, 18), M.steel, odm, sx * 0.07, -0.03, -0.18, 0.006);
+      reel.rotation.x = Math.PI / 2;
+      mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.012, 16), M.steelDark, reel, 0, -0.028, 0, 0.003);   // recessed face
+      mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.02, 10), M.brass, reel, 0, -0.036, 0, 0.003);      // hub
+      mesh(new THREE.BoxGeometry(0.03, 0.03, 0.04), M.steelDark, odm, sx * 0.105, 0.03, -0.17, 0.003);  // wire guide
+    }
+    const reg = mesh(new THREE.CylinderGeometry(0.026, 0.026, 0.17, 12), M.steel, odm, 0, -0.035, -0.205, 0.005);
+    mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.02, 12), M.brass, reg, 0, 0.08, 0, 0.003);
+    mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.02, 12), M.brass, reg, 0, -0.03, 0, 0.003);
+    const nz = mesh(new THREE.CylinderGeometry(0.014, 0.024, 0.04, 10), M.steelDark, reg, 0, -0.1, 0, 0.003); // gas nozzle
+    nz.rotation.x = -0.3;
+    const boxM = new THREE.Matrix4(), boxP = new THREE.Vector3();
+    this.bladeBoxes = [];
+    for (const sx of [1, -1]) {
+      // frame arm from the unit round the hip to the launcher
+      tube([new THREE.Vector3(sx * 0.11, 0.0, -0.14), new THREE.Vector3(sx * 0.17, 0.02, -0.1), new THREE.Vector3(sx * 0.2, 0.03, -0.04)], 0.014, M.steelDark, odm);
+      // launcher at the hip, barrel forward
+      const lh = group(odm, sx * 0.205, 0.035, 0.0);
+      const drum = mesh(new THREE.CylinderGeometry(0.048, 0.048, 0.06, 14), M.steelDark, lh, 0, 0, -0.01, 0.006);
+      drum.rotation.z = Math.PI / 2;
+      mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.066, 12), M.brass, drum, 0, 0, 0, 0.003);
+      mesh(new THREE.BoxGeometry(0.05, 0.07, 0.1), M.steelDark, lh, 0, -0.005, 0.045, 0.005);
+      const barrel = mesh(new THREE.CylinderGeometry(0.019, 0.024, 0.09, 10), M.steel, lh, 0, 0.005, 0.12, 0.004);
       barrel.rotation.x = Math.PI / 2;
-      mesh(new THREE.BoxGeometry(0.03, 0.03, 0.05), M.brass, lh, 0, 0.07, -0.02, 0.003);
-      const tip = new THREE.Object3D(); tip.position.set(0, 0, 0.165); lh.add(tip);
+      const tip = new THREE.Object3D(); tip.position.set(0, 0.005, 0.165); lh.add(tip);
       (sx > 0 ? (this.launcherL = tip) : (this.launcherR = tip));
+      // blade box: a long bevel-nosed steel case, raked down towards the back and splayed a little at the tail
+      const bx = group(odm, sx * 0.215, -0.21, -0.09);
+      bx.rotation.set(-0.3, -sx * 0.1, 0);
+      this.bladeBoxes.push(bx);
+      const BL = 0.56, BH = 0.15, BW = 0.064;
+      const prof = new THREE.Shape();
+      prof.moveTo(-BL / 2, -BH / 2); prof.lineTo(BL / 2 - 0.035, -BH / 2); prof.lineTo(BL / 2, -0.01);
+      prof.lineTo(BL / 2 - 0.02, BH / 2); prof.lineTo(-BL / 2 + 0.02, BH / 2); prof.lineTo(-BL / 2, BH / 2 - 0.03); prof.lineTo(-BL / 2, -BH / 2);
+      const bg = new THREE.ExtrudeGeometry(prof, { depth: BW, bevelEnabled: false });
+      bg.translate(0, 0, -BW / 2); bg.rotateY(-Math.PI / 2);              // profile x → +z (front), extrusion → x
+      mesh(bg, M.steel, bx, 0, 0, 0, 0.007);
+      // outer-face panel, the dark lid over the front slot, and the spare blades' tangs standing out of it
+      mesh(new THREE.BoxGeometry(0.006, BH * 0.62, BL * 0.7), M.steelDark, bx, sx * (BW / 2 + 0.001), -0.008, -0.04, 0.002);
+      mesh(new THREE.BoxGeometry(BW + 0.006, 0.02, 0.07), M.steelDark, bx, 0, BH / 2 - 0.004, BL / 2 - 0.05, 0.003);
+      for (let i = 0; i < 4; i++) {
+        const tg = mesh(new THREE.BoxGeometry(0.008, 0.055, 0.045), i === 3 ? M.brass : M.steel, bx, (i - 1.5) * 0.014, 0.02, BL / 2 + 0.006, 0.003);
+        tg.rotation.x = 0.35;
+      }
+      // the gas cylinder along the top, held by two strap bands round box and cylinder
+      const cyl = mesh(new THREE.CylinderGeometry(0.037, 0.037, 0.42, 14), M.steel, bx, 0, BH / 2 + 0.034, -0.05, 0.006);
+      cyl.rotation.x = Math.PI / 2;
+      for (const e of [1, -1]) {
+        const cap = mesh(new THREE.SphereGeometry(0.037, 14, 8, 0, TAU, 0, Math.PI / 2), M.steel, cyl, 0, e * 0.21, 0, 0.005);
+        if (e < 0) cap.rotation.x = Math.PI;
+      }
+      mesh(new THREE.CylinderGeometry(0.039, 0.039, 0.02, 14), M.brass, cyl, 0, 0.15, 0, 0.003);
+      mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.05, 8), M.brass, cyl, 0, -0.255, 0, 0.003);       // valve (rear)
+      for (const z of [0.1, -0.17]) mesh(new THREE.BoxGeometry(BW + 0.008, BH + 0.08, 0.024), M.strap, bx, 0, 0.032, z, 0.004);
+      // hanger from the launcher frame down to the box, and the gas hose from the valve to the regulator
+      mesh(new THREE.BoxGeometry(0.03, 0.13, 0.04), M.steelDark, bx, -sx * 0.02, BH / 2 + 0.075, 0.13, 0.004);
+      bx.updateMatrix(); boxM.copy(bx.matrix);
+      boxP.set(0, BH / 2 + 0.034, -0.05 - 0.28).applyMatrix4(boxM);
+      tube([boxP.clone(), new THREE.Vector3(sx * 0.17, -0.12, -0.24), new THREE.Vector3(sx * 0.05, -0.06, -0.22), new THREE.Vector3(sx * 0.026, -0.04, -0.205)], 0.009, M.strap, odm, 0.003);
+      // the thigh hanger strap: belt → box (sits outside the trouser leg)
+      mesh(new THREE.BoxGeometry(0.02, 0.12, 0.012), M.strap, odm, sx * 0.19, -0.04, 0.07, 0.002);
     }
     // gas nozzle & jet cone
     this.nozzle = new THREE.Object3D(); this.nozzle.position.set(0, -0.06, -0.205); P.add(this.nozzle);
@@ -757,8 +810,9 @@ export class PlayerModel {
     const mk = (parent, x, y, z) => { const o = new THREE.Object3D(); o.position.set(x, y, z); parent.add(o); return o; };
     this.col = [
       { o: mk(chest, 0, 0.24, -0.015), r: 0.165 }, { o: mk(chest, 0, 0.07, -0.03), r: 0.155 },
-      { o: mk(odm, 0, 0.045, -0.15), r: 0.125 },
-      { o: mk(odm, 0.2, 0.0, -0.16), r: 0.07 }, { o: mk(odm, -0.2, 0.0, -0.16), r: 0.07 },
+      { o: mk(odm, 0, -0.02, -0.16), r: 0.12 },
+      // the blade boxes (mid and tail; the box groups stay in the hierarchy after the bake)
+      ...this.bladeBoxes.flatMap((b) => [{ o: mk(b, 0, 0.04, -0.06), r: 0.085 }, { o: mk(b, 0, 0.035, -0.24), r: 0.08 }]),
       { o: mk(J.legL.hip, 0, -0.17, -0.005), r: 0.1 }, { o: mk(J.legR.hip, 0, -0.17, -0.005), r: 0.1 },
       { o: mk(J.legL.kn, 0, 0.0, -0.005), r: 0.085 }, { o: mk(J.legR.kn, 0, 0.0, -0.005), r: 0.085 },
       { o: mk(pelvis, 0, -0.02, -0.04), r: 0.14 },
@@ -1365,6 +1419,18 @@ export class PlayerModel {
     }
     for (let i = 0; i < NCH; i++) TC[i] = lerp(TC[i], TS[i], this.wSlash);
     for (let i = 0; i < NCH; i++) TC[i] = lerp(TC[i], TR[i], this.wGrab);
+    // blade swap: the blades just vanished (player.swapT running) → both hands drop to the box mouths, lock the hilts
+    // onto fresh blades, and draw them forward; only for the first moments, so bladeless soldiers aren't stuck there
+    this.noBladeT = hasBlades ? 0 : (this.noBladeT || 0) + dt;
+    const wSw = hasBlades || first ? 0 : sstep(0, 0.1, this.noBladeT) * (1 - sstep(0.6, 0.8, this.noBladeT)) * (1 - this.wRide) * (1 - this.wGrab) * (1 - this.wSpin);
+    if (wSw > 0.001) {
+      const pull = sstep(0.25, 0.5, this.noBladeT);
+      for (const oa of [0, RSX - LSX]) {
+        TC[LSX + oa] = lerp(TC[LSX + oa], lerp(-0.15, -0.55, pull), wSw);
+        TC[LSZ + oa] = lerp(TC[LSZ + oa], 0.22, wSw); TC[LSY + oa] = lerp(TC[LSY + oa], 0, wSw);
+        TC[LEX + oa] = lerp(TC[LEX + oa], lerp(0.25, 0.5, pull), wSw); TC[LWX + oa] = lerp(TC[LWX + oa], lerp(0.2, 1.1, pull), wSw);
+      }
+    }
     // head compensation: keep the gaze along `forward` (neck takes up the body pitch)
     const thTot = this.theta + J[SPX];
     const gazeE = lerp(eF, 0, this.wGrab);

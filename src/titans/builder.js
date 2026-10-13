@@ -451,7 +451,7 @@ export function bodyMaterial(colossal) {
     if (!_matColossal) _matColossal = toonMaterial(0xffffff, { vertexColors: true, map: colossalTexture() });
     return _matColossal;
   }
-  if (!_matPlain) _matPlain = titanSkin(toonMaterial(0xffffff, { vertexColors: true }));
+  if (!_matPlain) _matPlain = titanSkin(toonMaterial(0xffffff, { vertexColors: true, rim: true }));
   return _matPlain;
 }
 
@@ -520,4 +520,147 @@ function titanSkin(m) {
   };
   m.customProgramCacheKey = () => 'titan-skin-v1';
   return m;
+}
+
+// =============================================================================================================
+// Death: the body evaporates. A charred skeleton (per archetype, cached) sits inside the flesh, and the flesh /
+// outline / bone materials of a dying titan dissolve with a noise erosion while the flesh darkens to raw red.
+// =============================================================================================================
+const BONE = 0x3a2420, SOCKET = 0x080303, BONE_TEETH = 0x6a5644;
+
+/** Joint-local skeleton geometry for an archetype: { pelvis, spine, neck, head, jaw, arm, fore, thigh, shin, foot } */
+export function skeletonGeometry(arch) {
+  if (arch.bones) return arch.bones;
+  const d = arch.dims, B = d.B, lm = d.limb, tw = B.torsoW, th = B.torsoH, R = d.headR;
+  const cy = d.cy, cz = d.cz, rx = d.rx, ry = d.ry, rz = d.rz;
+  const mk = (fn) => { const P = new Parts(); fn(P); return P.build().full; };
+  const out = {};
+  out.head = mk((P) => {
+    ell(P, BONE, [0, cy + 0.08 * ry, cz - 0.06 * R], [0.8 * rx, 0.78 * ry, 0.8 * rz], { ws: 16, hs: 12 });          // cranium
+    ell(P, BONE, [0, cy - 0.22 * ry, cz + 0.3 * rz], [0.56 * rx, 0.36 * ry, 0.48 * rz], { ws: 12, hs: 8 });         // maxilla
+    for (const s of [-1, 1]) ell(P, SOCKET, [s * 0.36 * rx, cy + 0.04 * ry, cz + 0.62 * rz], [0.2 * R, 0.21 * R, 0.16 * R], { ao: 0, ws: 10, hs: 8 });
+    ell(P, SOCKET, [0, cy - 0.16 * ry, cz + 0.72 * rz], [0.07 * R, 0.11 * R, 0.08 * R], { ao: 0, ws: 8, hs: 6 });   // nose
+    ell(P, BONE_TEETH, [0, cy - 0.36 * ry, cz + 0.5 * rz], [0.46 * rx, 0.08 * ry, 0.3 * rz], { ao: 0, ws: 12, hs: 6 });
+  });
+  out.jaw = mk((P) => {
+    const j = d.jawPivot;
+    ell(P, BONE, [0, cy - 0.5 * ry - j.y, cz + 0.28 * rz - j.z], [0.5 * rx, 0.11 * ry, 0.44 * rz], { ws: 12, hs: 6 });
+  });
+  out.neck = mk((P) => capsule(P, BONE, [0, -0.3, -0.15], [0, d.neckLen + 0.2, -0.1], 0.17 * B.neckW, { rs: 8 }));
+  out.spine = mk((P) => {
+    capsule(P, BONE, [0, -0.1, -0.42], [0, d.neckY, -0.3], 0.15, { rs: 8 });                                          // column
+    for (let i = 0; i < 6; i++) {                                                                                     // ribs
+      const y = (0.85 + 0.3 * i) * th;
+      const k = Math.sqrt(Math.max(0.08, 1 - ((y - 1.5 * th) / (1.45 * th)) ** 2));
+      P.add(new THREE.TorusGeometry(1, 0.075, 5, 20), BONE, { pos: [0, y, -0.02], rot: [Math.PI / 2, 0, 0], scl: [0.98 * tw * k + 0.05, 0.66 * k + 0.05, 1.4] });
+    }
+    capsule(P, BONE, [0, 0.95 * th, 0.6], [0, 2.15 * th, 0.62], 0.08, { rs: 6 });                                    // sternum
+    for (const s of [-1, 1]) {
+      capsule(P, BONE, [s * 0.12, d.shoulderY + 0.12, 0.35], [s * d.shoulderX * 0.95, d.shoulderY + 0.05, 0.02], 0.085, { rs: 6 });
+      ell(P, BONE, [s * 0.55 * tw, d.shoulderY - 0.35, -0.5], [0.34, 0.45, 0.08], { ws: 10, hs: 6 });                // scapula
+      ell(P, BONE, [s * d.shoulderX, d.shoulderY, 0], [0.17 * lm + 0.06, 0.17 * lm + 0.06, 0.17 * lm + 0.06], { ws: 10, hs: 6 });
+    }
+  });
+  out.pelvis = mk((P) => {
+    for (const s of [-1, 1]) ell(P, BONE, [s * 0.42 * tw, 0.15, -0.05], [0.36 * tw, 0.38, 0.2], { rot: [0, 0, s * 0.4], ws: 10, hs: 8 });
+    ell(P, BONE, [0, 0.05, -0.3], [0.24, 0.34, 0.14], { ws: 10, hs: 6 });
+    ell(P, BONE, [0, -0.2, 0.22], [0.34 * tw, 0.12, 0.12], { ws: 10, hs: 6 });
+    capsule(P, BONE, [0, 0, -0.38], [0, 0.6, -0.42], 0.15, { rs: 8 });
+  });
+  out.arm = mk((P) => {
+    capsule(P, BONE, [0, 0, 0], [0, -d.upperLen + 0.1, 0], 0.11 * lm + 0.04, { rs: 7 });
+    ell(P, BONE, [0, -d.upperLen + 0.1, 0], [0.18 * lm + 0.04, 0.1, 0.12 * lm + 0.04], { ws: 8, hs: 6 });
+  });
+  out.fore = mk((P) => {
+    const y1 = -(d.foreLen - 0.55 * d.handS), hs = d.handS;
+    for (const s of [-1, 1]) capsule(P, BONE, [s * 0.08 * lm, -0.05, 0], [s * 0.08 * lm, y1, 0], 0.065 * lm + 0.03, { rs: 6 });
+    ell(P, BONE, [0, y1 - 0.2 * hs, 0], [0.12 * hs, 0.28 * hs, 0.26 * hs], { ws: 8, hs: 6 });
+    for (let i = 0; i < 4; i++) { const z = (i - 1.5) * 0.13 * hs; capsule(P, BONE, [0, y1 - 0.4 * hs, z], [0, y1 - 0.85 * hs, z * 1.1], 0.045 * hs, { rs: 5, cs: 2 }); }
+  });
+  out.thigh = mk((P) => {
+    ell(P, BONE, [0, 0, 0], [0.17 * lm + 0.06, 0.17 * lm + 0.06, 0.17 * lm + 0.06], { ws: 10, hs: 6 });
+    capsule(P, BONE, [0, 0, 0], [0, -d.thighLen, 0], 0.13 * lm + 0.05, { rs: 7 });
+    ell(P, BONE, [0, -d.thighLen + 0.05, 0], [0.22 * lm + 0.05, 0.12, 0.18 * lm + 0.05], { ws: 8, hs: 6 });
+  });
+  out.shin = mk((P) => {
+    capsule(P, BONE, [0, 0, 0.03], [0, -d.shinLen, 0], 0.1 * lm + 0.04, { rs: 7 });
+    capsule(P, BONE, [0.12 * lm, -0.1, -0.05], [0.1 * lm, -d.shinLen + 0.1, -0.03], 0.04 * lm + 0.02, { rs: 5 });
+  });
+  out.foot = mk((P) => {
+    const w = 0.3 * Math.sqrt(lm) + 0.1;
+    ell(P, BONE, [0, -d.ankleH + 0.15 * lm + 0.07, 0.4], [0.62 * w, 0.1 * lm + 0.06, 0.62], { ws: 10, hs: 6 });
+  });
+  arch.bones = out;
+  return out;
+}
+
+// ---- dissolve shader: mesh-local fbm noise; `uErode` 0..1 eats the surface away, `uDark` chars the flesh
+const EVAP_NOISE = `
+uniform float uErode; uniform float uDark; uniform float uSeed;
+varying vec3 vEvapP;
+float evH( vec3 p ) { p = fract( p * 0.3183099 + 0.1 ); p *= 17.0; return fract( p.x * p.y * p.z * ( p.x + p.y + p.z ) ); }
+float evN( vec3 x ) {
+  vec3 i = floor( x ), f = fract( x ); f = f * f * ( 3.0 - 2.0 * f );
+  return mix( mix( mix( evH( i ), evH( i + vec3( 1, 0, 0 ) ), f.x ), mix( evH( i + vec3( 0, 1, 0 ) ), evH( i + vec3( 1, 1, 0 ) ), f.x ), f.y ),
+              mix( mix( evH( i + vec3( 0, 0, 1 ) ), evH( i + vec3( 1, 0, 1 ) ), f.x ), mix( evH( i + vec3( 0, 1, 1 ) ), evH( i + vec3( 1, 1, 1 ) ), f.x ), f.y ), f.z );
+}
+float evF( vec3 p ) { p += uSeed; return 0.55 * evN( p * 0.9 ) + 0.3 * evN( p * 2.3 ) + 0.15 * evN( p * 6.1 ); }
+`;
+const EVAP_CUT = `
+  float evn = evF( vEvapP );
+  float evThr = uErode > 0.0 ? mix( 0.14, 0.95, uErode ) : -1.0;
+  if ( evn < evThr ) discard;
+  float evEdge = uErode > 0.0 ? 1.0 - smoothstep( 0.0, 0.07, evn - evThr ) : 0.0;
+`;
+function evapVertex(sh) {
+  sh.vertexShader = 'varying vec3 vEvapP;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vEvapP = position;');
+}
+function evapUniforms(sh, U) { sh.uniforms.uErode = U.uErode; sh.uniforms.uDark = U.uDark; sh.uniforms.uSeed = U.uSeed; }
+function evapLit(sh, U, flesh) {
+  evapUniforms(sh, U); evapVertex(sh);
+  sh.fragmentShader = EVAP_NOISE + sh.fragmentShader
+    .replace('#include <color_fragment>', `#include <color_fragment>
+      ${EVAP_CUT}
+      {
+        // the flesh chars: blotchy deep red-brown, raw bright red where it is eroding
+        float evD = clamp( uDark * ( 0.7 + 0.6 * evN( vEvapP * 1.7 + 3.1 ) ), 0.0, 1.0 );
+        diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.3, 0.05, 0.035 ), evD * ${flesh ? '0.93' : '0.0'} );
+        diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.75, 0.12, 0.07 ), evEdge );
+      }`)
+    .replace('#include <opaque_fragment>', `outgoingLight += vec3( 0.9, 0.25, 0.12 ) * evEdge * 0.3;
+      #include <opaque_fragment>`);
+}
+
+let _skinPatch = null;
+/** Fresh materials for one dying titan, all driven by the returned `uniforms` (shared shader programs).
+ *  `arch` needs only { colossal, material } (titans.js warms the programs up with bodyMaterial()). */
+export function evapMaterials(arch, outlineThickness) {
+  const U = { uErode: { value: 0 }, uDark: { value: 0 }, uSeed: { value: Math.random() * 50 } };
+  const UB = { uErode: { value: 0 }, uDark: { value: 0 }, uSeed: U.uSeed };
+  if (!_skinPatch) _skinPatch = titanSkin({}).onBeforeCompile;   // the live skin's shader edit, reused as-is
+  let body;
+  if (arch.colossal) {
+    body = toonMaterial(0xffffff, { vertexColors: true, map: arch.material.map });
+    body.onBeforeCompile = (sh) => evapLit(sh, U, true);
+    body.customProgramCacheKey = () => 'titan-evap-col-v1';
+  } else {
+    body = toonMaterial(0xffffff, { vertexColors: true, rim: !!arch.material.userData?.rim });
+    body.onBeforeCompile = (sh, r) => { _skinPatch(sh, r); evapLit(sh, U, true); };
+    body.customProgramCacheKey = () => 'titan-evap-v1';
+  }
+  const outline = new THREE.MeshBasicMaterial({ color: 0x1a1410, side: THREE.BackSide, fog: true });
+  outline.onBeforeCompile = (sh) => {
+    evapUniforms(sh, U);
+    sh.uniforms.uOutline = { value: outlineThickness };
+    sh.vertexShader = 'uniform float uOutline;\nvarying vec3 vEvapP;\n' + sh.vertexShader.replace('#include <begin_vertex>',
+      'vec3 transformed = vec3( position ) + normalize( normal ) * uOutline;\n  vEvapP = position;');
+    sh.fragmentShader = EVAP_NOISE + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+      ${EVAP_CUT}
+      diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.25, 0.04, 0.03 ), evEdge );`);
+  };
+  outline.customProgramCacheKey = () => 'titan-evap-outline-v1';
+  const bone = toonMaterial(0xffffff, { vertexColors: true });
+  bone.onBeforeCompile = (sh) => evapLit(sh, UB, false);
+  bone.customProgramCacheKey = () => 'titan-evap-bone-v1';
+  return { body, outline, bone, uniforms: U, boneUniforms: UB };
 }

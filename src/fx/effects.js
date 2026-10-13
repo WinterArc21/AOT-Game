@@ -48,6 +48,8 @@ const F_WISP = 2;          // on death leaves a faint steam wisp (blood)
 const F_FLUTTER = 4;       // leaf flutter
 const F_BOUNCE = 8;        // bounce instead of dying on the ground
 const F_LIFT = 16;         // keep the puff's lower edge above the ground (steam / dust sit on it instead of clipping)
+const F_SPLAT = 32;        // leaves a ground splat where it lands (titan blood)
+const F_STEAMY = 64;       // gives off little steam wisps in flight (titan blood evaporates)
 
 const col = (hex) => new THREE.Color(hex);
 const C = {
@@ -322,9 +324,13 @@ class Pool {
           if (fl & F_BOUNCE) {
             Y = gh + 0.02; vy[i] = -vy[i] * 0.32; vx[i] *= 0.6; vz[i] *= 0.6; rotV[i] *= 0.4;
             if (Math.abs(vy[i]) < 0.8) { vy[i] = 0; vx[i] *= 0.85; vz[i] *= 0.85; }
-          } else { age[i] = lf; Y = gh + 0.02; }
+          } else {
+            age[i] = lf; Y = gh + 0.02;
+            if (fl & F_SPLAT) { fx._queueSplat(X, gh, Z, s0[i]); flags[i] = fl & ~F_WISP; }
+          }
         }
       }
+      if ((fl & F_STEAMY) && rnd() < dt * 7) fx._queueSteamlet(X, Y, Z);
       const t = a / lf;
       const e = 1 - (1 - t) * (1 - t);
       const size = s0[i] + (s1[i] - s0[i]) * e;
@@ -381,6 +387,405 @@ class Bolt {
   }
 }
 
+// ────────────────────────────────────────────── gas vapour trails ───────────────────────────────────────────
+// Long white streaks that hang in the air behind the gear (the forest shot): one camera-facing ribbon strip per
+// emitter, a ring buffer of points per emitter, width growing and opacity fading with age, all emitters in one
+// draw call. Emitters are keyed by any object (the player, an ally); a key that stops feeding breaks its strip.
+const TR_EMIT = 12, TR_PTS = 192, TR_NP = TR_EMIT * TR_PTS;
+const NOISE_GLSL = /* glsl */`
+float fxh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float fxn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(fxh(i), fxh(i + vec2(1.0, 0.0)), f.x), mix(fxh(i + vec2(0.0, 1.0)), fxh(i + vec2(1.0, 1.0)), f.x), f.y); }`;
+const TR_VERT = /* glsl */`
+attribute vec4 aT;      // x across (-1..1), y along the strip (m), z alpha, w age 0..1
+varying vec4 vT;
+varying float vNear;
+#include <fog_pars_vertex>
+void main() {
+  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+  vT = aT;
+  vNear = smoothstep(1.4, 5.0, -mvPosition.z);           // never fog the lens with our own trail
+  gl_Position = projectionMatrix * mvPosition;
+  #include <fog_vertex>
+}`;
+const TR_FRAG = /* glsl */`
+varying vec4 vT;
+varying float vNear;
+#include <common>
+#include <fog_pars_fragment>
+${NOISE_GLSL}
+void main() {
+  float x = vT.x, along = vT.y, age = vT.w;
+  float n = fxn(vec2(along * 0.45, x * 1.2 + along * 0.11)) * 0.65 + fxn(vec2(along * 1.6 + 7.0, x * 2.6)) * 0.35;
+  float across = 1.0 - abs(x);
+  float body = smoothstep(0.05, 0.3, across + (n - 0.5) * (0.2 + 0.5 * age));
+  float shred = smoothstep(age * 1.05 - 0.2, age * 1.05 + 0.18, n + across * 0.3);      // it tears into wisps as it ages
+  float a = vT.z * body * shred * vNear;
+  if (a < 0.004) discard;
+  float lit = step(0.42, across + (n - 0.5) * 0.45 - x * 0.12);                        // two-tone cel vapour
+  vec3 c = mix(vec3(0.79, 0.85, 0.94), vec3(1.0), lit);
+  gl_FragColor = vec4(c, a);
+  #include <colorspace_fragment>
+  #include <fog_fragment>
+}`;
+
+class GasTrails {
+  constructor() {
+    const f = (n) => new Float32Array(n);
+    this.px = f(TR_NP); this.py = f(TR_NP); this.pz = f(TR_NP); this.vx = f(TR_NP); this.vy = f(TR_NP); this.vz = f(TR_NP);
+    this.age = f(TR_NP); this.life = f(TR_NP); this.w0 = f(TR_NP); this.a0 = f(TR_NP); this.dist = f(TR_NP);
+    this.brk = new Uint8Array(TR_NP);           // 1 = this point starts a new strip
+    this.head = new Int32Array(TR_EMIT); this.count = new Int32Array(TR_EMIT);
+    this.keys = new Array(TR_EMIT).fill(null);
+    this.fed = new Float32Array(TR_EMIT); this.lastT = new Float32Array(TR_EMIT); this.live = new Uint8Array(TR_EMIT);
+    const g = new THREE.BufferGeometry();
+    this.pos = new THREE.BufferAttribute(new Float32Array(TR_NP * 2 * 3), 3).setUsage(THREE.DynamicDrawUsage);
+    this.aT = new THREE.BufferAttribute(new Float32Array(TR_NP * 2 * 4), 4).setUsage(THREE.DynamicDrawUsage);
+    this.index = new THREE.BufferAttribute(new Uint16Array(TR_NP * 6), 1).setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute('position', this.pos); g.setAttribute('aT', this.aT); g.setIndex(this.index);
+    g.setDrawRange(0, 0);
+    this.geo = g;
+    this.mat = new THREE.ShaderMaterial({
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog]),
+      vertexShader: TR_VERT, fragmentShader: TR_FRAG,
+      transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: true,
+    });
+    this.mesh = new THREE.Mesh(g, this.mat);
+    this.mesh.frustumCulled = false; this.mesh.renderOrder = 19; this.mesh.visible = false; this.mesh.raycast = () => {};
+  }
+
+  _slot(key) {
+    let free = -1, oldest = -1, ot = Infinity;
+    for (let e = 0; e < TR_EMIT; e++) {
+      if (this.keys[e] === key) return e;
+      if (this.keys[e] === null) { if (free < 0) free = e; } else if (!this.live[e] && this.fed[e] < ot) { ot = this.fed[e]; oldest = e; }
+    }
+    const e = free >= 0 ? free : oldest;
+    if (e < 0) return -1;
+    this.keys[e] = key; this.count[e] = 0; this.head[e] = 0; this.live[e] = 0;
+    return e;
+  }
+
+  feed(key, p, I, time) {
+    let e = -1;
+    for (let k = 0; k < TR_EMIT; k++) if (this.keys[k] === key) { e = k; break; }
+    if (I <= 0.01) { if (e >= 0) this.live[e] = 0; return; }
+    if (e < 0) { e = this._slot(key); if (e < 0) return; }
+    this.fed[e] = time;
+    const base = e * TR_PTS, I1 = Math.min(I, 1);
+    const { px, py, pz } = this;
+    if (this.live[e] && this.count[e] > 0) {
+      const last = base + (this.head[e] + TR_PTS - 1) % TR_PTS;
+      const dx = p.x - px[last], dy = p.y - py[last], dz = p.z - pz[last];
+      const d = hypot(dx, dy, dz);
+      if (d < 0.35 && time - this.lastT[e] < 1 / 30) {
+        // the head rides on the nozzle until it has moved far enough to commit a new point
+        if (this.count[e] > 1 && !this.brk[last]) {
+          const pv = base + (this.head[e] + TR_PTS - 2) % TR_PTS;
+          this.dist[last] = this.dist[pv] + hypot(p.x - px[pv], p.y - py[pv], p.z - pz[pv]);
+        }
+        px[last] = p.x; py[last] = p.y; pz[last] = p.z;
+        return;
+      }
+      this._push(e, p, I1, 0, this.dist[last] + d, time);
+    } else this._push(e, p, I1, 1, rnd() * 50, time);
+    this.live[e] = 1;
+  }
+
+  _push(e, p, I1, brk, dist, time) {
+    const i = e * TR_PTS + this.head[e];
+    this.head[e] = (this.head[e] + 1) % TR_PTS;
+    if (this.count[e] < TR_PTS) this.count[e]++;
+    this.px[i] = p.x; this.py[i] = p.y; this.pz[i] = p.z;
+    this.vx[i] = rr(-0.25, 0.25); this.vy[i] = rr(0.05, 0.3); this.vz[i] = rr(-0.25, 0.25);
+    this.age[i] = 0; this.life[i] = 1.4 + 1.4 * I1; this.w0[i] = 0.13 + 0.17 * I1; this.a0[i] = 0.4 + 0.55 * I1;   // long, thick, bright: the forest shot
+    this.brk[i] = brk; this.dist[i] = dist; this.lastT[e] = time;
+  }
+
+  update(dt, cam, time) {
+    const { px, py, pz, vx, vy, vz, age, life } = this;
+    const P = this.pos.array, T = this.aT.array, X = this.index.array;
+    const cx = cam.x, cy = cam.y, cz = cam.z;
+    const k = Math.exp(-1.6 * dt);
+    let nv = 0, ni = 0;
+    for (let e = 0; e < TR_EMIT; e++) {
+      if (this.keys[e] === null) continue;
+      if (time - this.fed[e] > 0.12) this.live[e] = 0;
+      const base = e * TR_PTS, cnt = this.count[e], start = (this.head[e] + TR_PTS - cnt) % TR_PTS;
+      let anyAlive = false;
+      for (let q = 0; q < cnt; q++) {
+        const i = base + (start + q) % TR_PTS;
+        if (age[i] >= life[i]) continue;
+        age[i] += dt;
+        vx[i] *= k; vy[i] *= k; vz[i] *= k;
+        px[i] += vx[i] * dt; py[i] += vy[i] * dt; pz[i] += vz[i] * dt;
+        anyAlive = true;
+      }
+      if (!anyAlive && !this.live[e]) { this.keys[e] = null; this.count[e] = 0; continue; }
+      // build the strip(s)
+      let prevV = -1, prevI = -1;
+      for (let q = 0; q < cnt; q++) {
+        const i = base + (start + q) % TR_PTS;
+        if (age[i] >= life[i]) { prevV = -1; prevI = -1; continue; }
+        if (this.brk[i]) { prevV = -1; prevI = -1; }
+        let nI = -1;
+        if (q + 1 < cnt) { const j = base + (start + q + 1) % TR_PTS; if (!this.brk[j] && age[j] < life[j]) nI = j; }
+        const a = prevI >= 0 ? prevI : i, b = nI >= 0 ? nI : i;
+        let tx = px[b] - px[a], ty = py[b] - py[a], tz = pz[b] - pz[a];
+        if (a === b) { tx = 0; ty = 0; tz = 1; }
+        const ox = cx - px[i], oy = cy - py[i], oz = cz - pz[i];
+        let sx = ty * oz - tz * oy, sy = tz * ox - tx * oz, sz = tx * oy - ty * ox;
+        const sl = hypot(sx, sy, sz) || 1;
+        const t = age[i] / life[i];
+        const dc = hypot(ox, oy, oz);
+        const w = Math.max(this.w0[i] * (1 + 3.2 * t) * (0.35 + 0.65 * smooth(0, 0.08, age[i])), dc * 0.002) / sl;
+        const al = this.a0[i] * (1 - smooth(0.35, 1, t)) * (0.4 + 0.6 * smooth(0, 0.05, age[i]));
+        const o = nv * 3, o4 = nv * 4;
+        P[o] = px[i] - sx * w; P[o + 1] = py[i] - sy * w; P[o + 2] = pz[i] - sz * w;
+        P[o + 3] = px[i] + sx * w; P[o + 4] = py[i] + sy * w; P[o + 5] = pz[i] + sz * w;
+        T[o4] = -1; T[o4 + 1] = this.dist[i]; T[o4 + 2] = al; T[o4 + 3] = t;
+        T[o4 + 4] = 1; T[o4 + 5] = this.dist[i]; T[o4 + 6] = al; T[o4 + 7] = t;
+        if (prevV >= 0) { X[ni++] = prevV; X[ni++] = prevV + 1; X[ni++] = nv; X[ni++] = prevV + 1; X[ni++] = nv + 1; X[ni++] = nv; }
+        prevV = nv; prevI = i; nv += 2;
+      }
+    }
+    this.geo.setDrawRange(0, ni);
+    this.mesh.visible = ni > 0;
+    if (ni > 0) {
+      this.pos.clearUpdateRanges(); this.pos.addUpdateRange(0, nv * 3); this.pos.needsUpdate = true;
+      this.aT.clearUpdateRanges(); this.aT.addUpdateRange(0, nv * 4); this.aT.needsUpdate = true;
+      this.index.clearUpdateRanges(); this.index.addUpdateRange(0, ni); this.index.needsUpdate = true;
+    }
+  }
+
+  clear() { this.keys.fill(null); this.count.fill(0); this.live.fill(0); this.geo.setDrawRange(0, 0); this.mesh.visible = false; }
+}
+
+// ─────────────────────────────────────────────── ground decals ──────────────────────────────────────────────
+// Flat instanced quads on the ground: titan-blood splats that darken and hiss away into steam, and boot scrapes.
+const DC_MAX = 256;
+const DC_VERT = /* glsl */`
+attribute vec4 aA;      // x y z rotation
+attribute vec4 aB;      // size along, size across, alpha, shrink (dissolve radius 0..1)
+attribute vec4 aC;      // rgb, kind (0 blood, 1 scrape)
+varying vec2 vUv;
+varying vec4 vB;
+varying vec4 vC;
+varying float vSeed;
+#include <fog_pars_vertex>
+void main() {
+  vec2 l = vec2(position.x * aB.x, position.z * aB.y);
+  float c = cos(aA.w), s = sin(aA.w);
+  vec3 w = vec3(aA.x + c * l.x - s * l.y, aA.y, aA.z + s * l.x + c * l.y);
+  vec4 mvPosition = viewMatrix * vec4(w, 1.0);
+  vUv = position.xz; vB = aB; vC = aC; vSeed = fract(aA.x * 0.731 + aA.z * 0.377);
+  gl_Position = projectionMatrix * mvPosition;
+  #include <fog_vertex>
+}`;
+const DC_FRAG = /* glsl */`
+varying vec2 vUv;
+varying vec4 vB;
+varying vec4 vC;
+varying float vSeed;
+#include <common>
+#include <fog_pars_fragment>
+${NOISE_GLSL}
+void main() {
+  float a;
+  if (vC.w < 0.5) {
+    vec2 p = vUv * 2.0;
+    float r = length(p), an = atan(p.y, p.x);
+    float rim = 0.8 + 0.1 * sin(an * 5.0 + vSeed * 40.0) + 0.06 * sin(an * 11.0 + vSeed * 17.0);
+    float n = fxn(p * 3.0 + vSeed * 31.0);
+    float R = rim * vB.w - (1.0 - vB.w) * n * 0.6;           // evaporating: it shrinks and breaks up from the rim
+    a = 1.0 - smoothstep(R - 0.04, R, r);
+    // satellite drops
+    vec2 q = p * 3.2 + vSeed * 9.0; vec2 cell = floor(q);
+    float h = fxh(cell);
+    a = max(a, (1.0 - smoothstep(0.18, 0.24, length(fract(q) - 0.5))) * step(0.82, h) * step(0.95, r) * step(r, 1.0) * step(0.5, vB.w));
+    a *= 0.75 + 0.25 * n;
+  } else {
+    float along = vUv.x * 2.0, across = vUv.y * 2.0;
+    float taper = 1.0 - smoothstep(0.55, 1.0, abs(along));
+    float lines = smoothstep(0.35, 0.1, abs(fract(across * 1.5 + vSeed) - 0.5) * 2.0 - 0.4);
+    a = taper * (1.0 - smoothstep(0.7, 1.0, abs(across))) * (0.45 + 0.55 * lines) * (0.6 + 0.4 * fxn(vec2(along * 6.0, across * 3.0 + vSeed * 10.0)));
+  }
+  a *= vB.z;
+  if (a < 0.01) discard;
+  gl_FragColor = vec4(vC.rgb, a);
+  #include <colorspace_fragment>
+  #include <fog_fragment>
+}`;
+
+class Decals {
+  constructor() {
+    const f = () => new Float32Array(DC_MAX);
+    this.x = f(); this.y = f(); this.z = f(); this.rot = f(); this.sx = f(); this.sy = f(); this.age = f(); this.life = f();
+    this.kind = new Uint8Array(DC_MAX); this.acc = f(); this.size = f();
+    this.next = 0; this.high = 0;
+    const g = new THREE.InstancedBufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute([-0.5, 0, -0.5, 0.5, 0, -0.5, 0.5, 0, 0.5, -0.5, 0, 0.5], 3));
+    g.setIndex([0, 2, 1, 0, 3, 2]);
+    const mk = (n) => { const a = new THREE.InstancedBufferAttribute(new Float32Array(DC_MAX * 4), 4); a.setUsage(THREE.DynamicDrawUsage); g.setAttribute(n, a); return a; };
+    this.aA = mk('aA'); this.aB = mk('aB'); this.aC = mk('aC');
+    g.instanceCount = 0;
+    this.geo = g;
+    this.mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog]),
+      vertexShader: DC_VERT, fragmentShader: DC_FRAG, transparent: true, depthWrite: false, fog: true,
+      side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4,
+    }));
+    this.mesh.frustumCulled = false; this.mesh.renderOrder = 3; this.mesh.visible = false; this.mesh.raycast = () => {};
+  }
+
+  add(kind, x, y, z, sx, sy, rot, life) {
+    const i = this.next; this.next = (i + 1) % DC_MAX;
+    if (i >= this.high) this.high = i + 1;
+    this.kind[i] = kind; this.x[i] = x; this.y[i] = y + 0.07; this.z[i] = z; this.sx[i] = sx; this.sy[i] = sy; this.rot[i] = rot;
+    this.age[i] = 0; this.life[i] = life; this.acc[i] = 0; this.size[i] = Math.max(sx, sy);
+    return i;
+  }
+
+  update(dt, fx) {
+    const A = this.aA.array, B = this.aB.array, Cc = this.aC.array, P = fx.norm;
+    let hi = 0;
+    for (let i = 0; i < this.high; i++) {
+      const o = i * 4;
+      if (this.life[i] <= 0) { B[o + 2] = 0; continue; }
+      const a = (this.age[i] += dt), lf = this.life[i];
+      if (a >= lf) { this.life[i] = 0; B[o + 2] = 0; continue; }
+      hi = i + 1;
+      const t = a / lf;
+      A[o] = this.x[i]; A[o + 1] = this.y[i]; A[o + 2] = this.z[i]; A[o + 3] = this.rot[i];
+      if (this.kind[i] === 0) {
+        // titan blood: fresh red, darkens, then hisses away into steam (it shrinks and breaks up from the rim)
+        const grow = 0.75 + 0.25 * smooth(0, 0.08, t);
+        B[o] = this.sx[i] * grow; B[o + 1] = this.sy[i] * grow;
+        B[o + 2] = 0.92 * (1 - smooth(0.85, 1, t));
+        B[o + 3] = 1 - smooth(0.32, 1.0, t) * 0.95;
+        const d = smooth(0.05, 0.45, t);
+        Cc[o] = 0.25 - 0.19 * d; Cc[o + 1] = 0.006 + 0.004 * d; Cc[o + 2] = 0.008 + 0.006 * d; Cc[o + 3] = 0;
+        if (t > 0.22 && t < 0.92) {
+          this.acc[i] += dt * (2.5 + this.size[i] * 5);
+          while (this.acc[i] >= 1) {
+            this.acc[i] -= 1;
+            if (fx._free() < 0.15) break;
+            const s = this.size[i], r = s * 0.35;
+            const j = P.spawn(this.x[i] + rr(-r, r), this.y[i] + 0.05, this.z[i] + rr(-r, r), rr(-0.2, 0.2), rr(0.7, 1.6), rr(-0.2, 0.2),
+              rr(0.7, 1.3), 0.06 + s * 0.12, 0.3 + s * rr(0.45, 0.8), rnd() < 0.5 ? TILE.CLOUD_A : TILE.PUFF);
+            P.color(j, C.steam, C.steamEnd, rr(0.35, 0.6), 0.15); P.phys(j, 0.9, -0.5, rr(-0.8, 0.8), 0, 0); P.env(j, 0.15, 0.35, 0);
+          }
+        }
+      } else {
+        B[o] = this.sx[i]; B[o + 1] = this.sy[i];
+        B[o + 2] = 0.8 * (1 - smooth(0.6, 1, t)) * smooth(0, 0.03, t); B[o + 3] = 1;
+        Cc[o] = 0.09; Cc[o + 1] = 0.06; Cc[o + 2] = 0.035; Cc[o + 3] = 1;
+      }
+    }
+    this.high = hi;
+    this.geo.instanceCount = hi;
+    this.mesh.visible = hi > 0;
+    if (hi > 0) for (const at of [this.aA, this.aB, this.aC]) { at.clearUpdateRanges(); at.addUpdateRange(0, hi * 4); at.needsUpdate = true; }
+  }
+
+  clear() { this.life.fill(0); this.high = 0; this.geo.instanceCount = 0; this.mesh.visible = false; }
+}
+
+// ──────────────────────────────────────────────── blade smear ───────────────────────────────────────────────
+// A swept surface between the blade's last few positions (Catmull-Rom between samples so it curves), drawn as
+// a fan of thin white streaks: the anime's 1–2 frame smear over the slash crescent.
+const SM_H = 6, SM_SUB = 5, SM_COLS = (SM_H - 1) * SM_SUB + 1, SM_ROWS = 4;
+class BladeSmear {
+  constructor() {
+    this.hist = new Float32Array(2 * SM_H * 6);     // per blade: ring of [tip xyz, base xyz]
+    this.htime = new Float32Array(2 * SM_H);
+    this.hn = [0, 0]; this.hhead = [0, 0];
+    const nv = 2 * SM_COLS * SM_ROWS;
+    const g = new THREE.BufferGeometry();
+    this.pos = new THREE.BufferAttribute(new Float32Array(nv * 3), 3).setUsage(THREE.DynamicDrawUsage);
+    this.uv = new THREE.BufferAttribute(new Float32Array(nv * 2), 2).setUsage(THREE.DynamicDrawUsage);
+    const idx = [];
+    for (let b = 0; b < 2; b++) for (let c = 0; c < SM_COLS - 1; c++) for (let r = 0; r < SM_ROWS - 1; r++) {
+      const v = b * SM_COLS * SM_ROWS + c * SM_ROWS + r;
+      idx.push(v, v + SM_ROWS, v + 1, v + 1, v + SM_ROWS, v + SM_ROWS + 1);
+    }
+    g.setAttribute('position', this.pos); g.setAttribute('uv', this.uv); g.setIndex(idx);
+    this.geo = g;
+    this.mat = new THREE.ShaderMaterial({
+      uniforms: { uA: { value: 1 } },
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `varying vec2 vUv; uniform float uA;
+        float h1(float n){ return fract(sin(n * 91.7 + 13.1) * 43758.5453); }
+        void main(){
+          float u = vUv.x, v = vUv.y;                     // u: 0 = the blade now .. 1 = oldest; v: 0 = hilt side .. 1 = tip
+          float N = 14.0; float id = floor(v * N); float f = fract(v * N);
+          float len = mix(0.35, 1.0, h1(id)) * mix(0.6, 1.0, v);           // streaks of different lengths
+          float wid = mix(0.12, 0.42, h1(id + 3.3));
+          float line = 1.0 - smoothstep(wid * 0.5, wid * 0.5 + 0.12, abs(f - 0.5));
+          float body = smoothstep(0.0, 0.25, v) * (1.0 - smoothstep(0.93, 1.0, v));
+          float tail = 1.0 - smoothstep(len * 0.55, len, u);
+          float sheet = (1.0 - u) * (1.0 - u) * 0.38 * smoothstep(0.3, 1.0, v);      // a soft white sheet behind the lines
+          float a = (max(line * tail, sheet) * body + smoothstep(0.86, 1.0, v) * (1.0 - u) * 0.7) * uA;
+          if (a < 0.01) discard;
+          vec3 c = mix(vec3(0.70, 0.86, 1.0), vec3(1.0), line * (1.0 - u * 0.7));
+          gl_FragColor = vec4(c, clamp(a, 0.0, 1.0));
+        }`,
+      transparent: true, depthWrite: false, side: THREE.DoubleSide, toneMapped: false, fog: false,
+    });
+    this.mesh = new THREE.Mesh(g, this.mat);
+    this.mesh.frustumCulled = false; this.mesh.renderOrder = 26; this.mesh.visible = false; this.mesh.raycast = () => {};
+    this._m = new THREE.Vector3(); this._t = new THREE.Vector3(); this._b = new THREE.Vector3();
+  }
+
+  push(b, tip, base, time) {
+    const h = this.hhead[b];
+    const o = (b * SM_H + h) * 6;
+    this.hist[o] = tip.x; this.hist[o + 1] = tip.y; this.hist[o + 2] = tip.z;
+    this.hist[o + 3] = base.x; this.hist[o + 4] = base.y; this.hist[o + 5] = base.z;
+    this.htime[b * SM_H + h] = time;
+    this.hhead[b] = (h + 1) % SM_H; this.hn[b] = Math.min(SM_H, this.hn[b] + 1);
+  }
+
+  reset() { this.hn[0] = this.hn[1] = 0; this.mesh.visible = false; }
+
+  /** Rebuild from the history; samples older than `win` seconds are dropped. */
+  build(time, win, alpha) {
+    const P = this.pos.array, U = this.uv.array, H = this.hist;
+    let any = false;
+    for (let b = 0; b < 2; b++) {
+      // count fresh samples (newest first)
+      let n = 0;
+      for (let k = 0; k < this.hn[b]; k++) { const s = (this.hhead[b] - 1 - k + SM_H * 2) % SM_H; if (time - this.htime[b * SM_H + s] > win) break; n++; }
+      const vb = b * SM_COLS * SM_ROWS;
+      if (n < 2) { for (let v = vb * 3; v < (vb + SM_COLS * SM_ROWS) * 3; v++) P[v] = 0; continue; }
+      any = true;
+      const S = (k) => (b * SM_H + (this.hhead[b] - 1 - Math.min(Math.max(k, 0), n - 1) + SM_H * 2) % SM_H) * 6;   // k = 0 newest
+      const cols = (n - 1) * SM_SUB + 1;
+      for (let c = 0; c < SM_COLS; c++) {
+        const cc = Math.min(c, cols - 1);
+        const seg = Math.min(Math.floor(cc / SM_SUB), n - 2), t = cc / SM_SUB - seg;
+        const i0 = S(seg - 1), i1 = S(seg), i2 = S(seg + 1), i3 = S(seg + 2);
+        const cr = (j) => {
+          const p0 = H[i0 + j], p1 = H[i1 + j], p2 = H[i2 + j], p3 = H[i3 + j];
+          return 0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t);
+        };
+        const tx = cr(0), ty = cr(1), tz = cr(2), bx = cr(3), by = cr(4), bz = cr(5);
+        const u = cc / Math.max(1, cols - 1);
+        for (let r = 0; r < SM_ROWS; r++) {
+          const v = r / (SM_ROWS - 1), vi = vb + c * SM_ROWS + r;
+          // the tip end of the smear overshoots a touch past the blade (the anime exaggerates the arc)
+          const e = v * 1.08;
+          P[vi * 3] = bx + (tx - bx) * e; P[vi * 3 + 1] = by + (ty - by) * e; P[vi * 3 + 2] = bz + (tz - bz) * e;
+          U[vi * 2] = u; U[vi * 2 + 1] = v;
+        }
+      }
+    }
+    this.mesh.visible = any;
+    this.mat.uniforms.uA.value = alpha;
+    if (any) { this.pos.needsUpdate = true; this.uv.needsUpdate = true; }
+  }
+}
+
 // ─────────────────────────────────────────────────── Effects ────────────────────────────────────────────────
 export class Effects {
   constructor(game) {
@@ -404,6 +809,15 @@ export class Effects {
     this.add = new Pool(800, atlas, true, 21);
     this.group.add(this.norm.mesh, this.add.mesh);
 
+    this.trails = new GasTrails();
+    this.decals = new Decals();
+    this.smear = new BladeSmear();
+    this.group.add(this.trails.mesh, this.decals.mesh, this.smear.mesh);
+    this._steamlets = new Float32Array(3 * 128); this._nSteamlets = 0;
+    this._splats = 0;                       // splats queued this frame (throttle)
+    this._smearOn = false;
+    this._bt = new THREE.Vector3(); this._bb = new THREE.Vector3();
+
     this._initSlash();
     this._initLightning();
   }
@@ -420,6 +834,18 @@ export class Effects {
     this._wisps[i] = x; this._wisps[i + 1] = y; this._wisps[i + 2] = z;
   }
 
+  _queueSteamlet(x, y, z) {
+    if (this._nSteamlets >= 128) return;
+    const i = this._nSteamlets++ * 3;
+    this._steamlets[i] = x; this._steamlets[i + 1] = y; this._steamlets[i + 2] = z;
+  }
+
+  _queueSplat(x, y, z, s) {
+    if (this._splats++ > 40) return;
+    const r = s * rr(5, 8) + rr(0.15, 0.35);
+    this.decals.add(0, x, y, z, r * rr(0.85, 1.25), r * rr(0.85, 1.25), rnd() * 6.2832, rr(2.1, 2.9));
+  }
+
   /** free fraction of the normal pool (used to throttle bursty callers). */
   _free() { return 1 - this.norm.alive / this.norm.max; }
 
@@ -431,19 +857,19 @@ export class Effects {
     intensity = clamp(intensity === undefined ? 1 : intensity, 0, 1.5);
     if (intensity <= 0.001) return;
     const P = this.norm;
-    this._gasAcc += (70 + 110 * intensity) * intensity * Math.min(this._dt, 0.05);
+    this._gasAcc += (38 + 55 * intensity) * intensity * Math.min(this._dt, 0.05);
     let guard = 0;
     while (this._gasAcc >= 1 && guard++ < 24) {
       this._gasAcc -= 1;
       const sp = rr(5, 11) * (0.7 + 0.5 * intensity);
       const sx = rr(-1, 1) * 0.16, sy = rr(-1, 1) * 0.16, sz = rr(-1, 1) * 0.16;
       const life = rr(0.38, 0.8) * (0.7 + 0.4 * intensity);
-      const s1 = rr(1.1, 2.0) * (0.6 + 0.5 * intensity);
+      const s1 = rr(0.7, 1.35) * (0.6 + 0.5 * intensity);
       const t = rnd();
       const i = P.spawn(position.x + rr(-0.03, 0.03), position.y + rr(-0.03, 0.03), position.z + rr(-0.03, 0.03),
         (direction.x + sx) * sp, (direction.y + sy) * sp, (direction.z + sz) * sp,
         life, rr(0.16, 0.3), s1, t < 0.4 ? TILE.CLOUD_A : t < 0.7 ? TILE.CLOUD_B : TILE.PUFF);
-      P.color(i, C.gas, C.gasEnd, rr(0.75, 0.98), 0.3);
+      P.color(i, C.gas, C.gasEnd, rr(0.6, 0.85), 0.25);
       P.phys(i, rr(3.0, 4.6), -0.7, rr(-1.2, 1.2), 0, 0);
       P.env(i, 0.05, 0.3, 0);
       if (rnd() < 0.18) {      // hot flash right at the nozzle
@@ -494,9 +920,9 @@ export class Effects {
       const sp = rr(3, 12) * (0.6 + 0.25 * Math.min(size, 3));
       const i = P.spawn(position.x, position.y, position.z,
         (direction.x + rr(-0.45, 0.45)) * sp, (direction.y + rr(-0.35, 0.55)) * sp, (direction.z + rr(-0.45, 0.45)) * sp,
-        rr(0.7, 1.5), 0.06 * size * rr(0.6, 1.4) + 0.025, 0.05 * size * rr(0.5, 1.0) + 0.02, TILE.DROP);
+        rr(1.0, 2.2), 0.06 * size * rr(0.6, 1.4) + 0.025, 0.05 * size * rr(0.5, 1.0) + 0.02, TILE.DROP);
       P.color(i, rnd() < 0.5 ? C.bloodA : C.bloodB, C.bloodB, 0.95, 0.9);
-      P.phys(i, 0.35, 15, 0, 0.045, F_GROUND | F_WISP);
+      P.phys(i, 0.35, 15, 0, 0.045, F_GROUND | F_WISP | F_SPLAT | (k & 1 ? F_STEAMY : 0));
       P.env(i, 0, 0.85, 0);
     }
     const m = clamp(Math.round(2 + size * 2), 2, 8);
@@ -577,6 +1003,132 @@ export class Effects {
       P.phys(i, 1.4, 2.6, rr(-7, 7), 0, F_FLUTTER | F_GROUND);
       P.env(i, 0, 0.8, 0);
     }
+  }
+
+  /**
+   * Long white ODM vapour trail. Call every frame per emitter (`key` = any object: the player, an ally) with the
+   * gas nozzle's world position; intensity 1 = full boost, ~0.3–0.5 = the faint trail of a fast swing, 0 (or not
+   * calling) ends the strip, which then hangs in the air, thins out and fades over ~1–2 s.
+   */
+  gasTrail(key, position, intensity = 1) {
+    this.trails.feed(key, position, intensity, this.time);
+  }
+
+  /**
+   * Hard fast landing: a streak of low dust puffs along `direction` (horizontal travel direction) from `position`
+   * (a point on the ground), and two boot-scrape marks gouged into the ground. `speed` in m/s scales the length.
+   */
+  skidDust(position, direction, speed = 12) {
+    const P = this.norm;
+    let dx = direction ? direction.x : 0, dz = direction ? direction.z : 1;
+    const dl = Math.sqrt(dx * dx + dz * dz);
+    if (dl < 1e-4) { dx = 0; dz = 1; } else { dx /= dl; dz /= dl; }
+    const sx = -dz, sz = dx;                                 // side
+    speed = Math.max(0, speed || 0);
+    // called again while the same skid goes on (the core calls it every ~0.07 s while you slide): a lighter
+    // continuation, a few puffs and the boot scrapes extended from where the last call left off
+    const sk = this._skid || (this._skid = { t: -9, x: 0, z: 0 });
+    const ddx = position.x - sk.x, ddz = position.z - sk.z, dd = Math.sqrt(ddx * ddx + ddz * ddz);
+    const cont = this.time - sk.t < 0.25 && dd < 6;
+    sk.t = this.time; sk.x = position.x; sk.z = position.z;
+    if (cont) {
+      const nn = Math.round(clamp(2 + speed * 0.12, 2, 5) * clamp((this._free() - 0.05) / 0.3, 0, 1));
+      for (let k = 0; k < nn; k++) {
+        const side = rr(-0.3, 0.3), x = position.x + sx * side, z = position.z + sz * side;
+        const kick = rr(-1, 1) * (1 + speed * 0.05), sp = speed * rr(0.1, 0.3);
+        const i = P.spawn(x, this._ground(x, z) + 0.1, z, dx * sp + sx * kick, rr(0.3, 1.2), dz * sp + sz * kick,
+          rr(0.6, 1.2), rr(0.2, 0.4), rr(0.8, 1.5), TILE.DUST);
+        P.color(i, C.dustDirt, C.dustEnd, rr(0.5, 0.7), 0.1); P.phys(i, rr(2.4, 3.6), -0.15, rr(-1.2, 1.2), 0, F_LIFT); P.env(i, 0.05, 0.3, 0);
+      }
+      if (dd > 0.08) {
+        const ux = ddx / dd, uz = ddz / dd, rot = Math.atan2(uz, ux);
+        for (let b = -1; b <= 1; b += 2) {
+          const cx = position.x - ddx * 0.5 - uz * 0.17 * b, cz = position.z - ddz * 0.5 + ux * 0.17 * b;
+          this.decals.add(1, cx, this._ground(cx, cz), cz, dd + 0.25, rr(0.15, 0.2), rot, rr(3.5, 4.5));
+        }
+      }
+      return;
+    }
+    const len = clamp(speed * 0.28, 1.2, 7.5), slide = clamp(len / Math.max(speed * 0.5, 1), 0.15, 0.6);
+    const n = Math.round(clamp(6 + speed * 0.55, 6, 22) * clamp((this._free() - 0.05) / 0.3, 0, 1));
+    for (let k = 0; k < n; k++) {
+      const f = n > 1 ? k / (n - 1) : 0, along = len * f, side = rr(-0.35, 0.35);
+      const x = position.x + dx * along + sx * side, z = position.z + dz * along + sz * side;
+      const y = this._ground(x, z) + 0.1;
+      const sp = speed * rr(0.12, 0.3) * (1 - f * 0.6), kick = rr(-1, 1) * (1.5 + speed * 0.06);
+      const i = P.spawn(x, y, z, dx * sp + sx * kick, rr(0.3, 1.4), dz * sp + sz * kick,
+        rr(0.7, 1.4), rr(0.25, 0.45), rr(1.0, 1.9) * (0.7 + 0.3 * Math.min(speed / 25, 1.5)), TILE.DUST);
+      P.color(i, C.dustDirt, C.dustEnd, rr(0.55, 0.8), 0.1);
+      P.phys(i, rr(2.4, 3.6), -0.15, rr(-1.2, 1.2), 0, F_LIFT); P.env(i, 0.05, 0.3, f * slide);
+    }
+    // grit kicked forward
+    for (let k = 0; k < Math.min(10, 3 + (speed * 0.25) | 0); k++) {
+      const sp = speed * rr(0.15, 0.4);
+      const i = P.spawn(position.x, this._ground(position.x, position.z) + 0.1, position.z, dx * sp + sx * rr(-2, 2), rr(1, 3.5), dz * sp + sz * rr(-2, 2),
+        rr(0.5, 1.0), rr(0.04, 0.08), 0.05, TILE.CHIP);
+      P.color(i, C.dustDirt, C.woodDark, 1, 1); P.phys(i, 0.6, 15, rr(-12, 12), 0, F_GROUND | F_BOUNCE); P.env(i, 0, 0.8, 0);
+    }
+    // two boot scrapes
+    const rot = Math.atan2(dz, dx), ml = len * 0.85;
+    for (let b = -1; b <= 1; b += 2) {
+      const off = 0.17 * b + rr(-0.03, 0.03), cx = position.x + dx * ml * 0.5 + sx * off, cz = position.z + dz * ml * 0.5 + sz * off;
+      this.decals.add(1, cx, this._ground(cx, cz), cz, ml * rr(0.85, 1.05), rr(0.16, 0.22), rot + rr(-0.04, 0.04), rr(3.5, 5));
+    }
+  }
+
+  /** The anchor biting: a cross-shaped glint, a hot flash and a few sparks off the steel head. */
+  hookBite(position, normal, material = 'stone') {
+    const A = this.add;
+    normal = normal || UP;
+    const cam = this.game.camera;
+    const flesh = material === 'flesh';
+    const j = A.spawn(position.x, position.y, position.z, 0, 0, 0, 0.11, 0.35, 1.3, TILE.PUFF);
+    A.color(j, C.white, C.sparkHot, flesh ? 0.5 : 1, 0); A.env(j, 0, 0.15, 0);
+    if (cam) {
+      // ✦ star glint: two crossed streaks (screen-aligned, slightly rolled)
+      const e = cam.matrixWorld.elements, roll = rr(-0.4, 0.4), c = Math.cos(roll), sn = Math.sin(roll);
+      const rx = e[0], ry = e[1], rz = e[2], ux = e[4], uy = e[5], uz = e[6];
+      for (let k = 0; k < 2; k++) {
+        const a = k ? c : -sn, b = k ? sn : c;
+        const vx = (rx * a + ux * b) * 0.6, vy = (ry * a + uy * b) * 0.6, vz = (rz * a + uz * b) * 0.6;
+        const i = A.spawn(position.x, position.y, position.z, vx, vy, vz, 0.16, k ? 0.07 : 0.06, 0.02, TILE.SPARK);
+        A.color(i, C.white, C.sparkHot, flesh ? 0.6 : 1, 0); A.phys(i, 0, 0, 0, k ? 2.6 : 1.8, 0); A.env(i, 0, 0.2, 0);
+      }
+    }
+    if (!flesh) this.sparks(position, normal, material === 'metal' || material === 'stone' ? 9 : 5);
+  }
+
+  /** The kill's impact frame (black & white / inverted art with radial lines on the nape), drawn by ImpactFrame. */
+  impactFrame(position, strength = 1) {
+    this.game.impactFrame?.trigger?.(position, strength);
+  }
+
+  /** Feeds the blade smear one sample per blade (tip, hilt-side point; world). Effects.update does this for the
+   *  player automatically during a slash; call this for any other swordsman, once per frame. */
+  bladeSmear(tipL, baseL, tipR, baseR) {
+    if (tipL && baseL) this.smear.push(0, tipL, baseL, this.time);
+    if (tipR && baseR) this.smear.push(1, tipR, baseR, this.time);
+    this._smearT = this.time;
+  }
+
+  _updateSmear() {
+    const p = this.game.player, m = p?.model, bl = m?.j?.blades;
+    const slashing = !!p && p.alive !== false && bl && ((p.slashT >= 0 && p.slashT < 0.3) || p.spin) && bl[0]?.visible !== false;
+    if (slashing) {
+      if (!this._smearOn) this.smear.reset();
+      this._smearOn = true;
+      for (let b = 0; b < 2; b++) {
+        const g = bl[b];
+        g.updateWorldMatrix(true, false);
+        this._bt.set(0, -1.02, 0).applyMatrix4(g.matrixWorld);
+        this._bb.set(0, -0.32, 0).applyMatrix4(g.matrixWorld);
+        this.smear.push(b, this._bt, this._bb, this.time);
+      }
+      this._smearT = this.time;
+    } else this._smearOn = false;
+    const age = this.time - (this._smearT ?? -9);
+    if (age > 0.09) { this.smear.mesh.visible = false; return; }
+    this.smear.build(this.time, 0.075, (p?.spin && !(p.slashT >= 0) ? 0.55 : 1) * (1 - smooth(0.02, 0.09, age)));
   }
 
   // ───────────────────────────── slash arc ─────────────────────────────
@@ -881,6 +1433,17 @@ export class Effects {
       this.norm.color(i, C.mistA, C.steam, 0.22, 0.1); this.norm.phys(i, 0.8, -0.35, rr(-0.5, 0.5), 0, 0); this.norm.env(i, 0.2, 0.3, 0);
     }
     this._nWisps = 0;
+    // titan blood boiling off in flight
+    for (let k = 0; k < this._nSteamlets; k++) {
+      if (this._free() < 0.2) break;
+      const x = this._steamlets[k * 3], y = this._steamlets[k * 3 + 1], z = this._steamlets[k * 3 + 2];
+      const i = this.norm.spawn(x, y, z, rr(-0.2, 0.2), rr(0.5, 1.1), rr(-0.2, 0.2), rr(0.45, 0.8), 0.05, rr(0.25, 0.45), TILE.PUFF);
+      this.norm.color(i, C.mistB, C.steam, 0.32, 0.05); this.norm.phys(i, 1.2, -0.4, 0, 0, 0); this.norm.env(i, 0.15, 0.3, 0);
+    }
+    this._nSteamlets = 0; this._splats = 0;
+    this.decals.update(dt, this);
+    this.trails.update(dt, (this.game.camera || _fallbackCam).position, this.time);
+    this._updateSmear();
     // slash arcs
     for (const m of this.slashes) {
       if (!m.visible) continue;
@@ -902,6 +1465,8 @@ export class Effects {
     for (const s of this.strikes) { s.active = false; s.bolt.mesh.visible = false; }
     for (const m of this.slashes) m.visible = false;
     for (const r of this.rings) r.visible = false;
+    this.trails.clear(); this.decals.clear(); this.smear.reset();
+    this.game.impactFrame?.cancel?.();
     this.pillar.visible = false; this.flash.visible = false; this.light.intensity = 0;
   }
 }
@@ -980,5 +1545,130 @@ export class SpeedLines {
     r.render(this.scene, this.cam);
     r.autoClear = ac;
     info.calls = calls; info.triangles = tri; info.points = pts; info.lines = lines;
+  }
+}
+
+// ─────────────────────────────────────────────── ImpactFrame ───────────────────────────────────────────────
+/**
+ * The anime's impact frame on a nape cut: for ~0.1 s of REAL time the finished frame turns into stark black and white
+ * art (first inverted, then positive), with radial speed lines bursting from the nape, then it snaps back.
+ *   game.impactFrame = new ImpactFrame(renderer, game);   // once (main.js)
+ *   ...renderer.render(scene, camera); speedLines.render();
+ *   game.impactFrame.render(realDt, camera);              // no-op unless triggered
+ *   game.fx.impactFrame(worldPos)                         // → impactFrame.trigger(worldPos)
+ */
+export class ImpactFrame {
+  constructor(renderer, game) {
+    this.renderer = renderer; this.game = game;
+    this.t = -1; this.frames = 0; this.dur = 0.1; this.strength = 1;
+    this.world = new THREE.Vector3(); this.seed = 0;
+    this._size = new THREE.Vector2(); this._v = new THREE.Vector3(); this._origin = new THREE.Vector2();
+    this.tex = null;
+    this.scene = new THREE.Scene();
+    this.cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    this.mat = new THREE.ShaderMaterial({
+      uniforms: { uTex: { value: null }, uC: { value: new THREE.Vector2(0.5, 0.5) }, uAspect: { value: 1.78 }, uPhase: { value: 0 }, uSeed: { value: 0 }, uK: { value: 1 } },
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+      fragmentShader: `varying vec2 vUv; uniform sampler2D uTex; uniform vec2 uC; uniform float uAspect, uPhase, uSeed, uK;
+        float hash(float n){ return fract(sin(n * 127.1 + 311.7) * 43758.5453); }
+        float lum(vec2 uv){ vec3 c = texture2D(uTex, uv).rgb; return dot(c, vec3(0.3, 0.59, 0.11)); }
+        void main(){
+          vec3 src = texture2D(uTex, vUv).rgb;
+          vec2 px = vec2(1.5 / 800.0, 1.5 / 450.0);
+          // threshold a slightly blurred luminance so grass and brick texture don't turn into speckle
+          float l = (dot(src, vec3(0.3, 0.59, 0.11)) * 2.0 + lum(vUv + vec2(px.x, px.y)) + lum(vUv - vec2(px.x, px.y))
+                   + lum(vUv + vec2(px.x, -px.y)) + lum(vUv + vec2(-px.x, px.y))) / 6.0;
+          px *= 1.6;
+          // ink edges: a Sobel-ish luminance gradient
+          float gx = lum(vUv + vec2(px.x, 0.0)) - lum(vUv - vec2(px.x, 0.0));
+          float gy = lum(vUv + vec2(0.0, px.y)) - lum(vUv - vec2(0.0, px.y));
+          float edge = smoothstep(0.08, 0.2, length(vec2(gx, gy)));
+          float bw = smoothstep(0.47, 0.53, l);                       // hard two-tone threshold
+          bw = mix(bw, 0.0, edge);                                     // black ink lines
+          float red = smoothstep(0.1, 0.22, src.r - max(src.g, src.b) * 1.1) * step(0.12, src.r);
+          // radial speed lines converging on the cut
+          vec2 p = (vUv - uC) * vec2(uAspect, 1.0);
+          float r = length(p);
+          float an = atan(p.y, p.x) / 6.2831853 + 0.5;
+          float lines = 0.0;
+          for (int L = 0; L < 2; L++) {
+            float N = L == 0 ? 120.0 : 230.0;
+            float x = an * N, id = floor(x), f = fract(x);
+            float sd = id * 1.37 + float(L) * 41.0 + uSeed;
+            float on = step(L == 0 ? 0.55 : 0.72, hash(sd));
+            float start = mix(0.22, 0.7, hash(sd + 2.1));
+            float w = mix(0.08, 0.4, hash(sd + 4.3)) * smoothstep(start, start + 0.9, r);
+            lines += on * (1.0 - smoothstep(w * 0.5, w * 0.5 + 0.06, abs(f - 0.5))) * step(start, r);
+          }
+          lines = clamp(lines, 0.0, 1.0);
+          float focus = smoothstep(0.045, 0.0, r);                     // a hot white pin on the nape
+          float v;
+          vec3 col;
+          if (uPhase < 0.5) {
+            // inverted: the world becomes black ink on white light; white lines burst out of the dark
+            v = mix(1.0 - bw, 1.0, lines);
+            col = vec3(v);
+          } else {
+            // positive: stark black & white, black speed lines, blood left red
+            v = bw;
+            v = mix(v, 0.0, lines * 0.9);
+            col = mix(vec3(v), vec3(0.85, 0.03, 0.03), red * 0.9);
+          }
+          col = mix(col, vec3(1.0), focus);
+          // a vignette that closes the frame in on the cut
+          float vig = smoothstep(0.75, 1.6, length((vUv - 0.5) * vec2(uAspect, 1.0)));
+          col = mix(col, vec3(0.0), vig * 0.8);
+          gl_FragColor = vec4(mix(src, col, uK), 1.0);
+        }`,
+      depthTest: false, depthWrite: false, toneMapped: false, fog: false,
+    });
+    this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.mat);
+    this.mesh.frustumCulled = false;
+    this.scene.add(this.mesh);
+  }
+
+  /** Start the impact frame centred on `worldPos` (the nape). */
+  trigger(worldPos, strength = 1) {
+    if (worldPos) this.world.copy(worldPos);
+    this.t = 0; this.frames = 0; this.strength = clamp(strength, 0, 1);
+    this.seed = Math.random() * 100;
+  }
+
+  cancel() { this.t = -1; }
+  get active() { return this.t >= 0; }
+
+  /** Draw over the finished frame. `dt` = real seconds since the last frame (hitstop/slowmo don't stretch it). */
+  render(dt, camera) {
+    if (this.t < 0) return;
+    const phase = this.t / this.dur;
+    // always show at least two frames (one inverted, one positive) however slow the frame rate
+    if (phase >= 1 && this.frames >= 2) { this.t = -1; this.game?.flash?.(0.35); return; }
+    const r = this.renderer;
+    r.getDrawingBufferSize(this._size);
+    const w = this._size.x | 0, h = this._size.y | 0;
+    if (!this.tex || this.tex.image.width !== w || this.tex.image.height !== h) {
+      this.tex?.dispose();
+      this.tex = new THREE.FramebufferTexture(w, h);
+      this.mat.uniforms.uTex.value = this.tex;
+    }
+    r.copyFramebufferToTexture(this.tex, this._origin);
+    const u = this.mat.uniforms;
+    if (camera) {
+      this._v.copy(this.world).project(camera);
+      const behind = this._v.z > 1;
+      u.uC.value.set(behind ? 0.5 : clamp(this._v.x * 0.5 + 0.5, -0.2, 1.2), behind ? 0.5 : clamp(this._v.y * 0.5 + 0.5, -0.2, 1.2));
+    }
+    u.uAspect.value = w / Math.max(1, h);
+    u.uPhase.value = this.frames === 0 || phase < 0.45 ? 0 : 1;
+    u.uSeed.value = this.seed + (u.uPhase.value > 0.5 ? 17 : 0);
+    u.uK.value = this.strength;
+    const ac = r.autoClear, info = r.info.render;
+    const calls = info.calls, tri = info.triangles;
+    r.autoClear = false;
+    r.render(this.scene, this.cam);
+    r.autoClear = ac;
+    info.calls = calls; info.triangles = tri;
+    this.t += Math.min(dt || 0, 0.05);
+    this.frames++;
   }
 }

@@ -87,6 +87,8 @@ export class OdmGear {
           h.tip.copy(hit.point);
           if (!this.player.silent) this.game.audio?.hookHit?.(hit.collider.material);
           this.game.fx?.impact?.(hit.point, hit.normal, hit.collider.material);
+          this.game.fx?.hookBite?.(hit.point, hit.normal, hit.collider.material);
+          h.bite = 1;                       // the wire flashes and a glint runs up it (Wire, render)
           this.game.events.emit('hook:attach', { hook: h, hit });
         } else {
           h.tip.addScaledVector(h.dir, step);
@@ -175,7 +177,7 @@ export class OdmGear {
       if (vout <= 0) { h.slipping = false; continue; }
       let keep = P > 0 ? Math.min(vout, P) : 0;
       if (vout > W.slipFrom && h.length < CFG.hook.range) {
-        if (!h.slipping && vout > W.snapSpeed) this.snap = Math.max(this.snap || 0, vout);   // the jolt: felt once
+        if (!h.slipping && vout > W.snapSpeed) { this.snap = Math.max(this.snap || 0, vout); h.twang = Math.max(h.twang || 0, vout); }   // the jolt: felt once
         h.slipping = true;
         keep = Math.max(keep, vout - W.slipDecel * dt);
       } else h.slipping = false;
@@ -194,7 +196,7 @@ export class OdmGear {
           // a wire at full length (it can't slip any further) stops you and kicks back a little (the steel's spring)
           const e = vo > W.snapSpeed ? W.rebound : 0;
           vel.addScaledVector(_d, -vo * (1 + e));
-          if (vo > W.snapSpeed) this.snap = Math.max(this.snap || 0, vo);
+          if (vo > W.snapSpeed) { this.snap = Math.max(this.snap || 0, vo); h.twang = Math.max(h.twang || 0, vo); }
         }
       }
     }
@@ -227,36 +229,115 @@ export class OdmGear {
       // running free (h.payout: the titan swoop, the other rope during a climb) is drawn taut: its reel spools the
       // slack in as you close, it only stops holding you back (it used to hang in a long loop under you)
       if (h.attached && !(h.payout > 0)) { const slack = h.length - this.player.pos.distanceTo(h.anchor); if (slack > 0.05) sag = Math.min(6, Math.sqrt(slack * h.length) * 0.45); }
-      w.update(origins[i], h.tip, camera, wobble, time + i * 1.7, sag);
+      // catch feel: a bite flash + a glint up the wire on attach, a twang wave when it snaps taut
+      if (h.bite) { w.bite(); h.bite = 0; }
+      if (h.twang > 0) { w.pluck(Math.min(1, h.twang / 22)); h.twang = 0; }
+      w.update(origins[i], h.tip, camera, wobble, time + i * 1.7, sag, h.attached, this.game.world?.sun);
     }
   }
 }
 
-/** Camera-facing ribbon with optional travelling wave (for a wire in flight / winding back). */
+/** Camera-facing ribbon with optional travelling wave (for a wire in flight / winding back), a sunlit glint
+ *  that runs along it, a flash when the anchor bites and a decaying standing wave when it snaps taut. */
+const WIRE_VERT = /* glsl */`
+attribute float aT;
+varying float vT;
+#include <fog_pars_vertex>
+void main() {
+  vT = aT;
+  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+  gl_Position = projectionMatrix * mvPosition;
+  #include <fog_vertex>
+}`;
+const WIRE_FRAG = /* glsl */`
+uniform vec3 uColor;
+uniform float uGlint, uGlintW, uGlintI, uFlash, uSheen;
+varying float vT;
+#include <common>
+#include <fog_pars_fragment>
+void main() {
+  float d = (vT - uGlint) / uGlintW;
+  float g = exp(-d * d) * uGlintI;
+  vec3 c = uColor + vec3(0.30, 0.31, 0.33) * uSheen;                 // steel catching the sky
+  c = mix(c, vec3(1.0, 0.97, 0.86), clamp(g + uFlash, 0.0, 1.0));
+  gl_FragColor = vec4(c, 1.0);
+  #include <colorspace_fragment>
+  #include <fog_fragment>
+}`;
+const _sunD = new THREE.Vector3(), _hv = new THREE.Vector3();
+
 class Wire {
   constructor(scene) {
-    this.N = 24;
+    this.N = 40;
     const g = new THREE.BufferGeometry();
     this.pos = new Float32Array((this.N + 1) * 2 * 3);
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
+    const ts = new Float32Array((this.N + 1) * 2);
+    for (let i = 0; i <= this.N; i++) ts[i * 2] = ts[i * 2 + 1] = i / this.N;
+    g.setAttribute('aT', new THREE.BufferAttribute(ts, 1));
     const idx = [];
     for (let i = 0; i < this.N; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
     g.setIndex(idx);
-    this.mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0x2a2826, side: THREE.DoubleSide, fog: true }));
+    this.mat = new THREE.ShaderMaterial({
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
+        uColor: { value: new THREE.Color(0x2a2826) }, uGlint: { value: -1 }, uGlintW: { value: 0.05 }, uGlintI: { value: 0 },
+        uFlash: { value: 0 }, uSheen: { value: 0 },
+      }]),
+      vertexShader: WIRE_VERT, fragmentShader: WIRE_FRAG, side: THREE.DoubleSide, fog: true,
+    });
+    this.mesh = new THREE.Mesh(g, this.mat);
     this.mesh.frustumCulled = false;
     this.mesh.visible = false;
     this.mesh.renderOrder = 2;
     scene.add(this.mesh);
     this._a = new THREE.Vector3(); this._p = new THREE.Vector3(); this._s = new THREE.Vector3(); this._side = new THREE.Vector3(); this._perp = new THREE.Vector3();
+    this._cp = new THREE.Vector3();
+    this.glint = -1; this.glintI = 0; this.glintNext = 0.8 + Math.random(); this.flash = 0;
+    this.twang = 0; this.twangAge = 9; this.lastTime = 0;
   }
-  update(a, b, camera, wobble, time, sag = 0) {
+  /** the anchor bit: flash the wire and send a bright glint racing from the launcher up to the anchor */
+  bite() { this.flash = 1; this.glint = 0; this.glintI = 1.4; this.glintSpeed = 130; }
+  /** the wire snapped taut: a vibration that decays over ~0.4 s (k 0..1) */
+  pluck(k) { if (k > this.twang * Math.exp(-this.twangAge * 7)) { this.twang = k; this.twangAge = 0; } }
+
+  update(a, b, camera, wobble, time, sag = 0, attached = false, sun = null) {
     this.mesh.visible = true;
+    let dt = time - this.lastTime; this.lastTime = time;
+    dt = dt > 0 && dt < 0.1 ? dt : 1 / 60;
     const dir = this._a.subVectors(b, a);
     const len = dir.length() || 1e-4;
     dir.multiplyScalar(1 / len);
     const perp = this._perp.set(0, 1, 0).cross(dir);
     if (perp.lengthSq() < 1e-6) perp.set(1, 0, 0); perp.normalize();
     const cam = camera.position;
+    // the twang moves across the line of sight so it reads on screen
+    const mid = this._s.copy(a).addScaledVector(dir, len * 0.5);
+    const cp = this._cp.subVectors(mid, cam).cross(dir);
+    if (cp.lengthSq() < 1e-8) cp.copy(perp); cp.normalize();
+    this.twangAge += dt;
+    const tw = this.twang * Math.exp(-this.twangAge * 7);
+    const twA = tw > 0.01 ? tw * Math.min(0.55, 0.06 + len * 0.012) : 0;
+    const ta = this.twangAge;
+    // glint: sunlit highlight sliding along the wire. A steel cylinder shows a highlight where the half vector between
+    // the sun and the eye is square to its axis; a periodic glint runs up an anchored wire
+    let sheen = 0;
+    if (sun) {
+      _sunD.subVectors(sun.position, sun.target.position).normalize();
+      _hv.subVectors(cam, mid).normalize().add(_sunD).normalize();
+      sheen = Math.pow(1 - Math.abs(_hv.dot(dir)), 6);
+    }
+    if (this.glint >= 0) {
+      this.glint += dt * Math.min((this.glintSpeed || 45) / len, 7);
+      if (this.glint > 1.15) this.glint = -1;
+    } else if (attached) {
+      this.glintNext -= dt;
+      if (this.glintNext <= 0) { this.glint = 0; this.glintI = 0.55 + 0.6 * sheen; this.glintSpeed = 45; this.glintNext = 1.2 + Math.random() * 1.6; }
+    }
+    this.flash *= Math.exp(-dt * 14);
+    const u = this.mat.uniforms;
+    u.uGlint.value = this.glint; u.uGlintI.value = this.glint >= 0 ? this.glintI * Math.min(1, (1.15 - this.glint) * 5) : 0;
+    u.uGlintW.value = Math.max(0.04, Math.min(0.3, 2.4 / len)); u.uFlash.value = this.flash * 0.9; u.uSheen.value = sheen;
+    const gl = this.glint, gw = u.uGlintW.value;
     for (let i = 0; i <= this.N; i++) {
       const t = i / this.N;
       const p = this._p.copy(a).addScaledVector(dir, len * t);
@@ -266,9 +347,17 @@ class Wire {
         p.addScaledVector(perp, Math.sin(t * 9 - time * 40) * env * 0.35);
         p.y += Math.sin(t * 5 + time * 23) * env * 0.25;
       }
-      // width grows a little with distance from the camera so the wire never vanishes to sub-pixel
+      if (twA > 0) {
+        // standing wave: the fundamental plus a faster overtone, both decaying
+        const d = Math.sin(Math.PI * t) * Math.cos(ta * 46) + 0.45 * Math.sin(2 * Math.PI * t) * Math.cos(ta * 83 + 1.1) + 0.25 * Math.sin(3 * Math.PI * t) * Math.cos(ta * 121);
+        p.addScaledVector(cp, d * twA);
+      }
+      // width grows a little with distance from the camera so the wire never vanishes to sub-pixel; it swells
+      // under the glint and the bite flash so the light reads
       const dc = p.distanceTo(cam);
-      const w = 0.012 + dc * 0.0011;
+      let w = 0.012 + dc * 0.0011;
+      if (gl >= 0) { const q = (t - gl) / gw; w *= 1 + 2.4 * Math.exp(-q * q) * Math.min(1, this.glintI); }
+      w *= 1 + this.flash * 0.8;
       const side = this._side.subVectors(p, cam).cross(dir).normalize().multiplyScalar(w);
       const o = i * 6;
       this.pos[o] = p.x - side.x; this.pos[o + 1] = p.y - side.y; this.pos[o + 2] = p.z - side.z;

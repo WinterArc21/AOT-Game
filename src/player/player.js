@@ -9,6 +9,7 @@ const hypot = (a, b, c = 0) => Math.sqrt(a * a + b * b + c * c);
 
 
 const UP = new THREE.Vector3(0, 1, 0);
+const _sk1 = new THREE.Vector3(), _sk2 = new THREE.Vector3();   // skid dust
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3();
 const _e = new THREE.Vector3(), _f = new THREE.Vector3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
 const damp = (k, dt) => 1 - Math.exp(-k * dt);
@@ -886,6 +887,8 @@ export class Player {
         const s = dl > maxStep ? maxStep / dl : 1;
         v.x += dx * s; v.z += dz * s;
       }
+      // coming in faster than a run (a landing off the wires): a crouched slide, boots ploughing the grass
+      if (hs > CFG.ground.run + 3) this.skidding = true;
       // stick to slopes
       acc.addScaledVector(n, -2);
       this._branchKeep(v, dt);
@@ -1301,12 +1304,21 @@ export class Player {
     if (this.skidding && this.grounded) {
       this.crouch = Math.max(this.crouch, 0.4);
       this._skidT = (this._skidT || 0) - dt;
-      if (this._skidT <= 0) { this._skidT = 0.07; game.fx?.impact?.(_c.copy(this.render).addScaledVector(this.groundN, -CFG.radius), this.groundN, 'ground'); }
+      if (this._skidT <= 0) {
+        this._skidT = 0.07;
+        const hs = hypot(this.vel.x, this.vel.z);
+        _sk1.copy(this.render).addScaledVector(this.groundN, -CFG.radius);
+        if (game.fx?.skidDust && hs > 2) game.fx.skidDust(_sk1, _sk2.set(this.vel.x / hs, 0, this.vel.z / hs), hs);
+        else game.fx?.impact?.(_sk1, this.groundN, 'ground');
+      }
     }
     // landing dust
     if (this._landT > 0) {
       const s = this._landT; this._landT = 0;
       this.crouch = Math.max(this.crouch, 0.35 + s * 0.65);   // knees take the landing
+      // a hard, fast landing digs a streak into the ground
+      const lhs = hypot(this.vel.x, this.vel.z);
+      if (lhs > 9 && game.fx?.skidDust) game.fx.skidDust(_sk1.copy(this.render).addScaledVector(this.groundN, -CFG.radius), _sk2.set(this.vel.x / lhs, 0, this.vel.z / lhs), lhs);
       game.audio?.land?.(s);
       game.fx?.impact?.(_c.copy(this.render).addScaledVector(this.groundN, -CFG.radius), this.groundN, 'ground');
       if (s > 0.4) this.cam.trauma = Math.min(1, this.cam.trauma + s * 0.3);
@@ -1320,13 +1332,16 @@ export class Player {
       this._hardBrake = 0;
     }
     if (this.odm.braking > 0 && game.fx?.gas) game.fx.gas(_c.copy(this.render).addScaledVector(this.forward, 0.35), this.forward, 0.6);
-    // gas puffs
-    if ((this.boosting || this._dashPuff > 0) && game.fx?.gas) {
+    // gas puffs, and the long white vapour trail (boosting; fainter on a fast swing)
+    const gasOn = this.boosting || this._dashPuff > 0;
+    const trailI = gasOn ? 1 : this.odm.attachedCount() && speed > 22 ? 0.4 + 0.3 * Math.min(1, (speed - 22) / 25) : 0;
+    if ((gasOn || trailI > 0) && (game.fx?.gas || game.fx?.gasTrail)) {
       const np = _c, nd = _d;
       if (this.model?.gasNozzle) this.model.gasNozzle(np, nd);
       else { np.copy(this.render).addScaledVector(this.forward, -0.4); nd.copy(this.forward).negate(); }
-      game.fx.gas(np, nd, this._dashPuff > 0 ? 1 : 0.7);
-    }
+      if (gasOn) game.fx.gas?.(np, nd, this._dashPuff > 0 ? 1 : 0.7);
+      game.fx.gasTrail?.(this, np, trailI * (this.alive ? 1 : 0));
+    } else game.fx?.gasTrail?.(this, null, 0);
 
     // wires
     this.launcher(0, this._origins[0]); this.launcher(1, this._origins[1]);
@@ -1425,8 +1440,11 @@ export class Player {
     const g = this.game;
     g.hitstop = 0.09;
     g.slowmo = CFG.kill.slowmo; g.slowmoDur = CFG.kill.slowmo;
-    g.flash?.(0.55);
     const nape = hit.point.clone();
+    // the impact frame: a couple of frames of stark black & white art with lines bursting from the nape (it ends
+    // in the white flash); without it, just the flash
+    if (g.impactFrame && g.fx?.impactFrame) g.fx.impactFrame(nape, hit.titan.kind === 'dummy' ? 0.85 : 1);
+    else g.flash?.(0.55);
     g.fx?.blood?.(nape, dir, 3);
     g.fx?.steam?.(nape, Math.max(2, (hit.titan.height || 8) * 0.3), 2.5);
     if (g.fx?.slashArc) {
@@ -1445,6 +1463,41 @@ export class Player {
     }
     g.hud?.clearMessage?.(/^WOUNDED|^IT COVERED|^FROM THE SIDE|^MISTIMED|^TOO SLOW/);   // the kill settles what the last cut got wrong
     g.hud?.message?.(hit.titan.kind === 'dummy' ? 'CUT!' : 'NAPE CUT', 1.1, 'big');
+  }
+
+  /**
+   * Camera beats on top of the chase camera: a snap-zoom and a quick whip-pan toward a rope the moment it bites, and
+   * the low-angle "loom" when a big titan is close (the camera drops and looks up at it).
+   */
+  _camBeats(dt) {
+    const c = this.cam, hooks = this.odm.hooks;
+    const was = this._camAtt || (this._camAtt = [false, false]);
+    for (let i = 0; i < 2; i++) {
+      const h = hooks[i], now = h.attached;
+      if (now && !was[i] && !this.grounded && this.mouseT > 1.5) {
+        // which way it bit, relative to where the camera is looking
+        let dy = Math.atan2(h.anchor.x - this.render.x, h.anchor.z - this.render.z) - this.yaw;
+        dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+        c.punch = 1;
+        c.whipA = THREE.MathUtils.clamp(dy, -0.7, 0.7) * 0.28; c.whipT = 0;
+      }
+      was[i] = now;
+    }
+    c.punch = Math.max(0, (c.punch || 0) - dt * 3.5);
+    if (c.whipT !== undefined && c.whipT < 0.4) {
+      c.whipT += dt;
+      const k = Math.min(1, c.whipT / 0.4);
+      c.whip = c.whipA * Math.sin(Math.PI * k) * (1 - 0.35 * k);   // out fast, settles back
+    } else c.whip = 0;
+    // loom: the nearest big titan within a few of its heights, standing over you
+    let loom = 0;
+    if (!this.swooping && !this.grabbedBy) for (const t of this.game.titans?.titans || []) {
+      if (!t.alive || !t.position || (t.height || 0) < 8) continue;
+      const h = t.height, d = hypot(t.position.x - this.render.x, t.position.z - this.render.z);
+      const above = THREE.MathUtils.clamp((t.position.y + h * 0.8 - this.render.y) / (h * 0.5), 0, 1);
+      loom = Math.max(loom, (1 - THREE.MathUtils.smoothstep(d, h * 0.8, h * 3)) * THREE.MathUtils.smoothstep(h, 7, 15) * above);
+    }
+    c.loom = (c.loom || 0) + (loom - (c.loom || 0)) * damp(1.5, dt);
   }
 
   _camera(dt) {
@@ -1469,9 +1522,11 @@ export class Player {
         if (Math.abs(dy) < 2.6) this.yaw += dy * damp(CFG.keys.followRate * Math.min(1.6, hs / 30), dt);
       }
       const vp = speed > 5 ? Math.asin(THREE.MathUtils.clamp(this.vel.y / speed, -1, 1)) : 0;
-      const pitchT = this.grounded && !this.odm.attachedCount() ? -0.16 : THREE.MathUtils.clamp(vp * 0.45 - 0.1, -0.55, 0.3);
+      // a big titan close by: the camera looks up at it (the anime's low-angle shot that makes them loom)
+      const pitchT = (this.grounded && !this.odm.attachedCount() ? -0.16 : THREE.MathUtils.clamp(vp * 0.45 - 0.1, -0.55, 0.3)) + 0.22 * (c.loom || 0);
       this.pitch += (pitchT - this.pitch) * damp(2.2, dt);
     }
+    this._camBeats(dt);
     // trauma-based shake
     c.trauma = Math.max(0, c.trauma - dt * 1.4);
     const sh = c.trauma * c.trauma;
@@ -1480,14 +1535,15 @@ export class Player {
 
     if (this.grabbedBy) { this._grabCamera(dt, shx, shy); return; }
     this._grabCam = null;
-    const yaw = this.yaw + shx * 0.03, pitch = this.pitch + shy * 0.03;
+    // (+ the whip-pan: a quick camera-only swing toward a rope that just bit, and back)
+    const yaw = this.yaw + shx * 0.03 + (c.whip || 0), pitch = this.pitch + shy * 0.03;
     const cp = Math.cos(pitch), sp = Math.sin(pitch), cy = Math.cos(yaw), sy = Math.sin(yaw);
     const fwd = _a.set(sy * cp, sp, cy * cp);
     const right = _b.set(-cy, 0, sy);
-    const targetDist = CFG.cam.dist + Math.min(speed, 90) * 0.028 + (this.grabbedBy ? 3 : 0);
+    const targetDist = CFG.cam.dist + Math.min(speed, 90) * 0.028 + (this.grabbedBy ? 3 : 0) + 1.2 * (c.loom || 0);
     c.dist += (targetDist - c.dist) * damp(3, dt);
-    // pivot: over the shoulder, a bit higher when standing
-    const pivot = _c.copy(this.render).addScaledVector(UP, CFG.cam.height).addScaledVector(right, CFG.cam.side);
+    // pivot: over the shoulder, a bit higher when standing (lower under a looming titan)
+    const pivot = _c.copy(this.render).addScaledVector(UP, CFG.cam.height - 0.55 * (c.loom || 0)).addScaledVector(right, CFG.cam.side);
     const want = _d.copy(pivot).addScaledVector(fwd, -c.dist);
     // keep the camera out of walls/trees: cast from the body to the wanted spot. The camera glides in to the
     // clear distance instead of popping there (a trunk flashing between you and it at speed used to pull it in
@@ -1514,13 +1570,15 @@ export class Player {
     let rollT = 0;
     if (this.odm.attachedCount() && !this.grounded) {
       const pd = this.odm.pullDir(this.render, _e);
-      if (pd) rollT = THREE.MathUtils.clamp(pd.dot(right) * Math.min(speed, 70) * 0.0035, -0.17, 0.17);
+      // a Dutch angle that leans harder the faster and wider the swing (the anime tilts the frame on big arcs)
+      if (pd) rollT = THREE.MathUtils.clamp(pd.dot(right) * Math.min(speed, 70) * 0.0048, -0.26, 0.26);
     }
     c.roll += (rollT - c.roll) * damp(3, dt);
     cam.rotateZ(-c.roll + shx * 0.02);
     // FOV opens with speed
-    const fovT = CFG.cam.fov + (CFG.cam.fovMax - CFG.cam.fov) * THREE.MathUtils.smoothstep(speed, 12, 85);
-    c.fov += (fovT - c.fov) * damp(4, dt);
+    // (a rope biting punches the lens in for a beat: the anime's snap-zoom on a catch)
+    const fovT = CFG.cam.fov + (CFG.cam.fovMax - CFG.cam.fov) * THREE.MathUtils.smoothstep(speed, 12, 85) - 8 * (c.punch || 0);
+    c.fov += (fovT - c.fov) * damp((c.punch || 0) > 0.05 ? 16 : 4, dt);
     if (Math.abs(cam.fov - c.fov) > 0.01) { cam.fov = c.fov; cam.updateProjectionMatrix(); }
     // kill cam: side-on, framing the soldier and the nape, eased in and out (driven by real time in main)
     const kc = this.game.killCam;

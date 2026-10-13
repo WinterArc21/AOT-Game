@@ -2,6 +2,7 @@
 // See aot/ARCHITECTURE.md ("Titans"). Model: builder.js + rig.js, behaviour: titan.js.
 import * as THREE from 'three';
 import { Titan, TITAN_TUNING, prewarmArchetypes } from './titan.js';
+import { evapMaterials, bodyMaterial } from './builder.js';
 
 export { Titan, TITAN_TUNING };
 
@@ -16,6 +17,29 @@ export class TitanManager {
     this.group = new THREE.Group();
     this.group.name = 'titans';
     game.scene?.add(this.group);
+    this._warmEvap();
+  }
+
+  /**
+   * A dying titan switches to the evaporation shaders (builder.evapMaterials). Park one degenerate (zero-area)
+   * triangle per shader under the ground so main.js's renderer.compile() builds them up front: the first kill
+   * never hitches on a shader compile.
+   */
+  _warmEvap() {
+    const g = new THREE.BufferGeometry();
+    const z = (n) => new THREE.Float32BufferAttribute(new Float32Array(3 * n), n);
+    g.setAttribute('position', z(3)); g.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
+    g.setAttribute('color', z(3)); g.setAttribute('uv', z(2));
+    const mats = [];
+    for (const colossal of [false, true]) {
+      const ev = evapMaterials({ colossal, material: bodyMaterial(colossal) }, 0.05);
+      mats.push(ev.body); if (!colossal) mats.push(ev.outline, ev.bone);
+    }
+    for (const m of mats) {
+      const mesh = new THREE.Mesh(g, m);
+      mesh.position.set(0, -500, 0); mesh.castShadow = true; mesh.receiveShadow = true; mesh.raycast = () => {};
+      this.group.add(mesh);
+    }
   }
 
   /** spawn({ kind: 'normal'|'abnormal'|'colossal', height?, position: Vector3, yaw?, crawler?: bool (abnormals) }) -> Titan */

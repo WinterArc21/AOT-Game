@@ -96,6 +96,7 @@ const boot = async () => {
   say('Waking the Titans…');
   game.fx = await load(() => import('./fx/effects.js'), (m) => new m.Effects(game));
   game.speedLines = await load(() => import('./fx/effects.js'), (m) => (m.SpeedLines ? new m.SpeedLines(renderer) : null));
+  game.impactFrame = await load(() => import('./fx/effects.js'), (m) => (m.ImpactFrame ? new m.ImpactFrame(renderer, game) : null));
   game.audio = params.has('noaudio') ? null : await load(() => import('./audio/audio.js'), (m) => new m.Audio());
   game.hud = await load(() => import('./ui/hud.js'), (m) => new m.Hud(game));
   game.titans = params.has('notitans') ? null : await load(() => import('./titans/titans.js'), (m) => new m.TitanManager(game));
@@ -283,6 +284,8 @@ function step(dt) {
     game.speedLines.setIntensity(THREE.MathUtils.clamp((s - 32) / 50, 0, 1) * (player.alive ? 1 : 0));
     game.speedLines.render();
   }
+  // the nape cut's impact frame (black & white art + radial lines), timed in real seconds
+  if (game.impactFrame?.active) { try { game.impactFrame.render(dt, camera); } catch (e) { console.error('impactFrame', e); game.impactFrame = null; } }
 }
 window.stepGame = step;
 

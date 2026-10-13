@@ -9,6 +9,7 @@ import { buildField } from './field.js';
 import { buildForest } from './forest.js';
 import { buildFlags } from './flags.js';
 import { foliageFade } from './trees.js';
+import { buildGrass, paintGroundMaterial } from './grass.js';
 
 export function buildWorld(game) {
   const ctx = createContext(game);
@@ -29,6 +30,8 @@ export function buildWorld(game) {
 
   buildSky(ctx);
   buildGround(ctx);
+  paintGroundMaterial(ctx.mat.grass);
+  const grass = buildGrass(ctx);
   buildWall(ctx);
   buildTown(ctx);
   buildField(ctx);
@@ -43,7 +46,10 @@ export function buildWorld(game) {
     inFoliage: (pos) => ctx.foliage.test(pos),
     /** Thin out leaves between the camera and `pos` (the soldier); null turns it off (menus). */
     setFoliageFocus(pos) { if (pos) foliageFade.focus.value.copy(pos); foliageFade.fade.value = pos ? 1 : 0; },
-    stats: Object.assign(ctx.stats, { trees: forest.trees }),
+    stats: Object.assign(ctx.stats, { trees: forest.trees, grassTufts: grass.instances }),
+    grass,
+    /** Flatten the grass tufts round pos (world) out to radius m; strength 0..1; lasting = slow to spring back. */
+    pressGrass: (pos, radius, strength, lasting) => grass.press(pos, radius, strength, lasting),
     update(dt, camPos) {
       ctx.time.value += dt;
       for (const u of ctx.updaters) u(dt, camPos);

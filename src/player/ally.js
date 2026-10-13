@@ -504,6 +504,7 @@ export class Ally {
     this.launcher(0, this._origins[0]); this.launcher(1, this._origins[1]);
     this.odm.render(this._origins, this.game.camera, this.game.time + this.t);
     if (this.boost > 0 && visible && this.model?.gasNozzle) { this.model.gasNozzle(_a, _b); this.game.fx?.gas?.(_a, _b, 0.5); }
+    { const sp = this.vel.length(), ti = !visible || !this.model?.gasNozzle ? 0 : this.boost > 0 ? 0.8 : this.odm.attachedCount() && sp > 22 ? 0.35 + 0.3 * Math.min(1, (sp - 22) / 25) : 0; if (ti > 0) this.model.gasNozzle(_a, _b); this.game.fx?.gasTrail?.(this, _a, ti); }   // vapour trail
   }
 
   dispose() {
