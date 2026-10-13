@@ -114,7 +114,7 @@ function buildTitan(type){
    const shin=sph(knee,M.armor,0,-1.68,.5,.7,1.4,.48);plates.push(shin);
    const kneeback=sph(knee,M.armorDark,0,.14,-.48,.64,.67,.34);kneeback.userData.shed=true;plates.push(kneeback);
   }else{
-   for(let i=0;i<5;i++){const v=sph(chest,M.muscleLight,s*(.6+i*.25),11.4-i*.49,1.15,.22,.4,.18);v.rotation.z=s*.37;}
+   for(let i=0;i<5;i++){const v=sph(bob,M.muscleLight,s*(.6+i*.25),11.4-i*.49,1.15,.22,.4,.18);v.rotation.z=s*.37;}
    for(let i=0;i<3;i++){const v=sph(leg,M.blood,s*.15,-1-i*.72,.81,.28,.39,.18);v.rotation.z=-s*.21;}
   }
  }
