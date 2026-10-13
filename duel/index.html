@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#111717">
+<title>WINGS OF FREEDOM — The Betrayal | Eren vs Reiner</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap');
+:root{--paper:#f1e9d8;--gold:#e4ba6b;--red:#e35b48;--pale:#bac3b8}
+*{box-sizing:border-box}body{margin:0;overflow:hidden;background:#141b1b;color:var(--paper);font-family:Inter,Arial,sans-serif}canvas{display:block;outline:0}button{cursor:pointer;font:inherit}
+#hud{position:absolute;inset:0;pointer-events:none;user-select:none}
+#shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(8,13,13,.8),transparent 25%,transparent 70%,rgba(7,12,13,.76));pointer-events:none}
+#vignette{position:absolute;inset:0;box-shadow:inset 0 0 160px 35px rgba(6,12,12,.33);pointer-events:none}
+.top{position:absolute;left:33px;right:33px;top:24px;display:flex;justify-content:space-between;align-items:flex-start;gap:20px}
+.brand{font:900 12px 'Barlow Condensed',sans-serif;letter-spacing:.37em;text-transform:uppercase;color:#eec893}.chapter{font:600 12px 'Barlow Condensed',sans-serif;letter-spacing:.23em;text-transform:uppercase;color:#c5c9bd;text-align:right}
+.bars{position:absolute;left:33px;right:33px;top:72px;display:flex;gap:60px;justify-content:space-between}
+.barbox{width:min(37%,430px)}.barbox.right{text-align:right}.name{font:900 29px 'Barlow Condensed',sans-serif;letter-spacing:.05em;text-transform:uppercase}.subtitle{font:600 11px 'Barlow Condensed',sans-serif;color:#c3b8a6;letter-spacing:.21em;text-transform:uppercase;margin:4px 0 8px}.meter{height:11px;background:rgba(0,0,0,.5);padding:2px;border:1px solid #696c63;transform:skew(-13deg);overflow:hidden}.meter>i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#b44437,#ee8b68);transition:width .28s}.right .meter>i{background:linear-gradient(90deg,#be9550,#f6d395)}.meter.small{height:6px;border:0;background:rgba(255,255,255,.14);margin-top:7px}.meter.small>i{background:#e8e0c8}
+#phase{position:absolute;top:141px;left:50%;transform:translateX(-50%);font:800 12px 'Barlow Condensed',sans-serif;letter-spacing:.24em;text-transform:uppercase;color:#ffe0a0;text-shadow:0 2px 10px #000;white-space:nowrap;text-align:center}
+#prompt{position:absolute;bottom:115px;left:50%;transform:translateX(-50%);max-width:min(800px,92vw);text-align:center;font:800 clamp(17px,2.1vw,27px) 'Barlow Condensed',sans-serif;letter-spacing:.09em;text-transform:uppercase;text-shadow:0 3px 8px #000,0 0 20px #000;transition:opacity .15s}
+#prompt span{color:#ffd18b}#status{position:absolute;top:45%;left:50%;transform:translate(-50%,-50%);font:900 clamp(32px,7vw,85px) 'Barlow Condensed',sans-serif;text-transform:uppercase;letter-spacing:.06em;text-align:center;opacity:0;transition:opacity .2s;text-shadow:0 5px 20px #000;white-space:nowrap}
+#status.on{opacity:1}.controls{position:absolute;bottom:25px;left:31px;right:31px;display:flex;gap:9px;flex-wrap:wrap;align-items:center;justify-content:center}
+.key{font:700 12px 'Barlow Condensed',sans-serif;letter-spacing:.08em;color:#f3e9d3;background:rgba(18,28,26,.65);border:1px solid #737a73;padding:8px 9px;white-space:nowrap}.key b{color:#f9c177;margin-right:5px}
+#lockhud{position:absolute;left:50%;bottom:170px;transform:translateX(-50%);text-align:center;display:none;width:min(410px,75vw)}#lockhud strong{font:800 21px 'Barlow Condensed',sans-serif;letter-spacing:.15em}#lockhud .meter{margin-top:9px;height:13px}#lockhud i{background:linear-gradient(90deg,#e67848,#ffcf7c)}
+#message{position:absolute;right:33px;top:185px;width:min(300px,33vw);font:500 13px/1.55 Inter,sans-serif;color:#e3d8bf;text-align:right;text-shadow:0 2px 8px #000;opacity:.93}
+#overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 50% 52%,rgba(28,37,33,.71),rgba(7,13,13,.94) 72%);z-index:6;padding:20px;overflow:auto}
+.panel{width:min(790px,94vw);text-align:center}.eyebrow{font:700 12px 'Barlow Condensed',sans-serif;letter-spacing:.47em;color:var(--gold);text-transform:uppercase}.title{font:900 clamp(58px,11vw,145px)/.79 'Barlow Condensed',sans-serif;letter-spacing:-.017em;margin:23px 0 18px;text-transform:uppercase;text-shadow:0 9px 20px #000}.title em{font-style:normal;color:var(--red)}.description{max-width:540px;margin:15px auto 24px;font:500 15px/1.8 Inter,sans-serif;color:#dfddcf}.quote{max-width:590px;margin:0 auto 22px;border-left:2px solid #b48d5a;padding-left:20px;color:#eddfc9;font:600 20px/1.3 'Barlow Condensed',sans-serif;letter-spacing:.04em;text-align:left}.cta{border:1px solid #eaca94;color:#141916;background:#e6bd75;padding:14px 34px;font:900 19px 'Barlow Condensed',sans-serif;letter-spacing:.13em;text-transform:uppercase;transition:background .2s,transform .2s}.cta:hover{background:#ffdaa0;transform:translateY(-2px)}.intro-controls{font:500 12px/1.9 Inter,sans-serif;color:#adb5aa;margin:26px auto 0}
+#mobile{display:none;position:absolute;inset:0;pointer-events:none}.touch{position:absolute;bottom:50px;pointer-events:auto;display:grid;gap:7px}.touch.left{left:14px;grid-template-columns:repeat(3,47px)}.touch.right{right:12px;grid-template-columns:repeat(2,60px)}.touch button{border:1px solid #8a988c;background:#1a302fd1;color:#e8e0c8;font:800 13px 'Barlow Condensed',sans-serif;min-height:43px;border-radius:4px;touch-action:none}.touch button:active{background:#a77944}
+@media(max-width:760px){.top{top:13px;left:16px;right:16px}.bars{top:53px;left:15px;right:15px;gap:12px}.name{font-size:21px}.barbox{width:47%}.chapter{max-width:140px;font-size:10px}.subtitle{font-size:9px}.barbox .meter{height:8px}#phase{top:120px;font-size:10px;width:95%;white-space:normal}#message{display:none}#prompt{bottom:215px;font-size:17px}.controls{display:none}#mobile{display:block}#lockhud{bottom:238px}.title{font-size:64px}.description{font-size:13px}.quote{font-size:17px}}
+</style>
+</head>
+<body>
+<div id="hud"><div id="shade"></div><div id="vignette"></div>
+<div class="top"><div class="brand">Wings of Freedom · Prototype Chapter</div><div class="chapter">Wall Rose — The Betrayal<br>Season 02 · Close Combat</div></div>
+<div class="bars"><div class="barbox"><div class="name">Eren Yeager</div><div class="subtitle">Attack Titan · Vitality</div><div class="meter"><i id="hp"></i></div><div class="meter small"><i id="stamina"></i></div></div>
+<div class="barbox right"><div class="name">Reiner Braun</div><div class="subtitle" id="armorlabel">Armored Titan · Armor integrity</div><div class="meter"><i id="armor"></i></div></div></div>
+<div id="phase">ACT I · A BROKEN TRUST</div><div id="prompt"></div><div id="status"></div>
+<div id="message">THE ARMORED TITAN IS ALMOST IMPERVIOUS TO BLOWS.<br>Use what Annie taught you.</div>
+<div id="lockhud"><strong>HOLD E · CRUSH THE NAPE</strong><div class="meter"><i id="lockbar" style="width:0%"></i></div></div>
+<div class="controls"><div class="key"><b>W A S D</b> MOVE</div><div class="key"><b>SHIFT</b> SPRINT</div><div class="key"><b>J / CLICK</b> STRIKE</div><div class="key"><b>K</b> HEAVY</div><div class="key"><b>L / RMB</b> BLOCK</div><div class="key"><b>SPACE</b> DODGE</div><div class="key"><b>E</b> GRAPPLE</div><div class="key"><b>F</b> MIKASA</div><div class="key"><b>R</b> RESTART</div></div>
+<div id="mobile"><div class="touch left"><button data-key="KeyA">◀</button><button data-key="KeyW">▲</button><button data-key="KeyD">▶</button><button data-key="KeyS">▼</button><button data-key="ShiftLeft">RUN</button><button data-key="Space">DODGE</button></div><div class="touch right"><button data-key="KeyJ">PUNCH</button><button data-key="KeyK">HEAVY</button><button data-key="KeyE">LOCK</button><button data-key="KeyL">BLOCK</button><button data-key="KeyF">MIKASA</button></div></div>
+</div>
+<div id="overlay"><div class="panel"><div class="eyebrow" id="ovEye">Episode 31 · Warrior / Episode 32 · Close Combat</div><h1 class="title" id="ovTitle">THE<br><em>BETRAYAL</em></h1><div class="quote" id="ovQuote">“I'm the Armored Titan. And he's the Colossal Titan.” — Reiner</div><p class="description" id="ovDesc">Your comrade just revealed himself as the enemy who broke Wall Maria. At the foot of Wall Rose, control Eren's Attack Titan. Fists alone will not defeat the Armored Titan. Remember Annie's grappling technique.</p><button class="cta" id="start">BEGIN THE FIGHT →</button><div class="intro-controls">WASD move · J punch · K heavy · L block · Space dodge · E grapple · F Mikasa assist<br>Fully playable browser prototype · original procedural models · no downloaded assets</div></div></div>
+<script type="module">
+import * as THREE from '../vendor/three.module.min.js';
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x88988f);scene.fog = new THREE.FogExp2(0x8b988d,0.009);
+const camera = new THREE.PerspectiveCamera(57,innerWidth/innerHeight,.1,550);
+const renderer = new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
+renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,1.8));
+renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.22;
+document.body.insertBefore(renderer.domElement,document.getElementById('hud'));
+const $=s=>document.getElementById(s);
+const mat=(color,rough=.9,metal=0)=>new THREE.MeshStandardMaterial({color,roughness:rough,metalness:metal});
+const M={grass:mat(0x485744),earth:mat(0x57604b),dark:mat(0x242729),stone:mat(0x83827a),stone2:mat(0x77796e),blood:mat(0x8b3f38),muscle:mat(0xa4493d),muscleLight:mat(0xc46b56),skin:mat(0xcc9b74),skin2:mat(0xb87865),hair:mat(0x292825),bone:mat(0xe4c2a0),teeth:mat(0xf8ebd1),eye:mat(0x44cfc2,.5),armor:mat(0xbdae8e,.78,.11),armorLight:mat(0xe0cda5,.73,.13),armorDark:mat(0x7b6f59),blond:mat(0xc9b274),steam:mat(0xc5d0c4),wall:mat(0x8e9083)};
+const sphereG=new THREE.SphereGeometry(1,12,10);const boxG=new THREE.BoxGeometry(1,1,1);
+function mesh(g,m,p,x=0,y=0,z=0){const o=new THREE.Mesh(g,m);o.position.set(x,y,z);o.castShadow=true;o.receiveShadow=true;p.add(o);return o;}
+function box(p,m,x,y,z,w,h,d){const o=mesh(boxG,m,p,x,y,z);o.scale.set(w,h,d);return o;}
+function sph(p,m,x,y,z,w,h,d){const o=mesh(sphereG,m,p,x,y,z);o.scale.set(w,h,d);return o;}
+function seg(p,m,a,b,r1=.4,r2=.4){const diff=new THREE.Vector3().subVectors(b,a);const g=new THREE.CylinderGeometry(r1,r2,diff.length(),9);const o=mesh(g,m,p);o.position.copy(a).add(b).multiplyScalar(.5);o.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),diff.normalize());return o;}
+const ambient=new THREE.HemisphereLight(0xcbd6c8,0x333a2f,2.0);scene.add(ambient);
+const sun=new THREE.DirectionalLight(0xffe1b4,3.0);sun.position.set(-42,85,-68);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);sun.shadow.camera.left=-90;sun.shadow.camera.right=90;sun.shadow.camera.top=90;sun.shadow.camera.bottom=-90;sun.shadow.camera.near=1;sun.shadow.camera.far=220;sun.shadow.bias=-.0004;scene.add(sun);
+const ground=mesh(new THREE.PlaneGeometry(460,460,28,28),M.grass,scene);ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;ground.castShadow=false;ground.position.y=-.13;
+const wallGroup=new THREE.Group();scene.add(wallGroup);box(wallGroup,M.wall,0,20,-68,210,40,13);
+for(let x=-101;x<=101;x+=8){box(wallGroup,M.stone,x,42.2,-68,5,5,13);}
+for(let x=-100;x<=100;x+=30){box(wallGroup,M.stone2,x,26,-60,1.1,24,.3);}
+for(let x of [-79,-35,35,79]){const t=box(wallGroup,M.stone2,x,22,-64,12,44,16);box(wallGroup,M.stone,x,44,-64,14,3,18);}
+const cloudMat=new THREE.MeshBasicMaterial({color:0xdfd4ba,transparent:true,opacity:.28,depthWrite:false});
+for(let i=0;i<70;i++){const x=(Math.random()-.5)*360,z=-90-Math.random()*160,y=38+Math.random()*50;const o=sph(scene,cloudMat,x,y,z,5+Math.random()*14,2+Math.random()*4,4+Math.random()*8);o.castShadow=false;}
+const grassBladeMat=mat(0x607458);for(let i=0;i<200;i++){let x=(Math.random()-.5)*140,z=-48+Math.random()*122;if(Math.abs(x)<18&&Math.abs(z+7)<31)continue;let g=box(scene,grassBladeMat,x,.25,z,.09,.5,.11);g.rotation.y=Math.random()*Math.PI;}
+function boulder(x,z,s){const o=sph(scene,M.stone2,x,s*.24,z,s,s*.45,s*.65);o.rotation.y=Math.random()*5;}
+for(let i=0;i<40;i++){let x=(Math.random()-.5)*160,z=(Math.random()-.5)*118;if(Math.abs(x)<25&&Math.abs(z)<30)continue;boulder(x,z,1+Math.random()*2.6);}
+for(let i=0;i<14;i++){let x=(Math.random()<.5?-1:1)*(40+Math.random()*68),z=-20+Math.random()*95;const g=new THREE.Group();g.position.set(x,0,z);scene.add(g);seg(g,mat(0x524a37),new THREE.Vector3(0,0,0),new THREE.Vector3(0,8,0),.65,.82);sph(g,mat(0x51694c),0,9.6,0,3.8,4.9,3.6);}
+function buildTitan(type){
+ const armored=type==='reiner';const root=new THREE.Group();scene.add(root);root.scale.setScalar(1);
+ const skin=armored?M.skin:M.muscle,trim=armored?M.armor:M.muscleLight;
+ const bob=new THREE.Group();root.add(bob);
+ const hips=sph(bob,skin,0,8.45,0,2.25,1.55,1.1);
+ const chest=sph(bob,skin,0,11.65,0,2.7,3.15,1.55);
+ sph(bob,trim,0,12.2,.82,2.2,1.4,.73);
+ box(bob,armored?M.armorDark:M.blood,0,9.8,1.1,1.9,.22,.15);
+ for(let i=0;i<5;i++){const y=10.9-i*.58;for(const side of [-1,1]){let f=sph(bob,armored?M.armorLight:M.muscleLight,side*.74,y,1.35,.66,.25,.18);f.rotation.z=side*.2;}}
+ const neck=sph(bob,skin,0,14.57,0,.84,1.05,.79);const head=new THREE.Group();head.position.y=15.7;bob.add(head);
+ sph(head,skin,0,.3,0,1.16,1.45,.98);sph(head,armored?M.armorDark:M.blood,0,-.57,.51,.85,.49,.6);
+ sph(head,M.teeth,0,-.44,.99,.67,.12,.11);
+ for(const s of [-1,1]){sph(head,armored?M.armorLight:M.skin2,s*.65,.37,.67,.43,.55,.32);
+ const eye=sph(head,M.eye,s*.48,.54,.91,.16,.16,.09);sph(head,M.dark,s*.48,.55,1.005,.065,.08,.035);
+ const brow=box(head,armored?M.armorDark:M.hair,s*.46,.86,.96,.64,.16,.18);brow.rotation.z=-s*.17;
+ }
+ const hair=armored?M.blond:M.hair;
+ sph(head,hair,0,1.43,-.19,1.12,.42,.83);
+ for(let i=0;i<10;i++){const x=(i%5-2)*.4;const z=i<5?.48:-.47;let h=box(head,hair,x,1.42+(i%3)*.16,z,.3,.46,.52);h.rotation.z=x*.18;}
+ const arms=[],legs=[],plates=[];
+ for(const s of [-1,1]){
+  const arm=new THREE.Group();arm.position.set(s*2.28,13.25,0);bob.add(arm);arms.push(arm);
+  sph(arm,trim,s*.21,-.56,.12,.8,1.16,.85);
+  seg(arm,skin,new THREE.Vector3(s*.35,-.55,0),new THREE.Vector3(s*.5,-2.7,.35),.67,.74);
+  const elbow=new THREE.Group();elbow.position.set(s*.5,-2.65,.35);arm.add(elbow);arm.userData.elbow=elbow;
+  sph(elbow,skin,0,0,0,.66,.62,.64);
+  seg(elbow,skin,new THREE.Vector3(0,0,0),new THREE.Vector3(s*.12,-2.2,.55),.55,.65);
+  sph(elbow,trim,s*.12,-2.39,.6,.64,.62,.46);
+  for(let f=0;f<4;f++)sph(elbow,armored?M.armorDark:M.blood,s*.13+(f-1.5)*.25,-2.75,.93,.12,.25,.14);
+  const leg=new THREE.Group();leg.position.set(s*1.13,8,0);bob.add(leg);legs.push(leg);
+  seg(leg,skin,new THREE.Vector3(0,0,0),new THREE.Vector3(s*.12,-3.1,.1),.95,.98);
+  sph(leg,trim,s*.12,-3.07,.4,.9,.65,.73);
+  const knee=new THREE.Group();knee.position.set(s*.12,-3.05,.1);leg.add(knee);leg.userData.knee=knee;
+  seg(knee,skin,new THREE.Vector3(0,0,0),new THREE.Vector3(0,-3.2,-.12),.65,.86);
+  sph(knee,trim,0,-3.2,.39,.72,.63,.78);
+  sph(knee,skin,0,-3.48,.75,.8,.27,1.28);
+  if(armored){
+   plates.push(sph(bob,M.armor,s*1.6,12.8,.9,1.18,1.3,.6));
+   plates.push(sph(arm,M.armor,s*.1,-1.55,.72,.75,1.18,.4));
+   const shield=sph(elbow,M.armorLight,s*.07,-1.2,.55,.62,.97,.38);plates.push(shield);
+   plates.push(sph(leg,M.armor,s*.12,-1.58,.72,.9,1.42,.5));
+   const shin=sph(knee,M.armor,0,-1.68,.5,.7,1.4,.48);plates.push(shin);
+   const kneeback=sph(knee,M.armorDark,0,.14,-.48,.64,.67,.34);kneeback.userData.shed=true;plates.push(kneeback);
+  }else{
+   for(let i=0;i<5;i++){const v=sph(chest,M.muscleLight,s*(.6+i*.25),11.4-i*.49,1.15,.22,.4,.18);v.rotation.z=s*.37;}
+   for(let i=0;i<3;i++){const v=sph(leg,M.blood,s*.15,-1-i*.72,.81,.28,.39,.18);v.rotation.z=-s*.21;}
+  }
+ }
+ if(armored){const p=sph(bob,M.armorLight,0,12.3,1.4,1.2,1.12,.45);plates.push(p);for(let i=0;i<3;i++)plates.push(box(bob,M.armor,0,10.55-i*.64,1.43,1.3,.43,.27));plates.push(sph(head,M.armor,0,.82,.78,.89,.42,.31));}
+ const ring=mesh(new THREE.RingGeometry(2.3,2.45,48),new THREE.MeshBasicMaterial({color:armored?0xe6bd76:0x85a9a5,transparent:true,opacity:.7,side:THREE.DoubleSide}),root,0,.08,0);ring.rotation.x=-Math.PI/2;ring.castShadow=false;ring.receiveShadow=false;
+ return{root,bob,head,arms,legs,plates,ring,pos:new THREE.Vector3(),hp:100,armor:100,stamina:100,hit:0,swing:0,fall:0,dir:armored?0:Math.PI,run:0};
+}
+const eren=buildTitan('eren'),reiner=buildTitan('reiner');eren.pos.set(0,0,13);reiner.pos.set(0,0,-12);
+function syncPos(t){t.root.position.copy(t.pos);t.root.rotation.y=t.dir;}
+const particles=[];const effectMat=new THREE.MeshBasicMaterial({color:0xcfc8ae,transparent:true,opacity:.75,depthWrite:false});
+function burst(x,z,n=14,col=0xbfb4a1,vel=6){for(let i=0;i<n;i++){const ob=mesh(sphereG,new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.85,depthWrite:false}),scene,x,(.3+Math.random()*2),z);const s=.12+Math.random()*.35;ob.scale.set(s,s,s);ob.castShadow=false;particles.push({ob,v:new THREE.Vector3((Math.random()-.5)*vel,1+Math.random()*6,(Math.random()-.5)*vel),life:.65+Math.random()*.6});}}
+function emitHit(t,count=18){burst(t.pos.x,t.pos.z,count,0xb86852,8);state.shake=.45;}
+function dist(){return eren.pos.distanceTo(reiner.pos);}
+function face(t,other){t.dir=Math.atan2(other.pos.x-t.pos.x,other.pos.z-t.pos.z);}
+const state={playing:false,ended:false,time:0,phase:1,stagger:0,throw:0,windup:0,enemyCD:1.3,enemyAction:0,charge:0,lock:0,lockOn:false,mikasa:0,mikasaCD:0,invuln:0,dodge:0,playerCD:0,block:false,shake:0,cue:'',cueEnd:0,hitStop:0,streak:0,finish:0,sceneFall:0};
+const keys=new Set();let last=performance.now();const clock=new THREE.Clock();
+function cue(str,d=2.4){$('status').textContent=str;$('status').classList.add('on');state.cueEnd=state.time+d;}
+function phase(p){state.phase=p;if(p===2){$('phase').textContent='ACT II · CRACK THE ARMOR';$('message').innerHTML='HANGE: The joints are exposed!<br>Press <b>F</b> to call Mikasa when Reiner staggers.';cue('THE ARMOR IS BREAKING',2.8);}
+ if(p===3){$('phase').textContent='ACT III · THE FINAL HOLD';$('message').innerHTML='ARMIN: Keep the lock!<br><b>Hold E</b> to crush Reiner’s nape.';cue('FINISH HIM WITH A GRAPPLE',2.4);}
+}
+function setback(t,dx,dz,d){const l=Math.hypot(dx,dz)||1;t.pos.x+=dx/l*d;t.pos.z+=dz/l*d;t.pos.x=Math.max(-35,Math.min(35,t.pos.x));t.pos.z=Math.max(-50,Math.min(58,t.pos.z));}
+function damagePlayer(v,fromCharge=false){if(state.invuln>0||state.ended||state.lockOn)return;
+ let amount=state.block?Math.round(v*.22):v;eren.hp=Math.max(0,eren.hp-amount);eren.hit=.38;state.shake=.8;emitHit(eren,18);if(!state.block)setback(eren,eren.pos.x-reiner.pos.x,eren.pos.z-reiner.pos.z,fromCharge?5:2.8);
+ cue(state.block?'GUARDED':'DIRECT HIT',.5);
+ if(eren.hp<=0){state.ended=true;showEnd(false);}
+}
+function attack(heavy=false){if(!state.playing||state.ended||state.lockOn||state.playerCD>0||state.dodge>0)return;
+ state.playerCD=heavy?.88:.38;eren.swing=heavy?1.05:.67;eren.stamina=Math.max(0,eren.stamina-(heavy?13:5));
+ face(eren,reiner);
+ if(dist()>(heavy?9.0:8)){cue('OUT OF RANGE',.55);return;}
+ if(state.stagger>0||state.throw>0){reiner.armor=Math.max(0,reiner.armor-(heavy?14:7));}
+ else {reiner.armor=Math.max(0,reiner.armor-(heavy?7:3));}
+ reiner.hit=heavy?.52:.25;setback(reiner,reiner.pos.x-eren.pos.x,reiner.pos.z-eren.pos.z,heavy?1.6:.55);emitHit(reiner,heavy?29:12);
+ cue(reiner.armor>25?'HIS ARMOR ABSORBS THE BLOW':'ARMOR CRACKS',.7);if(reiner.armor<=52&&state.phase===1)phase(2);if(reiner.armor<=13&&state.phase<3)phase(3);
+}
+function grapple(){if(!state.playing||state.ended)return;
+ if(state.lockOn)return;
+ if(state.dodge>0||state.playerCD>0)return;
+ if(dist()>9){cue('MOVE CLOSER TO GRAPPLE',.8);return;}
+ if(state.phase===3&&reiner.armor<=13){state.lockOn=true;state.lock=0;state.stagger=4;cue('ANNIE’S TECHNIQUE · HOLD E',2);$('lockhud').style.display='block';return;}
+ if(eren.stamina<18){cue('LOW STAMINA',.75);return;}
+ eren.stamina-=18;eren.swing=1.5;state.playerCD=1.5;state.throw=1.1;state.stagger=1.8;
+ reiner.armor=Math.max(0,reiner.armor-23);reiner.fall=1.15;
+ setback(reiner,reiner.pos.x-eren.pos.x,reiner.pos.z-eren.pos.z,3.6);
+ emitHit(reiner,35);cue('JOINT LOCK · ARMOR SHATTERS',1.25);
+ if(reiner.armor<=52&&state.phase===1)phase(2);if(reiner.armor<=13&&state.phase<3)phase(3);
+}
+function assist(){if(!state.playing||state.ended||state.mikasaCD>0)return;
+ if(state.phase===1){cue('MIKASA: MY BLADES CAN’T PIERCE IT',1.2);state.mikasaCD=3;return;}
+ if(dist()>22){cue('MIKASA NEEDS AN OPENING',1);return;}
+ state.mikasaCD=12;state.mikasa=1.6;state.stagger=3.5;reiner.fall=.6;
+ reiner.armor=Math.max(0,reiner.armor-18);
+ burst(reiner.pos.x-2,reiner.pos.z,45,0xbfc5c9,12);cue('MIKASA · EXPOSED KNEE STRIKE',1.6);
+ for(const p of reiner.plates){if(p.userData.shed)p.visible=false;}
+ if(state.lockOn)state.lock+=.22;
+ if(reiner.armor<=13&&state.phase<3)phase(3);
+}
+function dodge(){if(!state.playing||state.ended||state.dodge>0||state.lockOn||eren.stamina<13)return;
+ eren.stamina-=13;state.dodge=.52;state.invuln=.55;state.shake=.16;cue('EVADE',.3);
+ const dx=eren.pos.x-reiner.pos.x,dz=eren.pos.z-reiner.pos.z;setback(eren,dx+.7,dz+1,4.5);
+ burst(eren.pos.x,eren.pos.z,8,0xddd8c2,3);
+}
+function reset(){eren.hp=100;eren.stamina=100;reiner.armor=100;eren.pos.set(0,0,13);reiner.pos.set(0,0,-12);eren.dir=Math.PI;reiner.dir=0;
+ Object.assign(state,{playing:true,ended:false,time:0,phase:1,stagger:0,throw:0,windup:0,enemyCD:1.5,enemyAction:0,charge:0,lock:0,lockOn:false,mikasa:0,mikasaCD:0,invuln:0,dodge:0,playerCD:0,block:false,shake:0,cue:'',cueEnd:0,hitStop:0,streak:0,finish:0,sceneFall:0});
+ reiner.plates.forEach(p=>p.visible=true);$('overlay').style.display='none';$('lockhud').style.display='none';$('phase').textContent='ACT I · A BROKEN TRUST';$('message').textContent='ARMOR BLOCKS YOUR PUNCHES. GET CLOSE AND GRAPPLE WITH E.';cue('THE ARMORED TITAN',2);keys.clear();camera.position.set(14,13,36);
+}
+function showEnd(win){$('overlay').style.display='flex';$('ovEye').textContent=win?'Episode 32 · Close Combat · The interruption':'Episode 32 · Close Combat · You fell';
+ $('ovTitle').innerHTML=win?'THE <em>COLOSSAL</em><br>FALLS':'THE <em>FIGHT</em><br>IS LOST';
+ $('ovQuote').textContent=win?'The armor gives way. Reiner roars. High above, Bertholdt lets go of Wall Rose.':'Reiner’s armor endured. Your strength wasn’t enough.';
+ $('ovDesc').textContent=win?'You almost broke the Armored Titan’s nape, with Mikasa disabling his leg. But the Colossal Titan crashes down and ends the fight — just as in the original battle. Replay to improve your technique.':'Reiner overwhelms Eren. Block his telegraphed blows, dodge his charges, and use grapples instead of trading punches.';
+ $('start').textContent='REPLAY THE FIGHT →';}
+$('start').addEventListener('click',reset);
+window.addEventListener('keydown',e=>{if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();const first=!keys.has(e.code);keys.add(e.code);
+ if(!first)return;if(e.code==='KeyR'){reset();return;}if(!state.playing||state.ended){if(e.code==='Enter')reset();return;}
+ if(e.code==='KeyJ')attack(false);if(e.code==='KeyK')attack(true);if(e.code==='KeyE')grapple();if(e.code==='KeyF')assist();if(e.code==='Space')dodge();});
+window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>keys.clear());
+renderer.domElement.addEventListener('pointerdown',e=>{if(!state.playing||state.ended)return;if(e.button===0)attack(false);if(e.button===2)keys.add('MouseRight');});
+renderer.domElement.addEventListener('pointerup',e=>{if(e.button===2)keys.delete('MouseRight');});
+renderer.domElement.addEventListener('contextmenu',e=>e.preventDefault());
+for(const button of document.querySelectorAll('[data-key]')){const key=button.dataset.key;button.addEventListener('pointerdown',e=>{e.preventDefault();keys.add(key);if(key==='KeyJ')attack();if(key==='KeyK')attack(true);if(key==='KeyE')grapple();if(key==='KeyF')assist();if(key==='Space')dodge();});button.addEventListener('pointerup',()=>keys.delete(key));button.addEventListener('pointercancel',()=>keys.delete(key));}
+function tick(dt){if(!state.playing||state.ended)return;state.time+=dt;let reduce=['stagger','throw','windup','enemyCD','enemyAction','charge','mikasa','mikasaCD','invuln','dodge','playerCD','shake'].filter(k=>typeof state[k]==='number');for(const k of reduce)state[k]=Math.max(0,state[k]-dt);
+ eren.stamina=Math.min(100,eren.stamina+dt*(state.block?5:17));state.block=keys.has('KeyL')||keys.has('MouseRight');
+ if(state.cueEnd<state.time)$('status').classList.remove('on');
+ if(state.lockOn){state.lock=Math.min(1,state.lock+(keys.has('KeyE')?dt*.31:dt*.016));reiner.fall=.75;state.stagger=1;eren.pos.lerp(reiner.pos.clone().add(new THREE.Vector3(0,0,3.6)),Math.min(1,dt*6));
+  $('lockbar').style.width=Math.round(state.lock*100)+'%';
+  if(state.lock>=1){state.lockOn=false;state.ended=true;state.sceneFall=1;cue('REINER CALLS FOR BERTHOLDT',3);burst(reiner.pos.x,reiner.pos.z,90,0xd8d0bc,25);setTimeout(()=>showEnd(true),1800);}
+  return;}
+ let mx=Number(keys.has('KeyD')||keys.has('ArrowRight'))-Number(keys.has('KeyA')||keys.has('ArrowLeft'));
+ let mz=Number(keys.has('KeyS')||keys.has('ArrowDown'))-Number(keys.has('KeyW')||keys.has('ArrowUp'));
+ let mag=Math.hypot(mx,mz);if(mag>0){const speed=state.dodge>0?0:keys.has('ShiftLeft')||keys.has('ShiftRight')?13.5:8.0;eren.pos.x+=(mx/mag)*dt*speed;eren.pos.z+=(mz/mag)*dt*speed;eren.run+=dt*speed*.45;
+ if(dist()>10||mz>0){let want=Math.atan2(mx,-mz);const diff=Math.atan2(Math.sin(want-eren.dir),Math.cos(want-eren.dir));eren.dir+=Math.max(-dt*9,Math.min(dt*9,diff));}}
+ if(mag===0||dist()<11)face(eren,reiner);
+ eren.pos.x=Math.max(-40,Math.min(40,eren.pos.x));eren.pos.z=Math.max(-53,Math.min(60,eren.pos.z));
+ if(dist()<6.7){let d=dist()||1;setback(eren,eren.pos.x-reiner.pos.x,eren.pos.z-reiner.pos.z,(6.7-d)*.5);setback(reiner,reiner.pos.x-eren.pos.x,reiner.pos.z-eren.pos.z,(6.7-d)*.5);}
+ if(state.stagger<=0&&state.enemyAction<=0){face(reiner,eren);let d=dist();
+ if(d>6.8){let fast=state.phase>=2?5.1:3.1;reiner.pos.x+=Math.sin(reiner.dir)*fast*dt;reiner.pos.z+=Math.cos(reiner.dir)*fast*dt;reiner.run+=dt*fast*.5;}
+ if(d<10&&state.enemyCD===0){state.enemyAction=.77;state.windup=.7;state.enemyCD=state.phase>=2?2.1:2.8;state.charge=state.phase>=2&&Math.random()<.43?1:0;cue(state.charge>0?'REINER CHARGES! DODGE!':'REINER WINDS UP — BLOCK OR DODGE',.65);}
+ }
+ if(state.enemyAction>0&&state.enemyAction<.1&&state.windup>0){state.windup=0;const charging=state.charge>0;
+ if(charging){setback(reiner,eren.pos.x-reiner.pos.x,eren.pos.z-reiner.pos.z,4);reiner.run+=.6;}
+ if(dist()<charging?9.2:8.4)damagePlayer(charging?25:19,charging);else{burst(reiner.pos.x+Math.sin(reiner.dir)*3,reiner.pos.z+Math.cos(reiner.dir)*3,8,0xbbb8ae,6);cue('REINER MISSED',.5);}
+ }
+}
+function animateTitan(t,dt,enemy){const running=t===eren?(keys.has('KeyW')||keys.has('KeyS')||keys.has('KeyA')||keys.has('KeyD')):state.stagger<=0&&dist()>7.2;
+ const v=running?1:0;const bounce=Math.sin(t.run*2.2)*.18*v;const limp=enemy&&state.stagger>0;let fall=enemy&&t.fall>0?Math.min(t.fall,1):0;
+ if(t.fall>0)t.fall=Math.max(0,t.fall-dt*.65);t.bob.position.y=bounce-fall*3;
+ t.bob.rotation.x=enemy?-fall*.7:state.dodge>0?-.23:0;t.bob.rotation.z=enemy?Math.sin(t.run)*.045:Math.sin(t.run)*.04*v;
+ t.head.rotation.x=enemy?-.07+fall*.22:-.11;
+ t.arms.forEach((a,i)=>{const sign=i?1:-1;const swing=Math.sin(t.run*1.2+(i?Math.PI:0))*.42*v;a.rotation.x=swing+(t.swing>0?Math.sin((1-t.swing)*Math.PI)*(-1.7):0)+(enemy&&state.enemyAction>0?-.36:0);
+ a.rotation.z=sign*(enemy?.13:.18);a.userData.elbow.rotation.x=-.25-(t.swing>0?.45:0);});
+ t.legs.forEach((l,i)=>{const swing=Math.sin(t.run*1.2+(i?Math.PI:0))*.49*v;l.rotation.x=swing+fall*.9;l.userData.knee.rotation.x=Math.max(0,-swing)*.6+fall*.7;});
+ t.swing=Math.max(0,t.swing-dt*1.9);t.hit=Math.max(0,t.hit-dt);t.ring.material.opacity=t===reiner&&state.phase===3?.9:.35;
+ syncPos(t);
+}
+const cameraTarget=new THREE.Vector3();
+function render(dt){const time=performance.now()*.001;
+ animateTitan(eren,dt,false);animateTitan(reiner,dt,true);
+ const midway=new THREE.Vector3().addVectors(eren.pos,reiner.pos).multiplyScalar(.5);let desired=new THREE.Vector3(eren.pos.x+14,19,eren.pos.z+28);desired.x+=(reiner.pos.x-eren.pos.x)*.12;
+ if(state.sceneFall>0){desired.y=46;desired.z+=20;}
+ if(state.shake>0){desired.x+=(Math.random()-.5)*state.shake*1.2;desired.y+=(Math.random()-.5)*state.shake;}
+ camera.position.lerp(desired,Math.min(1,dt*2.7));cameraTarget.lerp(new THREE.Vector3(midway.x,8,midway.z),Math.min(1,dt*3.7));camera.lookAt(cameraTarget);
+ for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.life-=dt;p.v.y-=dt*10;p.ob.position.addScaledVector(p.v,dt);p.ob.material.opacity=Math.max(0,Math.min(1,p.life));p.ob.scale.multiplyScalar(1+dt*.9);if(p.life<=0){scene.remove(p.ob);p.ob.geometry.dispose();p.ob.material.dispose();particles.splice(i,1);}}
+ $('hp').style.width=eren.hp+'%';$('stamina').style.width=eren.stamina+'%';$('armor').style.width=reiner.armor+'%';$('armorlabel').textContent=state.phase>=3?'ARMOR EXPOSED · NAPE VULNERABLE':'ARMORED TITAN · ARMOR INTEGRITY';
+ let prompt=state.phase===1?'PUNCHES WON’T BREAK THE ARMOR · <span>E</span> TO GRAPPLE':state.phase===2?'<span>F</span> MIKASA’S KNEE STRIKE · <span>E</span> GRAPPLE':'GET CLOSE · <span>HOLD E</span> TO CRUSH THE NAPE';
+ if(dist()>10)prompt='CLOSE THE DISTANCE · <span>W A S D</span> TO MOVE';if(state.lockOn)prompt='<span>HOLD E</span> · DO NOT LET GO';$('prompt').innerHTML=prompt;
+ renderer.render(scene,camera);
+}
+function loop(){const dt=Math.min(clock.getDelta(),.045);tick(dt);render(dt);requestAnimationFrame(loop);}
+window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,1.8));});camera.position.set(14,19,39);cameraTarget.set(0,9,0);syncPos(eren);syncPos(reiner);loop();
+</script></body></html>
