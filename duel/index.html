@@ -167,19 +167,19 @@ function buildTitan(type){
   seg(elbow,skin,new THREE.Vector3(0,0,0),new THREE.Vector3(s*.12,-2.2,.55),.55,.65);
   sph(elbow,trim,s*.12,-2.39,.6,.64,.62,.46);
   for(let f=0;f<4;f++)sph(elbow,armored?M.armorDark:M.blood,s*.13+(f-1.5)*.25,-2.75,.93,.12,.25,.14);
-  const leg=new THREE.Group();leg.position.set(s*1.13,8,0);bob.add(leg);legs.push(leg);
-  seg(leg,skin,new THREE.Vector3(0,0,0),new THREE.Vector3(s*.12,-3.1,.1),.95,.98);
-  sph(leg,trim,s*.12,-3.07,.4,.9,.65,.73);
-  const knee=new THREE.Group();knee.position.set(s*.12,-3.05,.1);leg.add(knee);leg.userData.knee=knee;
-  seg(knee,skin,new THREE.Vector3(0,0,0),new THREE.Vector3(0,-3.2,-.12),.65,.86);
-  sph(knee,trim,0,-3.2,.39,.72,.63,.78);
-  sph(knee,skin,0,-3.48,.75,.8,.27,1.28);
+  const leg=new THREE.Group();leg.position.set(s*1.13,7.7,0);bob.add(leg);legs.push(leg);
+  seg(leg,skin,new THREE.Vector3(0,0,0),new THREE.Vector3(s*.12,-3.45,.1),.95,.98);
+  sph(leg,trim,s*.12,-3.42,.4,.9,.65,.73);
+  const knee=new THREE.Group();knee.position.set(s*.12,-3.45,.1);leg.add(knee);leg.userData.knee=knee;
+  seg(knee,skin,new THREE.Vector3(0,0,0),new THREE.Vector3(0,-3.8,-.12),.65,.86);
+  sph(knee,trim,0,-3.78,.39,.72,.63,.78);
+  sph(knee,skin,0,-3.95,.75,.8,.27,1.28);
   if(armored){
    plates.push(sph(bob,M.armor,s*1.6,12.8,.9,1.18,1.3,.6));
    plates.push(sph(arm,M.armor,s*.1,-1.55,.72,.75,1.18,.4));
    const shield=sph(elbow,M.armorLight,s*.07,-1.2,.55,.62,.97,.38);plates.push(shield);
    plates.push(sph(leg,M.armor,s*.12,-1.58,.72,.9,1.42,.5));
-   const shin=sph(knee,M.armor,0,-1.68,.5,.7,1.4,.48);plates.push(shin);
+   const shin=sph(knee,M.armor,0,-1.85,.5,.7,1.68,.48);plates.push(shin);
    const kneeback=sph(knee,M.armorDark,0,.14,-.48,.64,.67,.34);kneeback.userData.shed=true;plates.push(kneeback);
   }else{
    for(let i=0;i<5;i++){const v=sph(bob,M.muscleLight,s*(.6+i*.25),11.4-i*.49,1.15,.22,.4,.18);v.rotation.z=s*.37;}
