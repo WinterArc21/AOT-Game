@@ -242,8 +242,21 @@ function timeMessage(name,line){
  motion.lastNotice=state.time;
 }
 function progression(){
- if(reiner.armor<=57&&state.phase===1){phase(2);timeMessage('Hange','The armor has seams. Mikasa, attack the back of his knee!');}
- if(reiner.armor<=16&&state.phase<3){phase(3);timeMessage('Armin','Eren! Take him from behind, lock the neck and hold!');}
+ if(reiner.armor<=57&&state.phase===1){
+  phase(2);timeMessage('Hange','The armor has seams. Mikasa, attack the back of his knee!');
+  impactFeedback(reiner.pos,1.1,'ARMOR BREACH','#ffe3aa');
+ }
+ if(reiner.armor<=16&&state.phase<3){
+  phase(3);timeMessage('Armin','Eren! Take him from behind, lock the neck and hold!');
+  impactFeedback(reiner.pos,1.3,'EXPOSED NAPE','#ffd19b');
+ }
+ // The plates physically come away in stages, revealing muscle beneath.
+ reiner.plates.forEach((plate,i)=>{
+  if(plate.userData.shed){plate.visible=state.phase<3;return;}
+  if(reiner.armor<18&&i%3===0){plate.visible=false;}
+  else if(reiner.armor<48&&i%5===2){plate.visible=false;}
+  else if(reiner.armor<75&&i%8===3){plate.visible=false;}
+ });
 }
 function showThreat(what){
  let el=$('threat');if(!el){el=document.createElement('div');el.id='threat';el.setAttribute('aria-live','polite');el.style.cssText='position:absolute;top:32%;left:50%;transform:translateX(-50%);color:#ffe6ad;font:900 clamp(20px,2.8vw,39px) Barlow Condensed,Arial;letter-spacing:.15em;text-align:center;text-shadow:0 3px 15px #000;white-space:nowrap;pointer-events:none;z-index:4';$('hud').append(el);}
@@ -339,6 +352,8 @@ function grapple(){
  const damage=motion.parryWindow>0?25:state.phase>=2?20:16;
  reiner.armor=Math.max(0,reiner.armor-damage);reiner.fall=1.05;reiner.hit=.8;
  setback(reiner,reiner.pos.x-eren.pos.x,reiner.pos.z-eren.pos.z,3.2);
+ // Eren follows through instead of being stranded out of grapple range.
+ setback(eren,reiner.pos.x-eren.pos.x,reiner.pos.z-eren.pos.z,2.1);
  impactFeedback(reiner.pos,1.5,'JOINT THROW','#ffe2a4');
  burst(reiner.pos.x,reiner.pos.z,40,0xc3a88b,11);
  cue('ANNIE’S TECHNIQUE · JOINT LOCK',1.7);timeMessage('Eren','I know how to get through that armor.');
