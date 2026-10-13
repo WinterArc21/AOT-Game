@@ -206,52 +206,158 @@ function dist(){return eren.pos.distanceTo(reiner.pos);}
 function face(t,other){t.dir=Math.atan2(other.pos.x-t.pos.x,other.pos.z-t.pos.z);}
 const state={playing:false,ended:false,time:0,phase:1,stagger:0,throw:0,windup:0,enemyCD:1.3,enemyAction:0,charge:0,lock:0,lockOn:false,mikasa:0,mikasaCD:0,invuln:0,dodge:0,playerCD:0,block:false,shake:0,cue:'',cueEnd:0,hitStop:0,streak:0,finish:0,sceneFall:0};
 const keys=new Set();let last=performance.now();const clock=new THREE.Clock();
+
+const motion={
+ velocity:new THREE.Vector3(),lastStep:0,lastEnemyStep:0,combo:0,lastStrike:-10,
+ enemyMove:0,enemyKind:'',enemyWindup:0,enemyRecovery:0,enemyCommitted:false,
+ blocks:0,blockStarted:-10,parryWindow:0,
+ shoulder:0,redFlash:0,perfectDodges:0,finishBegan:0,lastEvade:-10,
+ lastNotice:0,worldShake:0,foleyTimer:0,cinema:0,ambient:0
+};
+function clearThreat(){motion.enemyWindup=0;motion.enemyRecovery=.8;motion.enemyKind='';state.enemyAction=0;state.windup=0;}
+function impactFeedback(where,power=1,word='',c='#eed6ab'){
+ sounds.impact(Math.min(1.5,power));
+ hitSparks(where,Math.floor(12+power*12));ringBlast(where,power);
+ if(word)floatText(word,where,c);
+ state.shake=Math.max(state.shake,.35*power);motion.worldShake=Math.max(motion.worldShake,.08*power);
+}
+function timeMessage(name,line){
+ const message=$('message');if(!message)return;
+ message.innerHTML='<b style="color:#ffdb9e;letter-spacing:.12em;text-transform:uppercase">'+name+'</b><br>'+line;
+ motion.lastNotice=state.time;
+}
+function progression(){
+ if(reiner.armor<=57&&state.phase===1){phase(2);timeMessage('Hange','The armor has seams. Mikasa, attack the back of his knee!');}
+ if(reiner.armor<=16&&state.phase<3){phase(3);timeMessage('Armin','Eren! Take him from behind, lock the neck and hold!');}
+}
+function showThreat(what){
+ let el=$('threat');if(!el){el=document.createElement('div');el.id='threat';el.setAttribute('aria-live','polite');el.style.cssText='position:absolute;top:32%;left:50%;transform:translateX(-50%);color:#ffe6ad;font:900 clamp(20px,2.8vw,39px) Barlow Condensed,Arial;letter-spacing:.15em;text-align:center;text-shadow:0 3px 15px #000;white-space:nowrap;pointer-events:none;z-index:4';$('hud').append(el);}
+ el.textContent=what;el.style.opacity='1';
+}
+function enemyChoose(){
+ const d=dist();const options=state.phase===1?['hook','cross','grab']:state.phase===2?['hook','cross','grab','rush']:['cross','rush','grab','hook'];
+ let kind=options[Math.floor(Math.random()*options.length)];
+ if(d>12)kind='rush';if(d<6&&Math.random()<.24)kind='grab';
+ motion.enemyKind=kind;motion.enemyWindup=kind==='rush'?1.35:kind==='cross'?1.1:kind==='grab'?1.22:.77;
+ motion.enemyRecovery=0;motion.enemyCommitted=false;state.enemyAction=motion.enemyWindup+.24;state.windup=motion.enemyWindup;
+ const labels={hook:'INCOMING HOOK · BLOCK [L]',cross:'HEAVY CROSS · DODGE [SPACE]',grab:'GRAB ATTEMPT · EVADE!',rush:'ARMORED CHARGE · SIDESTEP'};
+ showThreat(labels[kind]);sounds.alarm();
+}
+function enemyStrike(){
+ const kind=motion.enemyKind;if(!kind)return;
+ motion.enemyRecovery=kind==='rush'?1.6:1;state.enemyAction=.42;state.windup=0;
+ $('threat').style.opacity='0';
+ face(reiner,eren);
+ const d=dist();if(kind==='rush'){
+  const dx=eren.pos.x-reiner.pos.x,dz=eren.pos.z-reiner.pos.z;setback(reiner,dx,dz,Math.min(11,Math.max(1,d-5)));
+  burst(reiner.pos.x,reiner.pos.z,26,0xb3a48e,8);ringBlast(reiner.pos,1.5,0xf5ab6b);
+ }
+ let range=kind==='rush'?10.4:kind==='grab'?7.5:kind==='cross'?8.9:8.1;
+ reiner.swing=kind==='rush'?1.2:kind==='cross'?1.8:kind==='grab'?.85:1.1;
+ if(dist()<=range){
+  if(state.dodge>0||state.invuln>0){
+   motion.perfectDodges++;cue('PERFECT EVADE · COUNTER!',.7);
+   state.stagger=Math.max(state.stagger,1.05);reiner.hit=.32;
+   impactFeedback(reiner.pos,.6,'EVADE','#9ee3c1');motion.parryWindow=1.25;
+  }else damagePlayer(kind==='grab'?28:kind==='cross'?24:kind==='rush'?29:16,kind==='rush');
+ }else{cue('MISSED · COUNTER NOW',.72);motion.parryWindow=.95;burst(reiner.pos.x,reiner.pos.z,12,0xc2a994,5);}
+}
+
 function cue(str,d=2.4){$('status').textContent=str;$('status').classList.add('on');state.cueEnd=state.time+d;}
 function phase(p){state.phase=p;if(p===2){$('phase').textContent='ACT II · CRACK THE ARMOR';$('message').innerHTML='HANGE: The joints are exposed!<br>Press <b>F</b> to call Mikasa when Reiner staggers.';cue('THE ARMOR IS BREAKING',2.8);}
  if(p===3){$('phase').textContent='ACT III · THE FINAL HOLD';$('message').innerHTML='ARMIN: Keep the lock!<br><b>Hold E</b> to crush Reiner’s nape.';cue('FINISH HIM WITH A GRAPPLE',2.4);}
 }
 function setback(t,dx,dz,d){const l=Math.hypot(dx,dz)||1;t.pos.x+=dx/l*d;t.pos.z+=dz/l*d;t.pos.x=Math.max(-35,Math.min(35,t.pos.x));t.pos.z=Math.max(-50,Math.min(58,t.pos.z));}
-function damagePlayer(v,fromCharge=false){if(state.invuln>0||state.ended||state.lockOn)return;
- let amount=state.block?Math.round(v*.22):v;eren.hp=Math.max(0,eren.hp-amount);eren.hit=.38;state.shake=.8;emitHit(eren,18);if(!state.block)setback(eren,eren.pos.x-reiner.pos.x,eren.pos.z-reiner.pos.z,fromCharge?5:2.8);
- cue(state.block?'GUARDED':'DIRECT HIT',.5);
+function damagePlayer(v,fromCharge=false){
+ if(state.invuln>0||state.ended||state.lockOn)return;
+ const parry=state.block&&(state.time-motion.blockStarted<.30)&&eren.stamina>=13;
+ if(parry){
+  eren.stamina=Math.max(0,eren.stamina-12);
+  reiner.armor=Math.max(0,reiner.armor-9);reiner.hit=.65;
+  state.stagger=1.75;motion.parryWindow=1.5;clearThreat();motion.blocks++;
+  cue('PERFECT BLOCK · GRAPPLE NOW',1.2);
+  impactFeedback(reiner.pos,1.3,'PARRY','#b1f5d2');progression();
+  return;
+ }
+ const guarded=state.block&&eren.stamina>=9;
+ const amount=guarded?Math.ceil(v*.27):v;
+ if(guarded)eren.stamina=Math.max(0,eren.stamina-17);
+ eren.hp=Math.max(0,eren.hp-amount);eren.hit=.58;
+ state.shake=.8;motion.redFlash=guarded?.14:.5;
+ impactFeedback(eren.pos,guarded?.7:1.35,guarded?'BLOCKED':'-'+amount,guarded?'#a5d4c1':'#f19b83');
+ if(!guarded){setback(eren,eren.pos.x-reiner.pos.x,eren.pos.z-reiner.pos.z,fromCharge?6.6:3.5);motion.velocity.multiplyScalar(.2);}
+ cue(guarded?'GUARDED':'DIRECT HIT',.6);
  if(eren.hp<=0){state.ended=true;showEnd(false);}
 }
-function attack(heavy=false){if(!state.playing||state.ended||state.lockOn||state.playerCD>0||state.dodge>0)return;
- state.playerCD=heavy?.88:.38;eren.swing=heavy?1.05:.67;eren.stamina=Math.max(0,eren.stamina-(heavy?13:5));
+function attack(heavy=false){
+ if(!state.playing||state.ended||state.lockOn||state.playerCD>0||state.dodge>0)return;
+ const cost=heavy?20:7;if(eren.stamina<cost){cue('EXHAUSTED · RECOVER',.7);return;}
+ eren.stamina-=cost;eren.swing=heavy?1.65:1.2;state.playerCD=heavy?.75:.39;
+ sounds.swoosh();face(eren,reiner);
+ const d=dist();if(d>(heavy?9.4:8.7)){cue('OUT OF RANGE',.55);return;}
+ const rapid=state.time-motion.lastStrike<1.8;motion.combo=rapid?Math.min(5,motion.combo+1):1;motion.lastStrike=state.time;
+ const vulnerable=state.stagger>0||state.throw>0||motion.parryWindow>0;
+ const base=heavy?(vulnerable?12:5):(vulnerable?6:2.9);
+ const damage=base+(motion.combo>=3?2.2:0);
+ reiner.armor=Math.max(0,reiner.armor-damage);reiner.hit=heavy?.7:.3;
+ if(heavy&&vulnerable)state.stagger=Math.max(state.stagger,.5);
+ setback(reiner,reiner.pos.x-eren.pos.x,reiner.pos.z-eren.pos.z,heavy?1.7:.5);
+ impactFeedback(reiner.pos,heavy?1.28:.65,(vulnerable||heavy)?Math.round(damage)+' ARMOR':'CLANG',vulnerable?'#f2c18b':'#d4c9b6');
+ cue(vulnerable?'OPENING · ARMOR FRACTURES':heavy?'ARMOR CRACKS':'YOUR FISTS BARELY HURT HIM',.85);
+ if(heavy)burst(reiner.pos.x,reiner.pos.z,15,0xaf9a7b,5);
+ progression();
+}
+function grapple(){
+ if(!state.playing||state.ended||state.lockOn||state.dodge>0||state.playerCD>0)return;
  face(eren,reiner);
- if(dist()>(heavy?9.0:8)){cue('OUT OF RANGE',.55);return;}
- if(state.stagger>0||state.throw>0){reiner.armor=Math.max(0,reiner.armor-(heavy?14:7));}
- else {reiner.armor=Math.max(0,reiner.armor-(heavy?7:3));}
- reiner.hit=heavy?.52:.25;setback(reiner,reiner.pos.x-eren.pos.x,reiner.pos.z-eren.pos.z,heavy?1.6:.55);emitHit(reiner,heavy?29:12);
- cue(reiner.armor>25?'HIS ARMOR ABSORBS THE BLOW':'ARMOR CRACKS',.7);if(reiner.armor<=52&&state.phase===1)phase(2);if(reiner.armor<=13&&state.phase<3)phase(3);
+ if(dist()>9.4){cue('GET CLOSER TO GRAPPLE',.8);return;}
+ if(state.phase===3&&reiner.armor<=16){
+  state.lockOn=true;state.lock=0;state.stagger=4;
+  motion.finishBegan=state.time;motion.enemyWindup=0;motion.enemyKind='';
+  eren.swing=1.1;cue('ARMBAR · HOLD E TO FINISH',2);$('lockhud').style.display='block';
+  impactFeedback(reiner.pos,1.1,'NAPE LOCK','#ffd49e');
+  return;
+ }
+ if(eren.stamina<24){cue('LOW STAMINA · RECOVER',.9);return;}
+ eren.stamina-=24;eren.swing=1.6;state.playerCD=1.38;
+ state.throw=1.16;state.stagger=2.35;clearThreat();
+ const damage=motion.parryWindow>0?25:state.phase>=2?20:16;
+ reiner.armor=Math.max(0,reiner.armor-damage);reiner.fall=1.05;reiner.hit=.8;
+ setback(reiner,reiner.pos.x-eren.pos.x,reiner.pos.z-eren.pos.z,3.2);
+ impactFeedback(reiner.pos,1.5,'JOINT THROW','#ffe2a4');
+ burst(reiner.pos.x,reiner.pos.z,40,0xc3a88b,11);
+ cue('ANNIE’S TECHNIQUE · JOINT LOCK',1.7);timeMessage('Eren','I know how to get through that armor.');
+ motion.parryWindow=0;progression();
 }
-function grapple(){if(!state.playing||state.ended)return;
- if(state.lockOn)return;
- if(state.dodge>0||state.playerCD>0)return;
- if(dist()>9){cue('MOVE CLOSER TO GRAPPLE',.8);return;}
- if(state.phase===3&&reiner.armor<=13){state.lockOn=true;state.lock=0;state.stagger=4;cue('ANNIE’S TECHNIQUE · HOLD E',2);$('lockhud').style.display='block';return;}
- if(eren.stamina<18){cue('LOW STAMINA',.75);return;}
- eren.stamina-=18;eren.swing=1.5;state.playerCD=1.5;state.throw=1.1;state.stagger=1.8;
- reiner.armor=Math.max(0,reiner.armor-23);reiner.fall=1.15;
- setback(reiner,reiner.pos.x-eren.pos.x,reiner.pos.z-eren.pos.z,3.6);
- emitHit(reiner,35);cue('JOINT LOCK · ARMOR SHATTERS',1.25);
- if(reiner.armor<=52&&state.phase===1)phase(2);if(reiner.armor<=13&&state.phase<3)phase(3);
+function assist(){
+ if(!state.playing||state.ended||state.mikasaCD>0||state.lockOn)return;
+ if(state.phase===1){cue('MIKASA: THE ARMOR IS TOO THICK!',1.4);state.mikasaCD=2.5;return;}
+ if(dist()>23){cue('MIKASA NEEDS A CLEAR OPENING',.9);return;}
+ state.mikasaCD=14;state.mikasa=2.1;state.stagger=3.4;clearThreat();
+ reiner.fall=.94;reiner.hit=.7;reiner.armor=Math.max(0,reiner.armor-18);
+ for(const p of reiner.plates)if(p.userData.shed)p.visible=false;
+ const start=new THREE.Vector3(reiner.pos.x-11,16,reiner.pos.z+4),
+       end=new THREE.Vector3(reiner.pos.x+9,3,reiner.pos.z+1);
+ const line=mesh(new THREE.TubeGeometry(new THREE.LineCurve3(start,end),8,.14,4,false),new THREE.MeshBasicMaterial({color:0xbadbef,transparent:true,opacity:.7}),scene);
+ line.castShadow=false;particles.push({ob:line,v:new THREE.Vector3(),life:.5,static:true});
+ impactFeedback(reiner.pos,1.6,'MIKASA · KNEE SLASH','#aee5ee');
+ cue('MIKASA · ARMOR JOINT EXPOSED',1.8);timeMessage('Mikasa','Eren! His right knee—the unarmored joint!');
+ progression();
 }
-function assist(){if(!state.playing||state.ended||state.mikasaCD>0)return;
- if(state.phase===1){cue('MIKASA: MY BLADES CAN’T PIERCE IT',1.2);state.mikasaCD=3;return;}
- if(dist()>22){cue('MIKASA NEEDS AN OPENING',1);return;}
- state.mikasaCD=12;state.mikasa=1.6;state.stagger=3.5;reiner.fall=.6;
- reiner.armor=Math.max(0,reiner.armor-18);
- burst(reiner.pos.x-2,reiner.pos.z,45,0xbfc5c9,12);cue('MIKASA · EXPOSED KNEE STRIKE',1.6);
- for(const p of reiner.plates){if(p.userData.shed)p.visible=false;}
- if(state.lockOn)state.lock+=.22;
- if(reiner.armor<=13&&state.phase<3)phase(3);
+function dodge(){
+ if(!state.playing||state.ended||state.dodge>0||state.lockOn||eren.stamina<17)return;
+ eren.stamina-=17;state.dodge=.54;state.invuln=.56;motion.lastEvade=state.time;
+ const mx=Number(keys.has('KeyD')||keys.has('ArrowRight'))-Number(keys.has('KeyA')||keys.has('ArrowLeft'));
+ const mz=Number(keys.has('KeyS')||keys.has('ArrowDown'))-Number(keys.has('KeyW')||keys.has('ArrowUp'));
+ let dx=mx,dz=mz;if(!dx&&!dz){dx=eren.pos.z-reiner.pos.z;dz=-(eren.pos.x-reiner.pos.x);}
+ const l=Math.hypot(dx,dz)||1;setback(eren,dx/l,dz/l,5.8);
+ eren.swing=.9;motion.velocity.multiplyScalar(.18);sounds.swoosh();
+ burst(eren.pos.x,eren.pos.z,14,0xcac6b9,7);cue('EVADE',.3);
 }
-function dodge(){if(!state.playing||state.ended||state.dodge>0||state.lockOn||eren.stamina<13)return;
- eren.stamina-=13;state.dodge=.52;state.invuln=.55;state.shake=.16;cue('EVADE',.3);
- const dx=eren.pos.x-reiner.pos.x,dz=eren.pos.z-reiner.pos.z;setback(eren,dx+.7,dz+1,4.5);
- burst(eren.pos.x,eren.pos.z,8,0xddd8c2,3);
-}
+
+const directionNotice=document.createElement('div');
+directionNotice.id='dialogue';directionNotice.style.cssText='position:absolute;bottom:176px;left:50%;transform:translateX(-50%);font:600 13px Inter,Arial,sans-serif;color:#e3dfcd;text-align:center;text-shadow:0 2px 8px black;pointer-events:none';
+$('hud').append(directionNotice);
 function reset(){eren.hp=100;eren.stamina=100;reiner.armor=100;eren.pos.set(0,0,13);reiner.pos.set(0,0,-12);eren.dir=Math.PI;reiner.dir=0;
  Object.assign(state,{playing:true,ended:false,time:0,phase:1,stagger:0,throw:0,windup:0,enemyCD:1.5,enemyAction:0,charge:0,lock:0,lockOn:false,mikasa:0,mikasaCD:0,invuln:0,dodge:0,playerCD:0,block:false,shake:0,cue:'',cueEnd:0,hitStop:0,streak:0,finish:0,sceneFall:0});
  reiner.plates.forEach(p=>p.visible=true);$('overlay').style.display='none';$('lockhud').style.display='none';$('phase').textContent='ACT I · A BROKEN TRUST';$('message').textContent='ARMOR BLOCKS YOUR PUNCHES. GET CLOSE AND GRAPPLE WITH E.';cue('THE ARMORED TITAN',2);keys.clear();camera.position.set(14,13,36);
