@@ -215,7 +215,7 @@ function tick(dt){if(!state.playing||state.ended)return;state.time+=dt;let reduc
  }
  if(state.enemyAction>0&&state.enemyAction<.1&&state.windup>0){state.windup=0;const charging=state.charge>0;
  if(charging){setback(reiner,eren.pos.x-reiner.pos.x,eren.pos.z-reiner.pos.z,4);reiner.run+=.6;}
- if(dist()<charging?9.2:8.4)damagePlayer(charging?25:19,charging);else{burst(reiner.pos.x+Math.sin(reiner.dir)*3,reiner.pos.z+Math.cos(reiner.dir)*3,8,0xbbb8ae,6);cue('REINER MISSED',.5);}
+ if(dist()<(charging?9.2:8.4))damagePlayer(charging?25:19,charging);else{burst(reiner.pos.x+Math.sin(reiner.dir)*3,reiner.pos.z+Math.cos(reiner.dir)*3,8,0xbbb8ae,6);cue('REINER MISSED',.5);}
  }
 }
 function animateTitan(t,dt,enemy){const running=t===eren?(keys.has('KeyW')||keys.has('KeyS')||keys.has('KeyA')||keys.has('KeyD')):state.stagger<=0&&dist()>7.2;
@@ -236,7 +236,7 @@ function render(dt){const time=performance.now()*.001;
  if(state.sceneFall>0){desired.y=46;desired.z+=20;}
  if(state.shake>0){desired.x+=(Math.random()-.5)*state.shake*1.2;desired.y+=(Math.random()-.5)*state.shake;}
  camera.position.lerp(desired,Math.min(1,dt*2.7));cameraTarget.lerp(new THREE.Vector3(midway.x,8,midway.z),Math.min(1,dt*3.7));camera.lookAt(cameraTarget);
- for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.life-=dt;p.v.y-=dt*10;p.ob.position.addScaledVector(p.v,dt);p.ob.material.opacity=Math.max(0,Math.min(1,p.life));p.ob.scale.multiplyScalar(1+dt*.9);if(p.life<=0){scene.remove(p.ob);p.ob.geometry.dispose();p.ob.material.dispose();particles.splice(i,1);}}
+ for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.life-=dt;p.v.y-=dt*10;p.ob.position.addScaledVector(p.v,dt);p.ob.material.opacity=Math.max(0,Math.min(1,p.life));p.ob.scale.multiplyScalar(1+dt*.9);if(p.life<=0){scene.remove(p.ob);p.ob.material.dispose();particles.splice(i,1);}}
  $('hp').style.width=eren.hp+'%';$('stamina').style.width=eren.stamina+'%';$('armor').style.width=reiner.armor+'%';$('armorlabel').textContent=state.phase>=3?'ARMOR EXPOSED · NAPE VULNERABLE':'ARMORED TITAN · ARMOR INTEGRITY';
  let prompt=state.phase===1?'PUNCHES WON’T BREAK THE ARMOR · <span>E</span> TO GRAPPLE':state.phase===2?'<span>F</span> MIKASA’S KNEE STRIKE · <span>E</span> GRAPPLE':'GET CLOSE · <span>HOLD E</span> TO CRUSH THE NAPE';
  if(dist()>10)prompt='CLOSE THE DISTANCE · <span>W A S D</span> TO MOVE';if(state.lockOn)prompt='<span>HOLD E</span> · DO NOT LET GO';$('prompt').innerHTML=prompt;
