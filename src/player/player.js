@@ -1332,16 +1332,13 @@ export class Player {
       this._hardBrake = 0;
     }
     if (this.odm.braking > 0 && game.fx?.gas) game.fx.gas(_c.copy(this.render).addScaledVector(this.forward, 0.35), this.forward, 0.6);
-    // gas puffs, and the long white vapour trail (boosting; fainter on a fast swing)
-    const gasOn = this.boosting || this._dashPuff > 0;
-    const trailI = gasOn ? 1 : this.odm.attachedCount() && speed > 22 ? 0.4 + 0.3 * Math.min(1, (speed - 22) / 25) : 0;
-    if ((gasOn || trailI > 0) && (game.fx?.gas || game.fx?.gasTrail)) {
+    // gas puffs
+    if ((this.boosting || this._dashPuff > 0) && game.fx?.gas) {
       const np = _c, nd = _d;
       if (this.model?.gasNozzle) this.model.gasNozzle(np, nd);
       else { np.copy(this.render).addScaledVector(this.forward, -0.4); nd.copy(this.forward).negate(); }
-      if (gasOn) game.fx.gas?.(np, nd, this._dashPuff > 0 ? 1 : 0.7);
-      game.fx.gasTrail?.(this, np, trailI * (this.alive ? 1 : 0));
-    } else game.fx?.gasTrail?.(this, null, 0);
+      game.fx.gas(np, nd, this._dashPuff > 0 ? 1 : 0.7);
+    }
 
     // wires
     this.launcher(0, this._origins[0]); this.launcher(1, this._origins[1]);

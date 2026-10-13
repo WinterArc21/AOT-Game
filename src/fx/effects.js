@@ -387,179 +387,11 @@ class Bolt {
   }
 }
 
-// ────────────────────────────────────────────── gas vapour trails ───────────────────────────────────────────
-// Long white streaks that hang in the air behind the gear (the forest shot): one camera-facing ribbon strip per
-// emitter, a ring buffer of points per emitter, width growing and opacity fading with age, all emitters in one
-// draw call. Emitters are keyed by any object (the player, an ally); a key that stops feeding breaks its strip.
-const TR_EMIT = 12, TR_PTS = 192, TR_NP = TR_EMIT * TR_PTS;
+// ─────────────────────────────────────────────── shared noise ───────────────────────────────────────────────
 const NOISE_GLSL = /* glsl */`
 float fxh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float fxn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(fxh(i), fxh(i + vec2(1.0, 0.0)), f.x), mix(fxh(i + vec2(0.0, 1.0)), fxh(i + vec2(1.0, 1.0)), f.x), f.y); }`;
-const TR_VERT = /* glsl */`
-attribute vec4 aT;      // x across (-1..1), y along the strip (m), z alpha, w age 0..1
-varying vec4 vT;
-varying float vNear;
-#include <fog_pars_vertex>
-void main() {
-  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-  vT = aT;
-  vNear = smoothstep(1.4, 5.0, -mvPosition.z);           // never fog the lens with our own trail
-  gl_Position = projectionMatrix * mvPosition;
-  #include <fog_vertex>
-}`;
-const TR_FRAG = /* glsl */`
-varying vec4 vT;
-varying float vNear;
-#include <common>
-#include <fog_pars_fragment>
-${NOISE_GLSL}
-void main() {
-  float x = vT.x, along = vT.y, age = vT.w;
-  float n = fxn(vec2(along * 0.45, x * 1.2 + along * 0.11)) * 0.65 + fxn(vec2(along * 1.6 + 7.0, x * 2.6)) * 0.35;
-  float across = 1.0 - abs(x);
-  float body = smoothstep(0.05, 0.3, across + (n - 0.5) * (0.2 + 0.5 * age));
-  float shred = smoothstep(age * 1.05 - 0.2, age * 1.05 + 0.18, n + across * 0.3);      // it tears into wisps as it ages
-  float a = vT.z * body * shred * vNear;
-  if (a < 0.004) discard;
-  float lit = step(0.42, across + (n - 0.5) * 0.45 - x * 0.12);                        // two-tone cel vapour
-  vec3 c = mix(vec3(0.79, 0.85, 0.94), vec3(1.0), lit);
-  gl_FragColor = vec4(c, a);
-  #include <colorspace_fragment>
-  #include <fog_fragment>
-}`;
-
-class GasTrails {
-  constructor() {
-    const f = (n) => new Float32Array(n);
-    this.px = f(TR_NP); this.py = f(TR_NP); this.pz = f(TR_NP); this.vx = f(TR_NP); this.vy = f(TR_NP); this.vz = f(TR_NP);
-    this.age = f(TR_NP); this.life = f(TR_NP); this.w0 = f(TR_NP); this.a0 = f(TR_NP); this.dist = f(TR_NP);
-    this.brk = new Uint8Array(TR_NP);           // 1 = this point starts a new strip
-    this.head = new Int32Array(TR_EMIT); this.count = new Int32Array(TR_EMIT);
-    this.keys = new Array(TR_EMIT).fill(null);
-    this.fed = new Float32Array(TR_EMIT); this.lastT = new Float32Array(TR_EMIT); this.live = new Uint8Array(TR_EMIT);
-    const g = new THREE.BufferGeometry();
-    this.pos = new THREE.BufferAttribute(new Float32Array(TR_NP * 2 * 3), 3).setUsage(THREE.DynamicDrawUsage);
-    this.aT = new THREE.BufferAttribute(new Float32Array(TR_NP * 2 * 4), 4).setUsage(THREE.DynamicDrawUsage);
-    this.index = new THREE.BufferAttribute(new Uint16Array(TR_NP * 6), 1).setUsage(THREE.DynamicDrawUsage);
-    g.setAttribute('position', this.pos); g.setAttribute('aT', this.aT); g.setIndex(this.index);
-    g.setDrawRange(0, 0);
-    this.geo = g;
-    this.mat = new THREE.ShaderMaterial({
-      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog]),
-      vertexShader: TR_VERT, fragmentShader: TR_FRAG,
-      transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: true,
-    });
-    this.mesh = new THREE.Mesh(g, this.mat);
-    this.mesh.frustumCulled = false; this.mesh.renderOrder = 19; this.mesh.visible = false; this.mesh.raycast = () => {};
-  }
-
-  _slot(key) {
-    let free = -1, oldest = -1, ot = Infinity;
-    for (let e = 0; e < TR_EMIT; e++) {
-      if (this.keys[e] === key) return e;
-      if (this.keys[e] === null) { if (free < 0) free = e; } else if (!this.live[e] && this.fed[e] < ot) { ot = this.fed[e]; oldest = e; }
-    }
-    const e = free >= 0 ? free : oldest;
-    if (e < 0) return -1;
-    this.keys[e] = key; this.count[e] = 0; this.head[e] = 0; this.live[e] = 0;
-    return e;
-  }
-
-  feed(key, p, I, time) {
-    let e = -1;
-    for (let k = 0; k < TR_EMIT; k++) if (this.keys[k] === key) { e = k; break; }
-    if (I <= 0.01) { if (e >= 0) this.live[e] = 0; return; }
-    if (e < 0) { e = this._slot(key); if (e < 0) return; }
-    this.fed[e] = time;
-    const base = e * TR_PTS, I1 = Math.min(I, 1);
-    const { px, py, pz } = this;
-    if (this.live[e] && this.count[e] > 0) {
-      const last = base + (this.head[e] + TR_PTS - 1) % TR_PTS;
-      const dx = p.x - px[last], dy = p.y - py[last], dz = p.z - pz[last];
-      const d = hypot(dx, dy, dz);
-      if (d < 0.35 && time - this.lastT[e] < 1 / 30) {
-        // the head rides on the nozzle until it has moved far enough to commit a new point
-        if (this.count[e] > 1 && !this.brk[last]) {
-          const pv = base + (this.head[e] + TR_PTS - 2) % TR_PTS;
-          this.dist[last] = this.dist[pv] + hypot(p.x - px[pv], p.y - py[pv], p.z - pz[pv]);
-        }
-        px[last] = p.x; py[last] = p.y; pz[last] = p.z;
-        return;
-      }
-      this._push(e, p, I1, 0, this.dist[last] + d, time);
-    } else this._push(e, p, I1, 1, rnd() * 50, time);
-    this.live[e] = 1;
-  }
-
-  _push(e, p, I1, brk, dist, time) {
-    const i = e * TR_PTS + this.head[e];
-    this.head[e] = (this.head[e] + 1) % TR_PTS;
-    if (this.count[e] < TR_PTS) this.count[e]++;
-    this.px[i] = p.x; this.py[i] = p.y; this.pz[i] = p.z;
-    this.vx[i] = rr(-0.25, 0.25); this.vy[i] = rr(0.05, 0.3); this.vz[i] = rr(-0.25, 0.25);
-    this.age[i] = 0; this.life[i] = 1.4 + 1.4 * I1; this.w0[i] = 0.13 + 0.17 * I1; this.a0[i] = 0.4 + 0.55 * I1;   // long, thick, bright: the forest shot
-    this.brk[i] = brk; this.dist[i] = dist; this.lastT[e] = time;
-  }
-
-  update(dt, cam, time) {
-    const { px, py, pz, vx, vy, vz, age, life } = this;
-    const P = this.pos.array, T = this.aT.array, X = this.index.array;
-    const cx = cam.x, cy = cam.y, cz = cam.z;
-    const k = Math.exp(-1.6 * dt);
-    let nv = 0, ni = 0;
-    for (let e = 0; e < TR_EMIT; e++) {
-      if (this.keys[e] === null) continue;
-      if (time - this.fed[e] > 0.12) this.live[e] = 0;
-      const base = e * TR_PTS, cnt = this.count[e], start = (this.head[e] + TR_PTS - cnt) % TR_PTS;
-      let anyAlive = false;
-      for (let q = 0; q < cnt; q++) {
-        const i = base + (start + q) % TR_PTS;
-        if (age[i] >= life[i]) continue;
-        age[i] += dt;
-        vx[i] *= k; vy[i] *= k; vz[i] *= k;
-        px[i] += vx[i] * dt; py[i] += vy[i] * dt; pz[i] += vz[i] * dt;
-        anyAlive = true;
-      }
-      if (!anyAlive && !this.live[e]) { this.keys[e] = null; this.count[e] = 0; continue; }
-      // build the strip(s)
-      let prevV = -1, prevI = -1;
-      for (let q = 0; q < cnt; q++) {
-        const i = base + (start + q) % TR_PTS;
-        if (age[i] >= life[i]) { prevV = -1; prevI = -1; continue; }
-        if (this.brk[i]) { prevV = -1; prevI = -1; }
-        let nI = -1;
-        if (q + 1 < cnt) { const j = base + (start + q + 1) % TR_PTS; if (!this.brk[j] && age[j] < life[j]) nI = j; }
-        const a = prevI >= 0 ? prevI : i, b = nI >= 0 ? nI : i;
-        let tx = px[b] - px[a], ty = py[b] - py[a], tz = pz[b] - pz[a];
-        if (a === b) { tx = 0; ty = 0; tz = 1; }
-        const ox = cx - px[i], oy = cy - py[i], oz = cz - pz[i];
-        let sx = ty * oz - tz * oy, sy = tz * ox - tx * oz, sz = tx * oy - ty * ox;
-        const sl = hypot(sx, sy, sz) || 1;
-        const t = age[i] / life[i];
-        const dc = hypot(ox, oy, oz);
-        const w = Math.max(this.w0[i] * (1 + 3.2 * t) * (0.35 + 0.65 * smooth(0, 0.08, age[i])), dc * 0.002) / sl;
-        const al = this.a0[i] * (1 - smooth(0.35, 1, t)) * (0.4 + 0.6 * smooth(0, 0.05, age[i]));
-        const o = nv * 3, o4 = nv * 4;
-        P[o] = px[i] - sx * w; P[o + 1] = py[i] - sy * w; P[o + 2] = pz[i] - sz * w;
-        P[o + 3] = px[i] + sx * w; P[o + 4] = py[i] + sy * w; P[o + 5] = pz[i] + sz * w;
-        T[o4] = -1; T[o4 + 1] = this.dist[i]; T[o4 + 2] = al; T[o4 + 3] = t;
-        T[o4 + 4] = 1; T[o4 + 5] = this.dist[i]; T[o4 + 6] = al; T[o4 + 7] = t;
-        if (prevV >= 0) { X[ni++] = prevV; X[ni++] = prevV + 1; X[ni++] = nv; X[ni++] = prevV + 1; X[ni++] = nv + 1; X[ni++] = nv; }
-        prevV = nv; prevI = i; nv += 2;
-      }
-    }
-    this.geo.setDrawRange(0, ni);
-    this.mesh.visible = ni > 0;
-    if (ni > 0) {
-      this.pos.clearUpdateRanges(); this.pos.addUpdateRange(0, nv * 3); this.pos.needsUpdate = true;
-      this.aT.clearUpdateRanges(); this.aT.addUpdateRange(0, nv * 4); this.aT.needsUpdate = true;
-      this.index.clearUpdateRanges(); this.index.addUpdateRange(0, ni); this.index.needsUpdate = true;
-    }
-  }
-
-  clear() { this.keys.fill(null); this.count.fill(0); this.live.fill(0); this.geo.setDrawRange(0, 0); this.mesh.visible = false; }
-}
 
 // ─────────────────────────────────────────────── ground decals ──────────────────────────────────────────────
 // Flat instanced quads on the ground: titan-blood splats that darken and hiss away into steam, and boot scrapes.
@@ -809,10 +641,9 @@ export class Effects {
     this.add = new Pool(800, atlas, true, 21);
     this.group.add(this.norm.mesh, this.add.mesh);
 
-    this.trails = new GasTrails();
     this.decals = new Decals();
     this.smear = new BladeSmear();
-    this.group.add(this.trails.mesh, this.decals.mesh, this.smear.mesh);
+    this.group.add(this.decals.mesh, this.smear.mesh);
     this._steamlets = new Float32Array(3 * 128); this._nSteamlets = 0;
     this._splats = 0;                       // splats queued this frame (throttle)
     this._smearOn = false;
@@ -857,7 +688,7 @@ export class Effects {
     intensity = clamp(intensity === undefined ? 1 : intensity, 0, 1.5);
     if (intensity <= 0.001) return;
     const P = this.norm;
-    this._gasAcc += (38 + 55 * intensity) * intensity * Math.min(this._dt, 0.05);
+    this._gasAcc += (70 + 110 * intensity) * intensity * Math.min(this._dt, 0.05);
     let guard = 0;
     while (this._gasAcc >= 1 && guard++ < 24) {
       this._gasAcc -= 1;
@@ -869,7 +700,7 @@ export class Effects {
       const i = P.spawn(position.x + rr(-0.03, 0.03), position.y + rr(-0.03, 0.03), position.z + rr(-0.03, 0.03),
         (direction.x + sx) * sp, (direction.y + sy) * sp, (direction.z + sz) * sp,
         life, rr(0.16, 0.3), s1, t < 0.4 ? TILE.CLOUD_A : t < 0.7 ? TILE.CLOUD_B : TILE.PUFF);
-      P.color(i, C.gas, C.gasEnd, rr(0.6, 0.85), 0.25);
+      P.color(i, C.gas, C.gasEnd, rr(0.75, 0.98), 0.3);
       P.phys(i, rr(3.0, 4.6), -0.7, rr(-1.2, 1.2), 0, 0);
       P.env(i, 0.05, 0.3, 0);
       if (rnd() < 0.18) {      // hot flash right at the nozzle
@@ -1003,15 +834,6 @@ export class Effects {
       P.phys(i, 1.4, 2.6, rr(-7, 7), 0, F_FLUTTER | F_GROUND);
       P.env(i, 0, 0.8, 0);
     }
-  }
-
-  /**
-   * Long white ODM vapour trail. Call every frame per emitter (`key` = any object: the player, an ally) with the
-   * gas nozzle's world position; intensity 1 = full boost, ~0.3–0.5 = the faint trail of a fast swing, 0 (or not
-   * calling) ends the strip, which then hangs in the air, thins out and fades over ~1–2 s.
-   */
-  gasTrail(key, position, intensity = 1) {
-    this.trails.feed(key, position, intensity, this.time);
   }
 
   /**
@@ -1442,7 +1264,6 @@ export class Effects {
     }
     this._nSteamlets = 0; this._splats = 0;
     this.decals.update(dt, this);
-    this.trails.update(dt, (this.game.camera || _fallbackCam).position, this.time);
     this._updateSmear();
     // slash arcs
     for (const m of this.slashes) {
@@ -1465,7 +1286,7 @@ export class Effects {
     for (const s of this.strikes) { s.active = false; s.bolt.mesh.visible = false; }
     for (const m of this.slashes) m.visible = false;
     for (const r of this.rings) r.visible = false;
-    this.trails.clear(); this.decals.clear(); this.smear.reset();
+    this.decals.clear(); this.smear.reset();
     this.game.impactFrame?.cancel?.();
     this.pillar.visible = false; this.flash.visible = false; this.light.intensity = 0;
   }
