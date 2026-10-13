@@ -123,6 +123,21 @@ function updateFx(dt,t){
  for(let i=hitMarkers.length-1;i>=0;i--){const p=hitMarkers[i];p.life-=dt;p.pos.y+=dt*3;const q=p.pos.clone().project(camera);p.div.style.left=((q.x+1)/2*innerWidth)+'px';p.div.style.top=((-q.y+1)/2*innerHeight)+'px';p.div.style.opacity=String(Math.max(0,p.life));if(p.life<=0){p.div.remove();hitMarkers.splice(i,1);}}
 }
 
+
+const colossal=new THREE.Group();scene.add(colossal);colossal.visible=false;colossal.position.set(0,0,-74);
+const cMuscle=mat(0x9b5147),cBone=mat(0xe4c2a3),cDark=mat(0x4c312d);
+sph(colossal,cMuscle,0,47,0,12,13,6);
+for(let i=-4;i<=4;i++){const rib=sph(colossal,i%2?cMuscle:M.muscleLight,i*2.45,48-Math.abs(i)*.2,5.3,1.5,7,.7);rib.rotation.z=i*.08;}
+sph(colossal,cMuscle,0,61,0,5.4,6.6,4.8);
+for(const side of [-1,1]){
+ sph(colossal,cDark,side*2.3,62,4.25,.9,.68,.42);
+ sph(colossal,cBone,side*2.2,62,4.72,.55,.27,.12);
+ seg(colossal,cMuscle,new THREE.Vector3(side*9,50,0),new THREE.Vector3(side*15,33,1),4,2.6);
+}
+sph(colossal,cBone,0,57,4.5,3.2,1.4,.7);
+const steamCloud=[];
+for(let i=0;i<64;i++){const ob=sph(scene,new THREE.MeshBasicMaterial({color:i%3===0?0xf2e4bf:0xcbcfc8,transparent:true,opacity:.15,depthWrite:false}),0,0,0,1,1,1);ob.visible=false;ob.castShadow=false;steamCloud.push({o:ob,offset:Math.random()*6,r:5+Math.random()*25,s:3+Math.random()*9});}
+
 function buildTitan(type){
  const armored=type==='reiner';const root=new THREE.Group();scene.add(root);root.scale.setScalar(1);
  const skin=armored?M.skin:M.muscle,trim=armored?M.armor:M.muscleLight;
@@ -360,6 +375,12 @@ directionNotice.id='dialogue';directionNotice.style.cssText='position:absolute;b
 $('hud').append(directionNotice);
 function reset(){eren.hp=100;eren.stamina=100;reiner.armor=100;eren.pos.set(0,0,13);reiner.pos.set(0,0,-12);eren.dir=Math.PI;reiner.dir=0;
  Object.assign(state,{playing:true,ended:false,time:0,phase:1,stagger:0,throw:0,windup:0,enemyCD:1.5,enemyAction:0,charge:0,lock:0,lockOn:false,mikasa:0,mikasaCD:0,invuln:0,dodge:0,playerCD:0,block:false,shake:0,cue:'',cueEnd:0,hitStop:0,streak:0,finish:0,sceneFall:0});
+ motion.velocity.set(0,0,0);motion.combo=0;motion.lastStrike=-10;motion.lastStep=0;motion.lastEnemyStep=0;
+ motion.enemyKind='';motion.enemyWindup=0;motion.enemyRecovery=0;motion.parryWindow=0;
+ motion.blockStarted=-10;motion.redFlash=0;motion.cinema=2.5;motion.ambient=0;motion.lastNotice=0;
+ colossal.visible=false;steamCloud.forEach(x=>x.o.visible=false);
+ if($('threat'))$('threat').style.opacity='0';
+ sounds.unlock();
  reiner.plates.forEach(p=>p.visible=true);$('overlay').style.display='none';$('lockhud').style.display='none';$('phase').textContent='ACT I · A BROKEN TRUST';$('message').textContent='ARMOR BLOCKS YOUR PUNCHES. GET CLOSE AND GRAPPLE WITH E.';cue('THE ARMORED TITAN',2);keys.clear();camera.position.set(14,13,36);
 }
 function showEnd(win){$('overlay').style.display='flex';$('ovEye').textContent=win?'Episode 32 · Close Combat · The interruption':'Episode 32 · Close Combat · You fell';
@@ -370,57 +391,186 @@ function showEnd(win){$('overlay').style.display='flex';$('ovEye').textContent=w
 $('start').addEventListener('click',reset);
 window.addEventListener('keydown',e=>{if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();const first=!keys.has(e.code);keys.add(e.code);
  if(!first)return;if(e.code==='KeyR'){reset();return;}if(!state.playing||state.ended){if(e.code==='Enter')reset();return;}
- if(e.code==='KeyJ')attack(false);if(e.code==='KeyK')attack(true);if(e.code==='KeyE')grapple();if(e.code==='KeyF')assist();if(e.code==='Space')dodge();});
+ if(e.code==='KeyL')motion.blockStarted=state.time;if(e.code==='KeyJ')attack(false);if(e.code==='KeyK')attack(true);if(e.code==='KeyE')grapple();if(e.code==='KeyF')assist();if(e.code==='Space')dodge();});
 window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>keys.clear());
 renderer.domElement.addEventListener('pointerdown',e=>{if(!state.playing||state.ended)return;if(e.button===0)attack(false);if(e.button===2)keys.add('MouseRight');});
 renderer.domElement.addEventListener('pointerup',e=>{if(e.button===2)keys.delete('MouseRight');});
 renderer.domElement.addEventListener('contextmenu',e=>e.preventDefault());
-for(const button of document.querySelectorAll('[data-key]')){const key=button.dataset.key;button.addEventListener('pointerdown',e=>{e.preventDefault();keys.add(key);if(key==='KeyJ')attack();if(key==='KeyK')attack(true);if(key==='KeyE')grapple();if(key==='KeyF')assist();if(key==='Space')dodge();});button.addEventListener('pointerup',()=>keys.delete(key));button.addEventListener('pointercancel',()=>keys.delete(key));}
-function tick(dt){if(!state.playing||state.ended)return;state.time+=dt;let reduce=['stagger','throw','windup','enemyCD','enemyAction','charge','mikasa','mikasaCD','invuln','dodge','playerCD','shake'].filter(k=>typeof state[k]==='number');for(const k of reduce)state[k]=Math.max(0,state[k]-dt);
- eren.stamina=Math.min(100,eren.stamina+dt*(state.block?5:17));state.block=keys.has('KeyL')||keys.has('MouseRight');
+for(const button of document.querySelectorAll('[data-key]')){const key=button.dataset.key;button.addEventListener('pointerdown',e=>{e.preventDefault();keys.add(key);if(key==='KeyL')motion.blockStarted=state.time;if(key==='KeyJ')attack();if(key==='KeyK')attack(true);if(key==='KeyE')grapple();if(key==='KeyF')assist();if(key==='Space')dodge();});button.addEventListener('pointerup',()=>keys.delete(key));button.addEventListener('pointercancel',()=>keys.delete(key));}
+function tick(dt){
+ if(!state.playing||state.ended)return;
+ state.time+=dt;
+ for(const k of ['stagger','throw','enemyCD','enemyAction','mikasa','mikasaCD','invuln','dodge','playerCD','shake']){
+  state[k]=Math.max(0,state[k]-dt);
+ }
+ motion.enemyRecovery=Math.max(0,motion.enemyRecovery-dt);
+ motion.parryWindow=Math.max(0,motion.parryWindow-dt);
+ motion.redFlash=Math.max(0,motion.redFlash-dt);
+ motion.worldShake=Math.max(0,motion.worldShake-dt);
+ motion.cinema=Math.max(0,motion.cinema-dt);
+ motion.ambient+=dt;
+ if(motion.ambient>=12){motion.ambient=0;sounds.tone(56,1.5,.021,'sine',.95);}
+ state.block=(keys.has('KeyL')||keys.has('MouseRight'))&&state.dodge===0;
+ eren.stamina=Math.min(100,eren.stamina+dt*(state.block?6:state.playerCD>0?8:19));
  if(state.cueEnd<state.time)$('status').classList.remove('on');
- if(state.lockOn){state.lock=Math.min(1,state.lock+(keys.has('KeyE')?dt*.31:dt*.016));reiner.fall=.75;state.stagger=1;eren.pos.lerp(reiner.pos.clone().add(new THREE.Vector3(0,0,3.6)),Math.min(1,dt*6));
+ if(state.lockOn){
+  const holding=keys.has('KeyE');state.lock=Math.max(0,Math.min(1,state.lock+(holding?dt*.32:-dt*.18)));
+  state.stagger=1;reiner.fall=.85;
+  const goal=reiner.pos.clone().add(new THREE.Vector3(0,0,3.5));
+  eren.pos.lerp(goal,Math.min(1,dt*3.8));
+  eren.dir=Math.atan2(reiner.pos.x-eren.pos.x,reiner.pos.z-eren.pos.z);
+  reiner.dir=eren.dir+Math.PI;
+  if(Math.random()<dt*15)burst(reiner.pos.x,reiner.pos.z,3,0xa48c7a,4);
   $('lockbar').style.width=Math.round(state.lock*100)+'%';
-  if(state.lock>=1){state.lockOn=false;state.ended=true;state.sceneFall=1;cue('REINER CALLS FOR BERTHOLDT',3);burst(reiner.pos.x,reiner.pos.z,90,0xd8d0bc,25);setTimeout(()=>showEnd(true),1800);}
-  return;}
- let mx=Number(keys.has('KeyD')||keys.has('ArrowRight'))-Number(keys.has('KeyA')||keys.has('ArrowLeft'));
- let mz=Number(keys.has('KeyS')||keys.has('ArrowDown'))-Number(keys.has('KeyW')||keys.has('ArrowUp'));
- let mag=Math.hypot(mx,mz);if(mag>0){const speed=state.dodge>0?0:keys.has('ShiftLeft')||keys.has('ShiftRight')?13.5:8.0;eren.pos.x+=(mx/mag)*dt*speed;eren.pos.z+=(mz/mag)*dt*speed;eren.run+=dt*speed*.45;
- if(dist()>10||mz>0){let want=Math.atan2(mx,-mz);const diff=Math.atan2(Math.sin(want-eren.dir),Math.cos(want-eren.dir));eren.dir+=Math.max(-dt*9,Math.min(dt*9,diff));}}
- if(mag===0||dist()<11)face(eren,reiner);
- eren.pos.x=Math.max(-40,Math.min(40,eren.pos.x));eren.pos.z=Math.max(-53,Math.min(60,eren.pos.z));
- if(dist()<6.7){let d=dist()||1;setback(eren,eren.pos.x-reiner.pos.x,eren.pos.z-reiner.pos.z,(6.7-d)*.5);setback(reiner,reiner.pos.x-eren.pos.x,reiner.pos.z-eren.pos.z,(6.7-d)*.5);}
- if(state.stagger<=0&&state.enemyAction<=0){face(reiner,eren);let d=dist();
- if(d>6.8){let fast=state.phase>=2?5.1:3.1;reiner.pos.x+=Math.sin(reiner.dir)*fast*dt;reiner.pos.z+=Math.cos(reiner.dir)*fast*dt;reiner.run+=dt*fast*.5;}
- if(d<10&&state.enemyCD===0){state.enemyAction=.77;state.windup=.7;state.enemyCD=state.phase>=2?2.1:2.8;state.charge=state.phase>=2&&Math.random()<.43?1:0;cue(state.charge>0?'REINER CHARGES! DODGE!':'REINER WINDS UP — BLOCK OR DODGE',.65);}
+  if(state.lock>=1){
+   state.lockOn=false;state.ended=true;state.sceneFall=4;
+   colossal.visible=true;steamCloud.forEach(c=>c.o.visible=true);
+   cue('BERTHOLDT! · THE COLOSSAL TITAN',3);
+   impactFeedback(reiner.pos,2.2,'THE WALL TREMBLES','#ffe0b2');
+   ringBlast(new THREE.Vector3(0,0,-60),3.5,0xded6bf);
+   setTimeout(()=>showEnd(true),3000);
+  }
+  return;
  }
- if(state.enemyAction>0&&state.enemyAction<.1&&state.windup>0){state.windup=0;const charging=state.charge>0;
- if(charging){setback(reiner,eren.pos.x-reiner.pos.x,eren.pos.z-reiner.pos.z,4);reiner.run+=.6;}
- if(dist()<(charging?9.2:8.4))damagePlayer(charging?25:19,charging);else{burst(reiner.pos.x+Math.sin(reiner.dir)*3,reiner.pos.z+Math.cos(reiner.dir)*3,8,0xbbb8ae,6);cue('REINER MISSED',.5);}
+ const mx=Number(keys.has('KeyD')||keys.has('ArrowRight'))-Number(keys.has('KeyA')||keys.has('ArrowLeft'));
+ const mz=Number(keys.has('KeyS')||keys.has('ArrowDown'))-Number(keys.has('KeyW')||keys.has('ArrowUp'));
+ const magnitude=Math.hypot(mx,mz);
+ const speed=state.dodge>0?1:keys.has('ShiftLeft')||keys.has('ShiftRight')?13.5:7.8;
+ const target=new THREE.Vector3(magnitude?mx/magnitude*speed:0,0,magnitude?mz/magnitude*speed:0);
+ const friction=magnitude?(state.dodge>0?4:6):12;
+ motion.velocity.lerp(target,1-Math.exp(-dt*friction));
+ eren.pos.addScaledVector(motion.velocity,dt);
+ const stepSpeed=motion.velocity.length();
+ if(stepSpeed>.85){
+  eren.run+=dt*stepSpeed*.54;
+  if(eren.run-motion.lastStep>Math.PI*.78){
+   motion.lastStep=eren.run;burst(eren.pos.x,eren.pos.z,5,0xc0b6a0,2.6);
+   if(stepSpeed>9)sounds.tone(48,.1,.032,'triangle',.5);
+  }
+  const wanted=Math.atan2(motion.velocity.x,motion.velocity.z);
+  const facingEnemy=Math.atan2(reiner.pos.x-eren.pos.x,reiner.pos.z-eren.pos.z);
+  const desired=dist()>11?wanted:facingEnemy;
+  const delta=Math.atan2(Math.sin(desired-eren.dir),Math.cos(desired-eren.dir));
+  eren.dir+=Math.max(-dt*5,Math.min(dt*5,delta));
+ }else{
+  const wanted=Math.atan2(reiner.pos.x-eren.pos.x,reiner.pos.z-eren.pos.z);
+  eren.dir+=Math.atan2(Math.sin(wanted-eren.dir),Math.cos(wanted-eren.dir))*Math.min(1,dt*3);
  }
+ eren.pos.x=Math.max(-40,Math.min(40,eren.pos.x));
+ eren.pos.z=Math.max(-53,Math.min(59,eren.pos.z));
+ const d=dist();
+ if(d<6.6&&d>0.01){
+  const adjust=(6.6-d)*.5;
+  setback(eren,eren.pos.x-reiner.pos.x,eren.pos.z-reiner.pos.z,adjust);
+  setback(reiner,reiner.pos.x-eren.pos.x,reiner.pos.z-eren.pos.z,adjust);
+ }
+ if(state.stagger>0||state.throw>0){motion.enemyWindup=0;motion.enemyKind='';$('threat')&&($('threat').style.opacity='0');}
+ else{
+  face(reiner,eren);
+  if(motion.enemyWindup>0){
+   motion.enemyWindup=Math.max(0,motion.enemyWindup-dt);
+   if(motion.enemyWindup===0){enemyStrike();}
+  }else if(motion.enemyRecovery<=0){
+   const d=dist();
+   if(d>7.3){
+    const rush=state.phase>=2?5.7:3.7;
+    reiner.pos.x+=Math.sin(reiner.dir)*rush*dt;
+    reiner.pos.z+=Math.cos(reiner.dir)*rush*dt;
+    reiner.run+=dt*rush*.5;
+    if(reiner.run-motion.lastEnemyStep>Math.PI){motion.lastEnemyStep=reiner.run;burst(reiner.pos.x,reiner.pos.z,9,0xbdb19e,4);}
+   }
+   if(state.enemyCD===0&&d<24){
+    enemyChoose();state.enemyCD=state.phase>=3?1.8:state.phase>=2?2.2:2.7;
+   }
+  }
+ }
+ if(motion.lastNotice>0&&state.time-motion.lastNotice>5)motion.lastNotice=0;
 }
-function animateTitan(t,dt,enemy){const running=t===eren?(keys.has('KeyW')||keys.has('KeyS')||keys.has('KeyA')||keys.has('KeyD')):state.stagger<=0&&dist()>7.2;
- const v=running?1:0;const bounce=Math.sin(t.run*2.2)*.18*v;const limp=enemy&&state.stagger>0;let fall=enemy&&t.fall>0?Math.min(t.fall,1):0;
- if(t.fall>0)t.fall=Math.max(0,t.fall-dt*.65);t.bob.position.y=bounce-fall*3;
- t.bob.rotation.x=enemy?-fall*.7:state.dodge>0?-.23:0;t.bob.rotation.z=enemy?Math.sin(t.run)*.045:Math.sin(t.run)*.04*v;
- t.head.rotation.x=enemy?-.07+fall*.22:-.11;
- t.arms.forEach((a,i)=>{const sign=i?1:-1;const swing=Math.sin(t.run*1.2+(i?Math.PI:0))*.42*v;a.rotation.x=swing+(t.swing>0?Math.sin((1-t.swing)*Math.PI)*(-1.7):0)+(enemy&&state.enemyAction>0?-.36:0);
- a.rotation.z=sign*(enemy?.13:.18);a.userData.elbow.rotation.x=-.25-(t.swing>0?.45:0);});
- t.legs.forEach((l,i)=>{const swing=Math.sin(t.run*1.2+(i?Math.PI:0))*.49*v;l.rotation.x=swing+fall*.9;l.userData.knee.rotation.x=Math.max(0,-swing)*.6+fall*.7;});
- t.swing=Math.max(0,t.swing-dt*1.9);t.hit=Math.max(0,t.hit-dt);t.ring.material.opacity=t===reiner&&state.phase===3?.9:.35;
+function animateTitan(t,dt,enemy){
+ const isEren=!enemy;
+ const moving=isEren?motion.velocity.length()>1:state.stagger===0&&motion.enemyRecovery===0&&dist()>7.2;
+ const sp=isEren?motion.velocity.length():(moving?5:0);
+ const amount=Math.min(1,sp/6);
+ const pace=t.run*1.3;const breath=Math.sin(state.time*1.8)*.055;
+ let fall=enemy&&t.fall>0?Math.min(1,t.fall):0;
+ if(t.fall>0)t.fall=Math.max(0,t.fall-dt*.75);
+ const kick=isEren&&state.dodge>0?.5:0;
+ t.bob.position.y=Math.abs(Math.sin(pace))*amount*.12+breath-fall*2.7;
+ const hitLean=t.hit>0?Math.sin((1-t.hit)*10)*.22:0;
+ const anticipation=enemy&&motion.enemyWindup>0?Math.sin((1-motion.enemyWindup/1.4)*Math.PI)*.19:0;
+ t.bob.rotation.x=enemy?-.04+anticipation-fall*.6:isEren&&state.lockOn?-.25:-.06-kick*.35;
+ t.bob.rotation.z=hitLean+Math.sin(pace)*.045*amount+(enemy&&motion.enemyKind==='grab'?-.07:0);
+ t.head.rotation.x=-.1+(enemy&&motion.enemyWindup>0?.13:0)+fall*.15;
+ t.head.rotation.z=Math.sin(state.time*.7)*.025;
+ const attackSwing=t.swing>0?Math.sin(Math.PI*Math.min(1,Math.max(0,1-t.swing/(isEren?1.65:1.8)))):0;
+ t.arms.forEach((a,i)=>{
+  const side=i===0?-1:1;
+  const swing=Math.sin(pace+(i?Math.PI:0))*.58*amount;
+  const threaten=enemy&&motion.enemyWindup>0;
+  a.rotation.x=swing+(!enemy&&t.swing>0?-attackSwing*1.45:(enemy&&t.swing>0?-attackSwing*1.25:0))+(threaten?-.52:0);
+  a.rotation.z=side*(enemy?.27:.34)+(threaten?side*.28:0);
+  a.rotation.y=side*(threaten?.23:attackSwing*.27);
+  a.userData.elbow.rotation.x=-.3-(threaten?.45:attackSwing*.8);
+ });
+ t.legs.forEach((l,i)=>{
+  const swing=Math.sin(pace+(i?Math.PI:0))*.63*amount;
+  l.rotation.x=swing+fall*.8-kick*.3;
+  l.rotation.z=(i===0?-1:1)*.04;
+  l.userData.knee.rotation.x=Math.max(0,-swing)*.72+fall*.55+kick*.45;
+ });
+ t.swing=Math.max(0,t.swing-dt*(enemy?1.75:2.5));
+ t.hit=Math.max(0,t.hit-dt);
+ t.ring.material.opacity=enemy&&state.phase===3?.92:.33;
  syncPos(t);
 }
 const cameraTarget=new THREE.Vector3();
-function render(dt){const time=performance.now()*.001;
+function render(dt){
+ const time=performance.now()*.001;
  animateTitan(eren,dt,false);animateTitan(reiner,dt,true);
- const midway=new THREE.Vector3().addVectors(eren.pos,reiner.pos).multiplyScalar(.5);let desired=new THREE.Vector3(eren.pos.x+14,19,eren.pos.z+28);desired.x+=(reiner.pos.x-eren.pos.x)*.12;
- if(state.sceneFall>0){desired.y=46;desired.z+=20;}
- if(state.shake>0){desired.x+=(Math.random()-.5)*state.shake*1.2;desired.y+=(Math.random()-.5)*state.shake;}
- camera.position.lerp(desired,Math.min(1,dt*2.7));cameraTarget.lerp(new THREE.Vector3(midway.x,8,midway.z),Math.min(1,dt*3.7));camera.lookAt(cameraTarget);
- for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.life-=dt;p.v.y-=dt*10;p.ob.position.addScaledVector(p.v,dt);p.ob.material.opacity=Math.max(0,Math.min(1,p.life));p.ob.scale.multiplyScalar(1+dt*.9);if(p.life<=0){scene.remove(p.ob);p.ob.material.dispose();particles.splice(i,1);}}
- $('hp').style.width=eren.hp+'%';$('stamina').style.width=eren.stamina+'%';$('armor').style.width=reiner.armor+'%';$('armorlabel').textContent=state.phase>=3?'ARMOR EXPOSED · NAPE VULNERABLE':'ARMORED TITAN · ARMOR INTEGRITY';
- let prompt=state.phase===1?'PUNCHES WON’T BREAK THE ARMOR · <span>E</span> TO GRAPPLE':state.phase===2?'<span>F</span> MIKASA’S KNEE STRIKE · <span>E</span> GRAPPLE':'GET CLOSE · <span>HOLD E</span> TO CRUSH THE NAPE';
- if(dist()>10)prompt='CLOSE THE DISTANCE · <span>W A S D</span> TO MOVE';if(state.lockOn)prompt='<span>HOLD E</span> · DO NOT LET GO';$('prompt').innerHTML=prompt;
+ if(state.sceneFall>0){state.sceneFall=Math.max(0,state.sceneFall-dt);motion.worldShake=Math.max(motion.worldShake,.4);}
+ if(state.sceneFall>0){
+  steamCloud.forEach((p,i)=>{
+   const t=state.sceneFall;let y=(4-t)*10+p.offset*13;
+   p.o.position.set(Math.sin(time*.3+i)*p.r,-2+y+p.offset*3,-72+Math.cos(time*.5+i)*p.r);
+   p.o.scale.setScalar(p.s*(1+(4-t)*.8));p.o.material.opacity=.12+(4-t)*.02;
+  });
+ }
+ const mid=new THREE.Vector3().addVectors(eren.pos,reiner.pos).multiplyScalar(.5);
+ const separation=dist();
+ const cinema=motion.cinema>0?Math.min(1,motion.cinema/2):0;
+ const desired=new THREE.Vector3(eren.pos.x+13+separation*.12,17+separation*.08,eren.pos.z+25+separation*.3);
+ if(state.lockOn){desired.set(eren.pos.x+12,12,eren.pos.z+18);}
+ if(state.sceneFall>0){desired.set(0,48,-20);}
+ if(cinema>0){desired.x+=cinema*5;desired.y+=cinema*5;desired.z+=cinema*9;}
+ if(state.shake>0||motion.worldShake>0){
+  const intensity=state.shake+motion.worldShake;
+  desired.x+=(Math.random()-.5)*intensity*1.6;
+  desired.y+=(Math.random()-.5)*intensity;
+ }
+ camera.position.lerp(desired,Math.min(1,dt*(state.sceneFall>0?.8:state.lockOn?4:2.7)));
+ const focus=state.sceneFall>0?new THREE.Vector3(0,46,-69):new THREE.Vector3(mid.x,9+separation*.03,mid.z);
+ cameraTarget.lerp(focus,Math.min(1,dt*(state.sceneFall>0?1.2:4)));
+ camera.lookAt(cameraTarget);
+ const fov=state.lockOn?50:state.sceneFall>0?63:separation>23?63:56;
+ camera.fov+=(fov-camera.fov)*Math.min(1,dt*3);camera.updateProjectionMatrix();
+ for(let i=particles.length-1;i>=0;i--){
+  const p=particles[i];p.life-=dt;
+  if(!p.static){p.v.y-=dt*10;p.ob.position.addScaledVector(p.v,dt);p.ob.scale.multiplyScalar(1+dt*.9);}
+  p.ob.material.opacity=Math.max(0,Math.min(1,p.life*1.4));
+  if(p.life<=0){scene.remove(p.ob);if(p.static)p.ob.geometry.dispose();p.ob.material.dispose();particles.splice(i,1);}
+ }
+ updateFx(dt,time);
+ $('hp').style.width=eren.hp+'%';$('stamina').style.width=eren.stamina+'%';$('armor').style.width=reiner.armor+'%';
+ $('armorlabel').textContent=state.phase>=3?'ARMOR EXPOSED · NAPE VULNERABLE':'ARMORED TITAN · ARMOR INTEGRITY';
+ let prompt=state.phase===1?'THE ARMOR RESISTS PUNCHES · <span>E</span> TO GRAPPLE':
+ state.phase===2?'CRACK HIS ARMOR · <span>F</span> MIKASA · <span>E</span> GRAPPLE':
+ 'CLOSE IN · <span>HOLD E</span> TO CRUSH THE NAPE';
+ if(separation>10)prompt='CLOSE THE DISTANCE · <span>W A S D</span> TO MOVE';
+ if(motion.enemyWindup>0)prompt='<span>'+({hook:'L TO BLOCK',cross:'SPACE TO DODGE',grab:'SPACE TO EVADE',rush:'SPACE TO SIDESTEP'}[motion.enemyKind]||'DEFEND')+'</span> · WATCH REINER';
+ if(state.lockOn)prompt='<span>HOLD E</span> · MAINTAIN THE LOCK';
+ if(state.sceneFall>0)prompt='BERTHOLDT · ABOVE THE WALL';
+ $('prompt').innerHTML=prompt;
+ document.getElementById('shade').style.boxShadow=motion.redFlash>0?'inset 0 0 '+Math.round(motion.redFlash*160)+'px '+Math.round(motion.redFlash*120)+'px rgba(165,34,20,.5)':'none';
  renderer.render(scene,camera);
 }
 function loop(){const dt=Math.min(clock.getDelta(),.045);tick(dt);render(dt);requestAnimationFrame(loop);}
