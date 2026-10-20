@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { CFG } from './config.js';
 import { Input } from './input.js';
+import * as keys from './keys.js';
 import { CollisionWorld } from './core/collision.js';
 import { Player } from './player/player.js';
 import { Game } from './game.js';
@@ -149,9 +150,10 @@ const boot = async () => {
   });
   addEventListener('keydown', (e) => {
     if (e.repeat) return;
-    if (e.code === 'KeyM') game.audio?.toggleMute?.();
-    if (e.code === 'KeyH') game.showControls = !game.showControls;
-    if ((e.code === 'Escape' || e.code === 'KeyP') && isPlaying()) { if (game.paused) resume(); else pause(); }
+    const act = keys.actionOf(keys.keyName(e));
+    if (act === 'mute') game.audio?.toggleMute?.();
+    if (act === 'card') game.showControls = !game.showControls;
+    if ((e.code === 'Escape' || act === 'pause') && isPlaying()) { if (game.paused) resume(); else pause(); }
   });
   addEventListener('blur', () => pause());
   game.showControls = true;
@@ -173,7 +175,7 @@ game.setQuality = (q, say = true) => {
     if (sun.shadow.mapSize.x !== Q.shadowMap) { sun.shadow.mapSize.set(Q.shadowMap, Q.shadowMap); sun.shadow.map?.dispose(); sun.shadow.map = null; }
   }
   game.allyRange = Q.allyRange;
-  if (say) game.hud?.message?.(`GRAPHICS: ${Q.name}${say === 'auto' ? ' (auto, G to change)' : ''}`, 2, 'info');
+  if (say) game.hud?.message?.(`GRAPHICS: ${Q.name}${say === 'auto' ? ` (auto, ${keys.label('quality')} to change)` : ''}`, 2, 'info');
 };
 let autoT = 0, autoN = 0, autoSum = 0;
 game.autoQuality = (dt, playing) => {
@@ -188,7 +190,7 @@ game.autoQuality = (dt, playing) => {
   }
 };
 addEventListener('keydown', (e) => {
-  if (e.code === 'KeyG' && !e.repeat) { game._qualityLocked = true; game.setQuality((game.quality + 2) % 3); }
+  if (keys.actionOf(keys.keyName(e)) === 'quality' && !e.repeat) { game._qualityLocked = true; game.setQuality((game.quality + 2) % 3); }
 });
 addEventListener('resize', () => {
     renderer.setSize(innerWidth, innerHeight);

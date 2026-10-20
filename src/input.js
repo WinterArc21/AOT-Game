@@ -2,6 +2,8 @@
 // If the browser refuses pointer lock (an embedding frame without the permission, or the user declines),
 // `freeLook` mode reads raw mouse movement with a visible cursor and keeps turning while the cursor
 // is pushed against a screen edge.
+import { keyName, keysFor, actionOf } from './keys.js';
+
 export class Input {
   constructor(el) {
     this.el = el;
@@ -14,12 +16,13 @@ export class Input {
     this.freeLook = false;
     this.cx = innerWidth / 2; this.cy = innerHeight / 2; this.inside = false;
     this.enabled = true;
-    this.capture = true;   // swallow game keys (arrows, Space, Shift) so the page never scrolls while playing
-    const key = (e) => (e.code === 'Space' ? 'Space' : e.code.startsWith('Key') ? e.code.slice(3) : e.code);
+    this.capture = true;   // swallow game keys (arrows, Space, Shift, any bound key) so the page never scrolls while playing
+    const key = keyName;
     addEventListener('keydown', (e) => {
       if (!this.enabled) return;
       const k = key(e);
-      if (this.capture && (['Space', 'Tab', 'ShiftLeft', 'ShiftRight', 'AltLeft', 'AltRight', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(k) || (this.locked && !e.metaKey && !e.ctrlKey))) e.preventDefault();
+      if (this.capture && (['Space', 'Tab', 'ShiftLeft', 'ShiftRight', 'AltLeft', 'AltRight', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(k)
+        || (actionOf(k) && !e.metaKey && !e.ctrlKey) || (this.locked && !e.metaKey && !e.ctrlKey))) e.preventDefault();
       if (!this.down.has(k)) this.pressed.add(k);
       this.down.add(k);
     });
@@ -80,5 +83,8 @@ export class Input {
   held(k) { return this.down.has(k); }
   hit(k) { return this.pressed.has(k); }
   up(k) { return this.released.has(k); }
+  /** Actions (see keys.js): any of the action's bound keys held / pressed this frame. */
+  act(a) { for (const k of keysFor(a)) if (this.down.has(k)) return true; return false; }
+  actHit(a) { for (const k of keysFor(a)) if (this.pressed.has(k)) return true; return false; }
   consume() { this.pressed.clear(); this.released.clear(); this.mouseDX = 0; this.mouseDY = 0; this.wheel = 0; }
 }

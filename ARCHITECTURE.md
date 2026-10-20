@@ -64,6 +64,10 @@ Controls (keyboard first; `src/player/player.js` `handleInput`): ← → turn (s
 rescanned one side per frame by `Player._scan`), V land on what a rope is in (`Player._landOnRope`), Shift gas (tap
 on the ground = jump), Space cut (swings at once; the cut lands at the best moment of the sweep, `_bladeProbe` /
 `_applyCut`), Esc / P pause, H controls card, M mute. WASD mirror the arrows; the mouse is optional.
+Those are the defaults: `src/keys.js` maps each action (`forward`, `ropeL`, `gas`, `cut`, ...) to two key slots,
+saved in localStorage (`wof.keys`). Game code asks `input.act(id)` / `input.actHit(id)`, never a key name; the mouse
+buttons are fixed extras and Esc always pauses. HUD keycaps with `data-k="<action>"` and hint text with `{action}`
+tokens show the current binding; the HUD KEYS screen rebinds.
 
 Cuttable things share one duck type: `{ kind, alive, height, position, velocity?, root, napeWorld(),
 applyHit({ part, damage, point, dir }), anchors?(out[]) -> Vector3[], threat? (0..1) }`. Their colliders carry
@@ -202,7 +206,7 @@ export class Hud {
              //      hooks: [{ state: 'idle'|'flying'|'attached' }, {..}], aim: { valid: bool, distance, lockTitan: bool },
              //      napeMarkers: [{ x, y, visible }] (screen px), objective: string,
              //      hookTargets: [{ x, y, visible, valid, attached }] ×2 (Z, X markers),
-             //      hint: null | { keys: [...], text }, threats: [{ x, y, angle, danger }],
+             //      hint: null | { keys: [action ids or key names], text with {action} tokens }, threats: [{ x, y, angle, danger }],
              //      timer: seconds | null, targets: null | { left, total }, controlsCard: bool,
              //      grabbed: bool, struggle: 0..1 }
   damageNumber(value, screenX, screenY, kill)   // big AoTTG style numbers

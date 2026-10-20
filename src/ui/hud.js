@@ -1,6 +1,8 @@
 // Wings of Freedom HUD: a DOM overlay above the WebGL canvas (owner: hud agent).
 // Owns its CSS (injected once as a <style> element) and the Google Fonts link. No three.js dependency.
 // update(s) runs every frame: it only writes to the DOM when a displayed value actually changed.
+// Keycaps carry data-k="<action>" (keys.js) and show the player's current binding; the KEYS screen rebinds them.
+import * as keys from '../keys.js';
 
 const FONT_HREF = 'https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900'
   + '&family=Inter:ital,wght@0,500;0,700;0,900;1,700;1,900&display=swap';
@@ -307,7 +309,24 @@ const CSS = `
 .wof-death-stats span{display:block;font-family:var(--serif);font-size:11px;letter-spacing:.24em;color:var(--brass)}
 .wof-death-stats b{display:block;margin-top:4px;font-size:clamp(20px,3.2vw,28px);font-weight:800;font-variant-numeric:tabular-nums}
 .wof-pause-card{gap:0}
-.wof-pause-card .wof-btn{margin:20px 0 22px}
+.wof-pause-btns{margin:20px 0 22px}
+.wof-menu .wof-keys-btn{min-width:214px;padding:9px 20px 8px}
+.wof-menu .wof-keys-btn b{font-size:16px}
+.wof-keys{background:rgba(6,8,5,.82);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px)}
+.wof-keys-card{width:min(860px,100%)}
+.wof-keys-card .wof-note{margin:8px 0 16px}
+.wof-kb{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 22px}
+.wof-kb-h{grid-column:1/-1;margin-top:8px;font-family:var(--serif);font-weight:900;font-size:12px;letter-spacing:.24em;color:var(--brass);
+  border-bottom:1px solid rgba(201,162,90,.28);padding-bottom:3px}
+.wof-kb-r{display:grid;grid-template-columns:1fr 92px 92px;gap:6px;align-items:center;font-size:13px;color:var(--parch)}
+.wof-kb-r button{pointer-events:auto;cursor:pointer;height:28px;padding:0 6px;border-radius:5px;font-family:var(--sans);font-weight:800;font-size:13px;
+  color:#f6ecd2;background:linear-gradient(180deg,#4a3720,#1d140a);border:1px solid #8a6a3a;border-bottom-width:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wof-kb-r button:hover{filter:brightness(1.2)}
+.wof-kb-r button:focus{outline:none}
+.wof-kb-r button.empty{color:var(--parch-d);font-weight:500;opacity:.6}
+.wof-kb-r button.wait{border-color:var(--cyan);color:var(--cyan);animation:wof-blink .5s ease-in-out infinite alternate}
+.wof-kb-r button.sel{outline:2px solid var(--cyan);outline-offset:1px}
+@media (max-width:700px){.wof-kb{grid-template-columns:1fr}}
 .wof-death-btns{margin-top:22px}
 .wof-death-btns .wof-btn{min-width:200px}
 .wof-death-btns .wof-btn[hidden]{display:none}
@@ -391,13 +410,13 @@ const TEMPLATE = `
 
   <div class="wof-blc">
   <div class="wof-cc">
-    <span class="k"><kbd>&larr;</kbd><kbd>&rarr;</kbd></span><span class="t"><b>turn</b> &middot; swing</span>
-    <span class="k"><kbd>&uarr;</kbd><kbd>&darr;</kbd></span><span class="t"><b>run</b> / pump &middot; <b>brake</b> / slacken</span>
-    <span class="k"><kbd class="z">Z</kbd><kbd class="x">X</kbd></span><span class="t"><b>hold</b>: rope left / right &middot; both = zip</span>
-    <span class="k"><kbd>V</kbd></span><span class="t"><b>land</b> on what your rope is in</span>
-    <span class="k"><kbd class="w">Shift</kbd></span><span class="t"><b>gas</b> &middot; tap on the ground = jump</span>
-    <span class="k"><kbd class="w">Space</kbd></span><span class="t"><b>cut</b> &middot; hold flying fast = spin</span>
-    <span class="k"><kbd>H</kbd></span><span class="t">hide this card</span>
+    <span class="k"><kbd data-k="left"></kbd><kbd data-k="right"></kbd></span><span class="t"><b>turn</b> &middot; swing</span>
+    <span class="k"><kbd data-k="forward"></kbd><kbd data-k="back"></kbd></span><span class="t"><b>run</b> / pump &middot; <b>brake</b> / slacken</span>
+    <span class="k"><kbd class="z" data-k="ropeL"></kbd><kbd class="x" data-k="ropeR"></kbd></span><span class="t"><b>hold</b>: rope left / right &middot; both = zip</span>
+    <span class="k"><kbd data-k="land"></kbd></span><span class="t"><b>land</b> on what your rope is in</span>
+    <span class="k"><kbd data-k="gas"></kbd></span><span class="t"><b>gas</b> &middot; tap on the ground = jump</span>
+    <span class="k"><kbd data-k="cut"></kbd></span><span class="t"><b>cut</b> &middot; hold flying fast = spin</span>
+    <span class="k"><kbd data-k="card"></kbd></span><span class="t">hide this card</span>
   </div>
   <div class="wof-bl wof-panel">
     <div class="wof-row2">
@@ -426,21 +445,21 @@ const TEMPLATE = `
     </svg>
     <div class="wof-dist"></div>
     <div class="wof-hook" data-side="0" data-state="idle">
-      <svg viewBox="0 0 16 20"><path d="M12 2 L4 10 L12 18"/></svg><span>Z</span>
+      <svg viewBox="0 0 16 20"><path d="M12 2 L4 10 L12 18"/></svg><span data-k="ropeL"></span>
     </div>
     <div class="wof-hook" data-side="1" data-state="idle">
-      <svg viewBox="0 0 16 20"><path d="M4 2 L12 10 L4 18"/></svg><span>X</span>
+      <svg viewBox="0 0 16 20"><path d="M4 2 L12 10 L4 18"/></svg><span data-k="ropeR"></span>
     </div>
   </div>
   <div class="wof-napes"></div>
   <div class="wof-threats"></div>
   <div class="wof-tgts">
-    <div class="wof-tgt" data-side="0" data-att="0"><i></i><b>Z</b></div>
-    <div class="wof-tgt" data-side="1" data-att="0"><i></i><b>X</b></div>
+    <div class="wof-tgt" data-side="0" data-att="0"><i></i><b data-k="ropeL"></b></div>
+    <div class="wof-tgt" data-side="1" data-att="0"><i></i><b data-k="ropeR"></b></div>
   </div>
   <div class="wof-hint"><span class="ks"></span><span class="tx"></span></div>
   <div class="wof-grab">
-    <div class="wof-grab-t"><span>MASH</span><kbd>SPACE</kbd></div>
+    <div class="wof-grab-t"><span>MASH</span><kbd data-k="cut" data-up></kbd></div>
     <div class="wof-bar wof-grab-bar"><div class="wof-bar-fill"></div></div>
     <div class="wof-grab-s">CUT YOURSELF FREE</div>
   </div>
@@ -466,6 +485,7 @@ const TEMPLATE = `
       <button class="wof-btn" data-mode="training"><b>TRAINING</b><small>Training Grounds: cut the dummies against the clock</small></button>
       <button class="wof-btn" data-mode="free"><b>FREE FLIGHT</b><small>No titans, infinite gas</small></button>
     </div>
+    <button class="wof-btn alt wof-keys-btn"><b>KEYS</b><small>Change the controls</small></button>
     <div class="wof-card wof-panel">
       <div class="wof-card-title">Controls &middot; keyboard only</div>
       <div data-keys></div>
@@ -477,9 +497,26 @@ const TEMPLATE = `
   <div class="wof-screen-in">
     <div class="wof-card wof-panel wof-pause-card">
       <h2 class="wof-h2">Paused</h2>
-      <button class="wof-btn wof-resume"><b>RESUME</b></button>
+      <div class="wof-menu-btns wof-pause-btns">
+        <button class="wof-btn wof-resume"><b>RESUME</b></button>
+        <button class="wof-btn alt wof-keys-btn"><b>KEYS</b></button>
+      </div>
       <div class="wof-card-title">Controls</div>
       <div data-keys></div>
+    </div>
+  </div>
+</div>
+
+<div class="wof-screen wof-keys">
+  <div class="wof-screen-in">
+    <div class="wof-card wof-panel wof-keys-card">
+      <h2 class="wof-h2">Keys</h2>
+      <p class="wof-note">Click a key, then press the new key. <b>Esc</b> cancels, <b>Backspace</b> clears. A key moves from its old action.</p>
+      <div class="wof-kb"></div>
+      <div class="wof-menu-btns wof-death-btns">
+        <button class="wof-btn" data-act="keys-back"><b>BACK</b></button>
+        <button class="wof-btn alt" data-act="keys-reset"><b>DEFAULTS</b></button>
+      </div>
     </div>
   </div>
 </div>
@@ -527,28 +564,28 @@ const CONTROL_ROWS = `
 <div class="wof-ctl">
   <div class="wof-grp">
     <div class="wof-grp-h">MOVE</div>
-    <div class="wof-grp-k wof-arrows"><kbd>&uarr;</kbd><kbd>&larr;</kbd><kbd>&darr;</kbd><kbd>&rarr;</kbd></div>
-    <ul><li><b>&larr; &rarr;</b> turn &middot; swing</li><li><b>&uarr;</b> run &middot; pump the swing</li><li><b>&darr;</b> brake &middot; slacken</li></ul>
+    <div class="wof-grp-k wof-arrows"><kbd data-k="forward"></kbd><kbd data-k="left"></kbd><kbd data-k="back"></kbd><kbd data-k="right"></kbd></div>
+    <ul><li><b data-k="left"></b> <b data-k="right"></b> turn &middot; swing</li><li><b data-k="forward"></b> run &middot; pump the swing</li><li><b data-k="back"></b> brake &middot; slacken</li></ul>
   </div>
   <div class="wof-grp">
     <div class="wof-grp-h">ROPES</div>
-    <div class="wof-grp-k"><kbd class="z">Z</kbd><kbd class="x">X</kbd></div>
-    <ul><li>hold <b>Z</b> left &middot; <b>X</b> right</li><li>sticks at the marker</li><li><b>Z + X</b> zip forward</li><li><b>V</b>: land on the branch / roof it's in</li></ul>
+    <div class="wof-grp-k"><kbd class="z" data-k="ropeL"></kbd><kbd class="x" data-k="ropeR"></kbd></div>
+    <ul><li>hold <b data-k="ropeL"></b> left &middot; <b data-k="ropeR"></b> right</li><li>sticks at the marker</li><li><b data-k="ropeL"></b> + <b data-k="ropeR"></b> zip forward</li><li><b data-k="land"></b>: land on the branch / roof it's in</li></ul>
   </div>
   <div class="wof-grp">
     <div class="wof-grp-h">GAS</div>
-    <div class="wof-grp-k"><kbd class="w">Shift</kbd></div>
+    <div class="wof-grp-k"><kbd data-k="gas"></kbd></div>
     <ul><li><b>boost</b> &middot; reel faster</li><li>tap on the ground: <b>jump</b></li></ul>
   </div>
   <div class="wof-grp">
     <div class="wof-grp-h">CUT</div>
-    <div class="wof-grp-k"><kbd class="sp">Space</kbd></div>
+    <div class="wof-grp-k"><kbd data-k="cut" data-big></kbd></div>
     <ul><li><b>slash</b> the nape</li><li>hold flying fast: <b>spin</b></li></ul>
   </div>
 </div>
 <div class="wof-ctl-more">
-  <span><kbd>Esc</kbd><kbd>P</kbd> pause</span><span><kbd>F</kbd> whistle for horse</span><span><kbd>M</kbd> mute</span><span><kbd>H</kbd> controls card</span>
-  <span><kbd>R</kbd> blades (auto when dull)</span><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> = arrows</span>
+  <span><kbd>Esc</kbd><kbd data-k="pause"></kbd> pause</span><span><kbd data-k="whistle"></kbd> whistle for horse</span><span><kbd data-k="mute"></kbd> mute</span><span><kbd data-k="card"></kbd> controls card</span>
+  <span><kbd data-k="blades"></kbd> blades (auto when dull)</span><span data-alt><kbd data-k="forward" data-s="1"></kbd><kbd data-k="left" data-s="1"></kbd><kbd data-k="back" data-s="1"></kbd><kbd data-k="right" data-s="1"></kbd> = <kbd data-k="forward"></kbd><kbd data-k="left"></kbd><kbd data-k="back"></kbd><kbd data-k="right"></kbd></span>
 </div>
 <p class="wof-note"><b>Mouse optional:</b> click the game to look with the mouse</p>`;
 
@@ -603,18 +640,35 @@ function fmtClock(tt) {
   const m = Math.floor(tt / 600), s = Math.floor(tt / 10) % 60;
   return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s + '.' + (tt % 10);
 }
+const fillKeys = (s) => keys.fill(s);
 function keyLabel(k) {
   const s = String(k);
   return KEY_LABEL[s.toLowerCase()] || (s.length === 1 ? s.toUpperCase() : s);
 }
+/** Keycap for a hint: an action id (shows its bound key) or a literal key name. */
 function kbdFor(k) {
-  const label = keyLabel(k);
   const n = document.createElement('kbd');
+  if (keys.ACTIONS.some((a) => a.id === k)) { n.setAttribute('data-k', k); paintKey(n); return n; }
+  const label = keyLabel(k);
   n.textContent = label;
-  if (label === 'Z') n.className = 'z';
-  else if (label === 'X') n.className = 'x';
-  else if (label === 'Space' || label === 'Shift') n.className = 'w';
+  if (label.length > 2) n.className = 'w';
   return n;
+}
+/** Write the current binding into a data-k element (data-s = slot, data-up = upper case, data-big = wide cap). */
+function paintKey(n) {
+  const id = n.getAttribute('data-k'), slot = +(n.getAttribute('data-s') || 0);
+  const k = slot ? keys.slotKey(id, slot) : keys.keysFor(id)[0];
+  let t = slot ? keys.keyLabel(k) : keys.label(id);
+  if (n.hasAttribute('data-up')) t = t.toUpperCase();
+  n.textContent = t;
+  if (n.tagName === 'KBD') {
+    n.style.display = t ? '' : 'none';
+    const sp = n.hasAttribute('data-big') && t === 'Space';
+    n.classList.toggle('sp', sp);
+    n.classList.toggle('w', !sp && t.length > 2);
+    if (id === 'ropeL') n.classList.add('z');
+    if (id === 'ropeR') n.classList.add('x');
+  }
 }
 
 export class Hud {
@@ -691,7 +745,12 @@ export class Hud {
       grabFill: q('.wof-grab-bar .wof-bar-fill'),
       tgts: all('.wof-tgt'),
       threatLayer: q('.wof-threats'),
+      keys: q('.wof-keys'),
+      kb: q('.wof-kb'),
     };
+    this._buildKeys();
+    this._paintKeys();
+    keys.onChange(() => { this._paintKeys(); this._c.hint = null; this._hintObj = undefined; });
 
     // Buttons blur after a click so a later Space/Enter cannot re-click them.
     const press = (node, fn) => node.addEventListener('click', (e) => { e.currentTarget.blur(); fn(); });
@@ -708,11 +767,16 @@ export class Hud {
     press(this.el.deathMenu, () => { this.hideDeath(); if (this._onMenu) this._onMenu(); });
     press(q('[data-act="again"]'), () => { this.hideTrainingResult(); if (this._onAgain) this._onAgain(); });
     press(q('[data-act="menu"]'), () => { this.hideTrainingResult(); if (this._onResultMenu) this._onResultMenu(); });
+    for (const b of all('.wof-keys-btn')) press(b, () => this.showKeys());
+    press(q('[data-act="keys-back"]'), () => this.hideKeys());
+    press(q('[data-act="keys-reset"]'), () => { this._wait = null; keys.reset(); });
 
     // Keyboard-only play: on a full screen, arrows move a highlight between its buttons and Enter presses it.
     // (Space is never used here: it is the cut key and may still be mashed when a screen appears.)
     this._sel = 0;
     try {
+      // capture phase: while the KEYS screen is up it takes every key first (no pause, mute, ... behind it)
+      addEventListener('keydown', (e) => this._keysKey(e), true);
       addEventListener('keydown', (e) => this._screenKey(e));
       addEventListener('resize', () => { this._vw = innerWidth; this._vh = innerHeight; });
     } catch (e) { /* no window */ }
@@ -1004,6 +1068,77 @@ export class Hud {
     this._syncHud();
   }
 
+  /** KEYS screen: rebind any action. Opens over the title or pause screen and returns to it. */
+  showKeys() {
+    const el = this.el;
+    this._keysFrom = [el.menu, el.pause].find((n) => n.classList.contains('on')) || null;
+    if (this._keysFrom) this._keysFrom.classList.remove('on');
+    this._wait = null;
+    this._paintKeys();
+    el.keys.classList.add('on');
+    this._sel = 0;
+    this._syncHud();
+  }
+
+  hideKeys() {
+    this._wait = null;
+    this.el.keys.classList.remove('on');
+    if (this._keysFrom) this._keysFrom.classList.add('on');
+    this._keysFrom = null;
+    this._sel = 0;
+    this._syncHud();
+  }
+
+  _buildKeys() {
+    let html = '', group = '';
+    for (const a of keys.ACTIONS) {
+      if (a.group !== group) { group = a.group; html += '<div class="wof-kb-h">' + group + '</div>'; }
+      html += '<div class="wof-kb-r"><span>' + a.name + '</span>';
+      for (let i = 0; i < keys.SLOTS; i++) html += '<button data-bind="' + a.id + '" data-slot="' + i + '"></button>';
+      html += '</div>';
+    }
+    this.el.kb.innerHTML = html;
+    this.el.kb.addEventListener('click', (e) => {
+      const b = e.target.closest && e.target.closest('[data-bind]');
+      if (!b) return;
+      b.blur();
+      this._wait = this._wait === b ? null : b;
+      this._sel = this._buttons(this.el.keys).indexOf(b);
+      this._paintKeys();
+    });
+  }
+
+  /** Redraw every keycap that shows a binding, and the KEYS screen slots. */
+  _paintKeys() {
+    for (const n of this.root.querySelectorAll('[data-k]')) paintKey(n);
+    for (const n of this.root.querySelectorAll('[data-alt]')) n.style.display = n.querySelector('kbd[data-s]:not([style*="none"])') ? '' : 'none';
+    for (const b of this.el.kb.querySelectorAll('[data-bind]')) {
+      const k = keys.slotKey(b.getAttribute('data-bind'), +b.getAttribute('data-slot'));
+      const wait = b === this._wait;
+      b.textContent = wait ? 'press a key' : k ? keys.keyLabel(k) : '—';
+      b.classList.toggle('wait', wait);
+      b.classList.toggle('empty', !k && !wait);
+    }
+  }
+
+  /** While the KEYS screen is up: the next key goes to the slot waiting for one; Esc goes back. */
+  _keysKey(e) {
+    if (!this.el.keys.classList.contains('on')) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (e.repeat) return;
+    const w = this._wait;
+    if (w) {
+      this._wait = null;
+      const id = w.getAttribute('data-bind'), slot = +w.getAttribute('data-slot');
+      if (e.code === 'Backspace' || e.code === 'Delete') keys.bind(id, slot, null);
+      else if (e.code !== 'Escape' && e.code) keys.bind(id, slot, keys.keyName(e));
+      this._paintKeys();
+      return;
+    }
+    if (e.code === 'Escape') { this.hideKeys(); return; }
+    this._screenKey(e);
+  }
+
   // ---- internals ----
 
   /** The in-game HUD is hidden behind the title, pause and death screens. */
@@ -1016,17 +1151,17 @@ export class Hud {
   /** The full screen currently shown (topmost first), or null. */
   _screen() {
     const el = this.el;
-    for (const n of [el.death, el.result, el.pause, el.menu]) if (n.classList.contains('on')) return n;
+    for (const n of [el.keys, el.death, el.result, el.pause, el.menu]) if (n.classList.contains('on')) return n;
     return null;
   }
 
   _buttons(screen) {
-    return Array.from(screen.querySelectorAll('.wof-btn')).filter((b) => !b.hidden);
+    return Array.from(screen.querySelectorAll('.wof-btn, .wof-kb-r button')).filter((b) => !b.hidden);
   }
 
   _markSel() {
     const screen = this._screen();
-    for (const b of this.root.querySelectorAll('.wof-btn.sel')) b.classList.remove('sel');
+    for (const b of this.root.querySelectorAll('button.sel')) b.classList.remove('sel');
     if (!screen) return;
     const btns = this._buttons(screen);
     if (!btns.length) return;
@@ -1040,8 +1175,9 @@ export class Hud {
     if (!screen || e.altKey || e.ctrlKey || e.metaKey) return;
     const k = e.code || e.key;
     let d = 0;
-    if (k === 'ArrowLeft' || k === 'ArrowUp' || k === 'KeyA' || k === 'KeyW') d = -1;
-    else if (k === 'ArrowRight' || k === 'ArrowDown' || k === 'KeyD' || k === 'KeyS') d = 1;
+    const act = keys.actionOf(keys.keyName(e));
+    if (k === 'ArrowLeft' || k === 'ArrowUp' || act === 'left' || act === 'forward') d = -1;
+    else if (k === 'ArrowRight' || k === 'ArrowDown' || act === 'right' || act === 'back') d = 1;
     if (d) {
       if (e.repeat) return;
       this._sel += d;
@@ -1126,7 +1262,7 @@ export class Hud {
     this._hintObj = h; this._hintTxt = h && h.text;
     const c = this._c;
     const keys = h && Array.isArray(h.keys) ? h.keys : [];
-    const text = h && h.text ? String(h.text) : '';
+    const text = h && h.text ? fillKeys(h.text) : '';
     const key = h && (text || keys.length) ? keys.join('\u0001') + '\u0002' + text : '';
     if (c.hint === key) return;
     c.hint = key;

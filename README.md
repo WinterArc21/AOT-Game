@@ -28,6 +28,11 @@ The keyboard is all you need. The mouse is optional.
 WASD mirror the arrows. Blades swap themselves when they go dull (**R** also swaps). Mouse players can click
 the game to look around with the mouse; **Q** / **E** and the right mouse button also fire ropes.
 
+**Change the keys:** press **KEYS** on the title or pause screen. Click a key slot, then press the new key (**Esc**
+cancels, **Backspace** clears the slot). Each action takes two keys; a key you reuse leaves its old action.
+**DEFAULTS** puts the keys above back. The game keeps your keys in the browser, and every keycap and tutorial hint
+shows them.
+
 **Fighting a titan:** get within about 100 m and hold **Z + X**. Both ropes lock onto its shoulders and the gear
 swings you out round the side of its head (**←** / **→** pick which side) and round behind the neck, then lines you
 up on the nape where it last saw it. The rest is yours:

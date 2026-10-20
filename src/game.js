@@ -1,6 +1,7 @@
 // Game flow: the title flyover, the Expedition (waves of titans, the Colossal on wave 3), the Training Grounds
 // (cut every wooden dummy against the clock), Free Flight, score and combos, and the in-game tutorial.
 import * as THREE from 'three';
+import * as keys from './keys.js';
 
 const WAVES = [
   { msg: 'WAVE 1 — TITANS IN THE FIELD', field: 4, forest: 0, town: 0, abnormal: 0, sizes: [4, 9] },
@@ -9,19 +10,20 @@ const WAVES = [
   { msg: 'WAVE 4 — THE FOREST OF GIANT TREES', field: 1, forest: 6, town: 0, abnormal: 2, sizes: [6, 15] },
 ];
 
-// Tutorial steps: each shows until the player has actually done it (or 14 s pass).
+// Tutorial steps: each shows until the player has actually done it (or 14 s pass). Keys are actions (keys.js) and
+// {action} in the text becomes the player's key for it, so the hints follow any rebinding.
 const STEPS = [
-  { id: 'horse', keys: ['↑', 'Shift'], text: 'On horseback: ↑ gallop, ← → steer. Shift stands up and leaps off; Z / X fire a rope straight off the horse', done: (p) => !p.riding, when: (p) => !!p.riding },
-  { id: 'rope', keys: ['X'], text: 'Hold X to fire your right rope at the X marker', done: (p) => p.odm.attachedCount() > 0 },
-  { id: 'zip', keys: ['Z', 'X'], text: 'Hold Z and X together to zip forward between both anchors', done: (p) => p.odm.attachedCount() === 2 },
-  { id: 'steer', keys: ['←', '→'], text: 'Steer with the arrows. Let go of Z / X to fly free, then grab the next anchor', done: (p, s) => s.steerT > 0.6 },
-  { id: 'gas', keys: ['Shift'], text: 'Hold Shift for a gas boost (tap it on the ground to jump)', done: (p, s) => s.boostT > 0.6 },
-  { id: 'cut', keys: ['Space'], text: 'Space cuts. Hit the nape on the back of the neck, fast', done: (p, s) => s.cuts > 0, modes: ['training', 'expedition'] },
-  { id: 'aim', keys: ['←', '→', 'C'], text: 'Ropes go where you face: turn to put the marker on the tree you want. C skips to the next anchor', done: (p, s) => s.steerT > 1.5 },
-  { id: 'slack', keys: ['↓'], text: 'On a rope, hold ↓ to let the wire out for a longer swing', done: (p, s) => s.payoutT > 0.5 },
+  { id: 'horse', keys: ['forward', 'gas'], text: 'On horseback: {forward} gallop, {left} {right} steer. {gas} stands up and leaps off; {ropeL} / {ropeR} fire a rope straight off the horse', done: (p) => !p.riding, when: (p) => !!p.riding },
+  { id: 'rope', keys: ['ropeR'], text: 'Hold {ropeR} to fire your right rope at the {ropeR} marker', done: (p) => p.odm.attachedCount() > 0 },
+  { id: 'zip', keys: ['ropeL', 'ropeR'], text: 'Hold {ropeL} and {ropeR} together to zip forward between both anchors', done: (p) => p.odm.attachedCount() === 2 },
+  { id: 'steer', keys: ['left', 'right'], text: 'Steer with {left} / {right}. Let go of {ropeL} / {ropeR} to fly free, then grab the next anchor', done: (p, s) => s.steerT > 0.6 },
+  { id: 'gas', keys: ['gas'], text: 'Hold {gas} for a gas boost (tap it on the ground to jump)', done: (p, s) => s.boostT > 0.6 },
+  { id: 'cut', keys: ['cut'], text: '{cut} cuts. Hit the nape on the back of the neck, fast', done: (p, s) => s.cuts > 0, modes: ['training', 'expedition'] },
+  { id: 'aim', keys: ['left', 'right', 'skip'], text: 'Ropes go where you face: turn to put the marker on the tree you want. {skip} skips to the next anchor', done: (p, s) => s.steerT > 1.5 },
+  { id: 'slack', keys: ['back'], text: 'On a rope, hold {back} to let the wire out for a longer swing', done: (p, s) => s.payoutT > 0.5 },
 ];
 
-const NO_ANCHOR = { id: 'no-anchor', keys: ['↑', 'Shift'], text: 'Nothing in rope range yet: run toward the trees or titans (Shift jumps the parapet)' };
+const NO_ANCHOR = { id: 'no-anchor', keys: ['forward', 'gas'], text: 'Nothing in rope range yet: run toward the trees or titans ({gas} jumps the parapet)' };
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -248,7 +250,7 @@ export class Game {
       const why = result.covered ? 'IT COVERED ITS NAPE: wait for the shoulders to drop'
         : (result.angle ?? 1) < 0.8 ? 'FROM THE SIDE: come round behind the neck and cut across it'
           : (result.timing ?? 1) < 0.65 ? 'MISTIMED: swing just as you reach it'
-            : 'TOO SLOW: come in faster (Shift on the rope)';
+            : keys.fill('TOO SLOW: come in faster ({gas} on the rope)');
       g.hud?.message?.(e.titan?.kind === 'dummy' ? why : `WOUNDED — ${why}`, 1.8, 'warn');
     }
     if (result?.effect === 'blind') g.hud?.message?.('BLINDED', 1, 'info');

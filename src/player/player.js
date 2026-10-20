@@ -77,10 +77,10 @@ export class Player {
       this.mouseT = 0;
     } else this.mouseT += dt;
 
-    const k = (a, b) => input.held(a) || input.held(b);
-    const F = k('ArrowUp', 'W') ? 1 : 0, B = k('ArrowDown', 'S') ? 1 : 0;
-    const L = k('ArrowLeft', 'A') ? 1 : 0, R = k('ArrowRight', 'D') ? 1 : 0;
-    const cut = input.hit('Space') || input.hit('Mouse0');
+    // actions, not keys: the player can rebind every one of them (keys.js)
+    const F = input.act('forward') ? 1 : 0, B = input.act('back') ? 1 : 0;
+    const L = input.act('left') ? 1 : 0, R = input.act('right') ? 1 : 0;
+    const cut = input.actHit('cut') || input.hit('Mouse0');
 
     if (this.grabbedBy) {
       if (cut) {
@@ -99,8 +99,8 @@ export class Player {
       this.turn = 0; this.wishF = 0; this.wishR = 0;
       if (this.mounting) return;   // still climbing on: you can already steer, but not leap
       // hold Shift: rise from the saddle and stand on the galloping horse; let go to spring off it
-      const shiftHeld = input.held('ShiftLeft') || input.held('ShiftRight');
-      const rope = input.hit('Z') || input.hit('X') || input.hit('Q') || input.hit('E') || input.hit('Mouse2');
+      const shiftHeld = input.act('gas');
+      const rope = input.actHit('ropeL') || input.actHit('ropeR') || input.hit('Mouse2');
       this.rideStandT = shiftHeld || rope ? 1 : 0;
       const release = !shiftHeld && this.rideStand > 0.7;
       if (release || rope) this._leapOff(rope ? CFG.horse.ropeLeap : CFG.horse.leap);
@@ -110,7 +110,7 @@ export class Player {
       }
     }
 
-    if (input.hit('F')) this._whistle();
+    if (input.actHit('whistle')) this._whistle();
 
     // steering: the arrows turn your heading; the camera rides behind it
     this.turn = R - L;
@@ -123,10 +123,10 @@ export class Player {
     this.payout = B > 0 && anchored > 0 && !this.grounded;   // ↓ on a rope: stop the winch, let the wire out
 
     // ropes: Z = left, X = right (Q / E and the mouse buttons still work for mouse players)
-    const wantL = input.held('Z') || input.held('Q') || input.held('Mouse2');
-    const wantR = input.held('X') || input.held('E') || input.held('Mouse2');
-    const fireL = input.hit('Z') || input.hit('Q') || input.hit('Mouse2');
-    const fireR = input.hit('X') || input.hit('E') || input.hit('Mouse2');
+    const wantL = input.act('ropeL') || input.held('Mouse2');
+    const wantR = input.act('ropeR') || input.held('Mouse2');
+    const fireL = input.actHit('ropeL') || input.hit('Mouse2');
+    const fireR = input.actHit('ropeR') || input.hit('Mouse2');
     this._wantL = wantL; this._wantR = wantR;
     if ((fireL || fireR) && this.stun <= 0) for (const b of this._bans) b.t = 0;
     if ((fireL || fireR) && (this.cling || this.perch)) { this.cling = null; this.perch = null; }
@@ -163,8 +163,8 @@ export class Player {
     }
 
     // gas: Shift. Tap on the ground = jump; clinging to a trunk = kick off; held = boost
-    const shiftHit = input.hit('ShiftLeft') || input.hit('ShiftRight');
-    const shiftHeld = input.held('ShiftLeft') || input.held('ShiftRight');
+    const shiftHit = input.actHit('gas');
+    const shiftHeld = input.act('gas');
     if (shiftHit && this.cling) { this.cling = null; this.wallTime = 0.2; }
     if (shiftHit && this.wallTime > 0 && this.wallN && !this.grounded) {
       this.vel.addScaledVector(this.wallN, 10).y += 7;
@@ -182,9 +182,9 @@ export class Player {
     this.wantBoost = shiftHeld;
     // V: get onto what your rope is in. Reel in and land standing on the branch or roof (or on the side of the
     // trunk or wall), from anywhere along the rope
-    if (input.hit('V') && this.stun <= 0) this._landOnRope();
+    if (input.actHit('land') && this.stun <= 0) this._landOnRope();
     // C: the marker isn't on the anchor you want? skip both picks to the next-best ones
-    if (input.hit('C') || input.hit('Tab')) {
+    if (input.actHit('skip')) {
       for (const T of this.targets) if (T.valid) {
         const b = this._bans.find((x) => x.t <= 0) || (this._bans.length < 6 ? (this._bans[this._bans.length] = { p: new THREE.Vector3(), t: 0 }) : this._bans[0]);
         b.p.copy(T.point); b.t = CFG.aim.banTime;
@@ -194,11 +194,11 @@ export class Player {
     for (const b of this._bans) b.t -= dt;
 
     // blades: Space cuts, held at speed in the air = Levi's spinning slash; dull blades swap themselves
-    if (input.hit('R')) this._swapBlades();
+    if (input.actHit('blades')) this._swapBlades();
     const yh = this.odm.hooks[0].yank ? this.odm.hooks[0] : this.odm.hooks[1].yank ? this.odm.hooks[1] : null;
     if (cut && yh) this._cutWire(yh);                 // a titan has your wire: Space severs it
     else if (cut && this.swapT <= 0) this._slash();   // the cut is yours to time: it swings when you press
-    const cutHeld = input.held('Space') || input.held('Mouse0');
+    const cutHeld = input.act('cut') || input.held('Mouse0');
     this.spin = cutHeld && !this.grounded && this.speed > CFG.combat.spinMinSpeed && this.blade > 0 && this.swapT <= 0 && (this.slashT < 0 || this.slashT > 0.15);
     if (this.blade <= 0 && this.spares > 0 && this.swapT <= 0) {
       this.autoSwapT += dt;
