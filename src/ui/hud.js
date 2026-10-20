@@ -237,6 +237,7 @@ const CSS = `
 .wof-menu{background:radial-gradient(ellipse 70% 62% at 50% 44%,rgba(8,10,6,.12),rgba(6,8,5,.66) 70%,rgba(3,4,2,.93) 100%)}
 .wof-pause{background:rgba(6,8,5,.6);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px)}
 .wof-death{background:radial-gradient(ellipse 80% 70% at 50% 45%,rgba(78,8,4,.3),rgba(12,2,2,.92) 75%)}
+.wof-death.win{background:radial-gradient(ellipse 80% 70% at 50% 45%,rgba(120,96,40,.28),rgba(6,10,14,.9) 75%)}
 .wof-result{background:radial-gradient(ellipse 80% 70% at 50% 45%,rgba(24,30,16,.3),rgba(4,6,3,.9) 75%)}
 
 .wof-title{margin:0;text-align:center;font-family:var(--serif);font-weight:900;font-size:clamp(34px,7.4vw,88px);line-height:1;
@@ -482,6 +483,7 @@ const TEMPLATE = `
     <div class="wof-divider"></div>
     <div class="wof-menu-btns">
       <button class="wof-btn" data-mode="expedition"><b>EXPEDITION</b><small>Fight the titans</small></button>
+      <button class="wof-btn" data-mode="gate"><b>PLUG THE GATE</b><small>Get Eren and the boulder to the gate</small></button>
       <button class="wof-btn" data-mode="training"><b>TRAINING</b><small>Training Grounds: cut the dummies against the clock</small></button>
       <button class="wof-btn" data-mode="free"><b>FREE FLIGHT</b><small>No titans, infinite gas</small></button>
     </div>
@@ -1020,7 +1022,7 @@ export class Hud {
     el.classList.remove('on');
   }
 
-  /** Title screen. onStart(mode) is called with 'expedition', 'training' or 'free'. */
+  /** Title screen. onStart(mode) is called with 'expedition', 'gate', 'training' or 'free'. */
   showMenu(onStart) {
     this._onStart = onStart || null;
     this.el.menu.classList.add('on');
@@ -1042,6 +1044,8 @@ export class Hud {
     this.el.deathMenu.hidden = !this._onMenu;
     this._sel = 0;
     this.el.deathTitle.textContent = st.cause ? String(st.cause) : 'YOU WERE EATEN';
+    this.el.death.classList.toggle('win', !!st.win);
+    this.el.death.querySelector('.wof-retry b').textContent = st.win ? 'PLAY AGAIN' : 'RETURN TO THE WALL';
     this.el.deathKills.textContent = Math.max(0, Math.floor(Number(st.kills) || 0));
     this.el.deathScore.textContent = Math.max(0, Math.round(Number(st.score) || 0)).toLocaleString('en-US');
     this.el.deathTime.textContent = fmtTime(st.time);

@@ -49,7 +49,9 @@ game = {
   world,                           // result of buildWorld(game) (src/world/world.js)
   events,                          // { on(name, fn), off(name, fn), emit(name, payload) }
   time,                            // seconds since start (game time)
-  mode,                            // 'menu' | 'expedition' | 'training' | 'free'
+  mode,                            // 'menu' | 'expedition' | 'gate' | 'training' | 'free'
+  escort, gateSealed,              // Plug the Gate: Eren's titan (src/titans/carrier.js, not in titans.titans; titans
+                                   // in state 'maul' go for it) and whether the boulder now blocks the gate
   training, trainingActive,        // TrainingCourse (src/titans/dummies.js) and whether it is live
   targetList(),                    // every cuttable thing: live titans + (in training) dummies
   hitTest(center, radius),         // merged hit test over titans and dummies: [{ titan, part, point }]

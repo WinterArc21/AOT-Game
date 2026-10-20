@@ -138,7 +138,7 @@ const boot = async () => {
 
   // The keyboard is enough; the mouse is optional. Clicking the game captures the mouse for mouse look,
   // and leaving that capture (Esc) pauses, like any keyboard pause.
-  const isPlaying = () => game.mode === 'expedition' || game.mode === 'free' || game.mode === 'training';
+  const isPlaying = () => game.mode === 'expedition' || game.mode === 'gate' || game.mode === 'free' || game.mode === 'training';
   const resume = () => { game.paused = false; game.hud?.hidePause?.(); };
   const pause = () => { if (!isPlaying() || !game.player.alive || game.paused) return; game.paused = true; game.hud?.showPause?.(resume); };
   game.pause = pause; game.resume = resume;
@@ -235,7 +235,7 @@ function step(dt) {
   if (game.killCam) { game.killCam.t += dt; if (game.killCam.t >= game.killCam.dur) game.killCam = null; }
   game.time += simDt;
 
-  const playing = game.mode === 'expedition' || game.mode === 'free' || game.mode === 'training';
+  const playing = game.mode === 'expedition' || game.mode === 'gate' || game.mode === 'free' || game.mode === 'training';
   game.autoQuality(dt, playing);
   input.freeLook = playing && !input.locked && input.lockDenied && player.alive;
   input.edgeTurn(dt);

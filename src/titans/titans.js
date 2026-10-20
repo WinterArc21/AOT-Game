@@ -72,6 +72,7 @@ export class TitanManager {
     const list = this.titans;
     for (let i = 0; i < list.length; i++) list[i].update(dt);
     for (let i = list.length - 1; i >= 0; i--) if (list[i].dead) list.splice(i, 1);
+    this.game.escort?.update(dt);   // Plug the Gate: Eren's titan (carrier.js), not one of this.titans
   }
 
   clear() {

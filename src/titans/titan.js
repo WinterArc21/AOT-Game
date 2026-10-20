@@ -315,6 +315,7 @@ export class Titan {
 
   applyHit({ part = 'body', damage = 0, point = null, dir = null } = {}) {
     if (!this.alive) return { killed: false, effect: 'none' };
+    this.aggroT = 6;
     const fx = this.game.fx, pt = point ? point.clone() : this._headWorld(new V3());
     const dd = dir ? dir.clone().normalize() : new V3(0, 1, 0);
     if (part === 'head' || part === 'torso' || part === 'leg' || part === 'pelvis') part = 'body';
@@ -499,6 +500,7 @@ export class Titan {
     this.cdGroan -= dt;
     this.cdYank -= dt; this.cdCharge -= dt;
     this.cdGuard = (this.cdGuard || 0) - dt;
+    this.aggroT = (this.aggroT || 0) - dt;
     this.guardUrge = Math.max(0, (this.guardUrge || 0) - dt * 0.35);
     // a nape wound closes in about half a minute, steaming while it does
     if (this.napeDamage > 0 && !this.isColossal) {
@@ -540,7 +542,8 @@ export class Titan {
       const hk = this._ropeOnMe(), slow = (pl.velocity?.length?.() || 0) < 14;
       this.clingT = hk >= 0 && slow && this.dist3 < this.height * 0.9 ? this.clingT + dt : Math.max(0, this.clingT - dt * 2);
     }
-    if ((this.state === 'idle' || this.state === 'wander' || this.state === 'chase') && this._tryGuard(dt)) return;
+    if ((this.state === 'idle' || this.state === 'wander' || this.state === 'chase' || this.state === 'maul') && this._tryGuard(dt)) return;
+    if (this.game.escort && this._thinkEscort(dt, canMove)) return;
     switch (this.state) {
       case 'guard': this._thinkGuard(dt); break;
       case 'idle':
@@ -599,6 +602,40 @@ export class Titan {
     if (this.state === 'wander' || this.state === 'idle') this.gazeTarget = this.hasPlayer && this.dist3 < 160 ? pl.position : null;
     else this.gazeTarget = this.hasPlayer ? pl.position : null;
     if (blind) this.gazeTarget = null;
+  }
+
+  /**
+   * Plug the Gate: normal titans are drawn to Eren's titan from anywhere and maul him (he stops while they do). A
+   * soldier who cuts one, or flies right in its face, gets its attention instead for a few seconds.
+   */
+  _thinkEscort(dt, canMove) {
+    const esc = this.game.escort, st = this.state;
+    this.mauling = false;
+    if (this.abnormal || esc.phase !== 'walk' || (st !== 'idle' && st !== 'wander' && st !== 'chase' && st !== 'maul')) {
+      if (st === 'maul') this._enter('chase');
+      return false;
+    }
+    const ex = esc.position.x - this.position.x, ez = esc.position.z - this.position.z, dE = hypot(ex, ez);
+    const reach = this.armLen * 0.8 + this.footR + esc.footR;
+    if ((this.aggroT || 0) > 0 || (this.hasPlayer && this.distH < Math.min(dE - 10, this.armLen * 2.5))) {
+      if (st === 'maul') this._enter('chase');
+      return false;
+    }
+    if (st !== 'maul') { this._enter('maul'); this.maulT = 0.8 + this.rnd() * 0.6; }
+    this.gazeTarget = esc._headWorld(this._escGaze || (this._escGaze = new V3()));
+    if (dE > reach) {
+      this.goal = _g0.copy(esc.position);
+      this.speedTarget = canMove ? this.runSpeed * 0.85 : 0;
+    } else {
+      this.faceYaw = Math.atan2(ex, ez);
+      this.mauling = true;
+      if (Math.abs(wrap(this.faceYaw - this.yaw)) < 0.8 && (this.maulT -= dt) <= 0) {
+        this.maulT = 1.3 + this.rnd() * 0.6;
+        esc.hurt(0.7 + this.height * 0.15, this);
+      }
+    }
+    if (this._tryCounter(dt)) return true;   // it still snatches a wire and shakes off a soldier hanging on it
+    return true;
   }
 
   _notice() {
@@ -1271,7 +1308,7 @@ export class Titan {
     const pos = this.position, r = this.footR, WH = 6, GATE = 8;
     const side = (z) => (z > WH ? 1 : z < -WH ? -1 : 0);
     const sT = side(pos.z), sG = side(goal.z);
-    const canPass = this.height < 18 && !this.isColossal;
+    const canPass = this.height < 18 && !this.isColossal && !this.game.gateSealed;
     const apY = WH + r + 8;
     if (sT !== 0 && sG !== sT) {
       if (!canPass || sG === 0) { out.set(clamp(goal.x, -1190, 1190), 0, sT * (WH + r + 1.5)); return out; }
@@ -1346,7 +1383,7 @@ export class Titan {
     const pos = this.position, r = this.footR, WH = 6, GATE = 8;
     const band = WH + r * 0.4;
     if (Math.abs(pos.z) >= band) return;
-    const canPass = this.height < 18 && !this.isColossal;
+    const canPass = this.height < 18 && !this.isColossal && !this.game.gateSealed;
     if (canPass && Math.abs(pos.x) < GATE - r * 0.5) return;
     // inside the wall: push back to the side it came from
     const side = Math.abs(pz) >= WH ? Math.sign(pz) : (Math.sign(pos.z) || 1);
@@ -1759,6 +1796,7 @@ export class Titan {
       case 'shake': if (a) this._poseShake(); break;
       case 'guard': if (a) this._poseGuard(); break;
       case 'charge': if (a && a.t < a.W) this._poseChargeWindup(); break;
+      case 'maul': if (this.mauling && this.game.escort) this._poseMaul(); break;
       case 'chew': {
         const t = this.stateT;
         this.jawExtra += 0.22 + 0.22 * Math.sin(t * 11);
@@ -1773,6 +1811,20 @@ export class Titan {
       }
       default: break;
     }
+  }
+
+  /** Clawing and pounding at Eren's chest and arms, the hands in turn. */
+  _poseMaul() {
+    const P = this.P, esc = this.game.escort, t = this.stateT;
+    const c = esc._jpos('spine', _t13);
+    for (let i = 0; i < 2; i++) {
+      const ph = Math.sin(t * 4.5 + i * Math.PI), out = 0.5 + 0.5 * ph;
+      _t15.copy(c).sub(this.position); _t15.y = 0; const l = _t15.length() || 1;
+      const lx = Math.cos(this.yaw) * (i === 0 ? 1 : -1), lz = -Math.sin(this.yaw) * (i === 0 ? 1 : -1);
+      _t14.set(c.x - _t15.x / l * esc.footR * (0.4 + 1.2 * out) + lx * 0.15 * this.height, Math.min(c.y, this.position.y + this.shoulderH * 1.05) + out * 0.15 * this.height, c.z - _t15.z / l * esc.footR * (0.4 + 1.2 * out) + lz * 0.15 * this.height);
+      this._arm(i, _t14, this._pole(i, 0.8, -0.6, -0.2), 12);
+    }
+    P.spine[0] += 0.25; P.head[0] += -0.2; this.jawExtra += 0.3 + 0.2 * Math.sin(t * 9);
   }
 
   _shoulderRel(side, out) { return out.set(sideSign(side) * this.d.shoulderX * this.s, this.shoulderH, 0); }

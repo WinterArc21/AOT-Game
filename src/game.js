@@ -1,7 +1,13 @@
 // Game flow: the title flyover, the Expedition (waves of titans, the Colossal on wave 3), the Training Grounds
-// (cut every wooden dummy against the clock), Free Flight, score and combos, and the in-game tutorial.
+// (cut every wooden dummy against the clock), Plug the Gate (escort Eren's titan and the boulder to the breach),
+// Free Flight, score and combos, and the in-game tutorial.
 import * as THREE from 'three';
 import * as keys from './keys.js';
+import { Carrier } from './titans/carrier.js';
+
+// Plug the Gate: Eren starts up the main street and walks the boulder to the breach; the gate's town mouth is at z = -6
+const GATE = { start: new THREE.Vector3(0, 0, -150), goalZ: -19, maxAlive: 7 };
+const SCORED = new Set(['expedition', 'gate']);
 
 const WAVES = [
   { msg: 'WAVE 1 — TITANS IN THE FIELD', field: 4, forest: 0, town: 0, abnormal: 0, sizes: [4, 9] },
@@ -18,7 +24,7 @@ const STEPS = [
   { id: 'zip', keys: ['ropeL', 'ropeR'], text: 'Hold {ropeL} and {ropeR} together to zip forward between both anchors', done: (p) => p.odm.attachedCount() === 2 },
   { id: 'steer', keys: ['left', 'right'], text: 'Steer with {left} / {right}. Let go of {ropeL} / {ropeR} to fly free, then grab the next anchor', done: (p, s) => s.steerT > 0.6 },
   { id: 'gas', keys: ['gas'], text: 'Hold {gas} for a gas boost (tap it on the ground to jump)', done: (p, s) => s.boostT > 0.6 },
-  { id: 'cut', keys: ['cut'], text: '{cut} cuts. Hit the nape on the back of the neck, fast', done: (p, s) => s.cuts > 0, modes: ['training', 'expedition'] },
+  { id: 'cut', keys: ['cut'], text: '{cut} cuts. Hit the nape on the back of the neck, fast', done: (p, s) => s.cuts > 0, modes: ['training', 'expedition', 'gate'] },
   { id: 'aim', keys: ['left', 'right', 'skip'], text: 'Ropes go where you face: turn to put the marker on the tree you want. {skip} skips to the next anchor', done: (p, s) => s.steerT > 1.5 },
   { id: 'slack', keys: ['back'], text: 'On a rope, hold {back} to let the wire out for a longer swing', done: (p, s) => s.payoutT > 0.5 },
 ];
@@ -58,7 +64,7 @@ export class Game {
     });
     ev.on('ally:freed', (e) => {
       game.hud?.feed?.(this.g.player.alive ? 'Thanks — I owe you one!' : 'I\'m out!', 'radio', e.ally.name);
-      if (this.g.mode === 'expedition') { this.score += 300; game.hud?.message?.('COMRADE SAVED  +300', 1.6, 'info'); }
+      if (SCORED.has(this.g.mode)) { this.score += 300; game.hud?.message?.('COMRADE SAVED  +300', 1.6, 'info'); }
     });
     ev.on('ally:eaten', (e) => game.hud?.feed?.(`${e.ally.name} was eaten.`, 'warn'));
     ev.on('player:wireGrabbed', () => game.hud?.message?.('IT HAS YOUR WIRE! LET GO OR SPACE TO CUT', 2, 'warn'));
@@ -68,6 +74,20 @@ export class Game {
     ev.on('player:trampled', () => game.hud?.message?.('THROWN FROM THE SADDLE!', 1.6, 'warn'));
     ev.on('titan:windup', (e) => { if (e.kind === 'charge' && game.player?.riding) game.hud?.message?.('ABNORMAL CHARGING — BREAK AWAY!', 1.8, 'warn'); });
     ev.on('player:bladeBroken', () => game.hud?.message?.(game.player.spares > 0 ? 'Blades dull: swapping to a fresh pair' : 'NO BLADES LEFT: find a supply depot (crates under a flag)', game.player.spares > 0 ? 1.1 : 2.5, 'warn'));
+    // Plug the Gate
+    let lastHurt = -9;
+    ev.on('carrier:hurt', (e) => {
+      const c = e.carrier;
+      if (game.time - lastHurt > 7) { lastHurt = game.time; game.hud?.message?.('EREN IS UNDER ATTACK: CUT THEM OFF HIM', 2, 'warn'); }
+      for (const at of [50, 25]) if (c.hp <= at && !this['_hpCall' + at]) {
+        this['_hpCall' + at] = true;
+        const caller = (game.allies || []).find((a) => a.alive && !a.grabbedBy);
+        caller?.radio?.(at === 50 ? 'Eren\'s taking a beating! Keep them off him!' : 'He can\'t take much more!');
+      }
+    });
+    ev.on('carrier:heave', () => { game.hud?.message?.('EREN LIFTS THE BOULDER', 2, 'info'); game.player.cam.trauma = 0.5; });
+    ev.on('carrier:sealed', () => this._gateSealed());
+    ev.on('carrier:fallen', () => this._gateFailed());
     let lastNone = -9;
     ev.on('hook:none', () => {
       if (game.time - lastNone < 3) return;
@@ -83,6 +103,7 @@ export class Game {
     g.mode = 'menu';
     g.paused = false;
     this._stopTraining();
+    this._clearGate();
     g.hud?.hideDeath?.(); g.hud?.hidePause?.(); g.hud?.hideTrainingResult?.();
     g.input.unlock?.();
     g.titans?.clear?.();
@@ -104,6 +125,7 @@ export class Game {
     g.titans?.clear?.();
     for (const a of g.allies || []) a.revive?.();
     this._stopTraining();
+    this._clearGate();
     this.wave = 0; this.score = 0; this.combo = 1; this.comboT = 0; this.colossal = false; this.colossalSpawned = false; this.waveClear = 0;
     this.startTime = g.time;
     this._spawnQ = []; this._spawnT = 0;
@@ -115,6 +137,7 @@ export class Game {
       const d = (g.world?.supplyDepots || []).filter((x) => x.position.z > 120).sort((a, b) => a.position.z - b.position.z)[0];
       if (d) sp = { position: d.position.clone(), yaw: 0 };
     }
+    if (mode === 'gate') sp = { position: sp.position.clone(), yaw: Math.PI };   // the wall top, looking into the town
     if (mode === 'training') {
       g.training.start();
       g.trainingActive = true;
@@ -122,7 +145,7 @@ export class Game {
       this.trainStart = g.time;
     }
     g.player.reset(sp.position.clone().add(new THREE.Vector3(0, 0.6, 0)), sp.yaw ?? 0);
-    g.player.infiniteGas = mode !== 'expedition';
+    g.player.infiniteGas = !SCORED.has(mode);
     if (mode === 'training') g.player.spares = 99;
 
     // the Expedition rides out like the Survey Corps: mounted, just outside the breached gate
@@ -147,6 +170,8 @@ export class Game {
       g.hud?.message?.('DEDICATE YOUR HEART', 2.6, 'big');
       this.waveClear = 2.5; // first wave after the title card
       g.audio?.setMusic?.(0.5);
+    } else if (mode === 'gate') {
+      this._startGate();
     } else if (mode === 'training') {
       g.hud?.message?.('TRAINING GROUNDS: cut every dummy\'s nape. The clock is running.', 3.5, 'info');
       g.audio?.setMusic?.(0.4);
@@ -154,6 +179,83 @@ export class Game {
       g.hud?.message?.('FREE FLIGHT: the forest is yours. Infinite gas.', 3.5, 'info');
       g.audio?.setMusic?.(0.25);
     }
+  }
+
+  // ---------------------------------------------------------------- Plug the Gate
+  _startGate() {
+    const g = this.g;
+    g.escort = new Carrier(g.titans, { position: GATE.start.clone(), goalZ: GATE.goalZ });
+    this.gateT = 14; this.gateWave = 0; this.gateDone = false; this._hpCall50 = this._hpCall25 = false;
+    this._spawnSome('town', 2, [5, 12], 0, null, GATE.start);
+    this._spawnSome('field', 1, [6, 12], 0, { zMin: 25, zMax: 55, xMax: 25 });
+    g.hud?.message?.('PLUG THE GATE', 2.6, 'big');
+    setTimeout(() => { if (g.mode === 'gate' && !this.gateDone) g.hud?.message?.('Eren is carrying the boulder to the breach. Keep the titans off him.', 4, 'info'); }, 2800);
+    g.audio?.setMusic?.(0.6);
+  }
+
+  _clearGate() {
+    const g = this.g;
+    g.escort?.dispose?.();
+    g.escort = null;
+    if (this.gateSeal) g.collision.remove(this.gateSeal);
+    this.gateSeal = null;
+    g.gateSealed = false;
+  }
+
+  /** More titans while he walks: from the town, and through the breach from the field, faster as he nears it. */
+  _gateDirector(dt) {
+    const g = this.g, esc = g.escort;
+    if (!esc || esc.phase !== 'walk') return;
+    if ((this.gateT -= dt) > 0) return;
+    const alive = (g.titans?.titans || []).filter((t) => t.alive).length + this._spawnQ.length;
+    if (alive >= GATE.maxAlive) { this.gateT = 2; return; }
+    this.gateWave++;
+    this.gateT = 15 - 5 * esc.progress + Math.random() * 3;
+    this._spawnSome('town', 1 + (this.gateWave % 2), [4, 13], 0, null, esc.position);
+    this._spawnSome('field', 1, [5, 13], this.gateWave % 3 === 2 ? 1 : 0, { zMin: 25, zMax: 60, xMax: 30 });
+  }
+
+  _gateSealed() {
+    const g = this.g, p = g.player;
+    if (g.mode !== 'gate' || this.gateDone) return;
+    this.gateDone = true;
+    g.gateSealed = true;
+    // the boulder fills the tunnel: nothing walks or flies through it again
+    this.gateSeal = g.collision.addBox({ center: new THREE.Vector3(0, 10, 0), halfExtents: new THREE.Vector3(8, 10, 6), material: 'stone' });
+    for (const t of g.titans?.titans || []) {
+      if (Math.abs(t.position.z) < 6 + t.footR && Math.abs(t.position.x) < 8) t.position.z = t.position.z >= 0 ? 6 + t.footR + 2 : -(6 + t.footR + 2);
+    }
+    for (let i = 0; i < 9; i++) g.fx?.impact?.(new THREE.Vector3((Math.random() - 0.5) * 18, Math.random() * 4, -8 + Math.random() * 18), new THREE.Vector3(0, 1, 0), 'stone');
+    g.fx?.steam?.(new THREE.Vector3(0, 10, -8), 14, 3);
+    g.events.emit('titan:step', { position: new THREE.Vector3(0, 0, -2), size: 60 });
+    p.cam.trauma = 1; g.hitstop = 0.3;
+    const hp = Math.round(g.escort?.hp ?? 0);
+    this.score += 5000 + hp * 40;
+    g.hud?.message?.('THE GATE IS SEALED', 4, 'big');
+    g.hud?.feed?.(`Humanity's first victory against the titans!`, 'radio', (g.allies || [])[0]?.name || 'Squad');
+    g.audio?.setMusic?.(0.3);
+    const run = this.run;
+    setTimeout(() => {
+      if (this.run !== run) return;
+      g.input.unlock?.();
+      g.hud?.showDeath?.({ cause: 'TROST HOLDS', win: true, kills: p.stats.kills, score: this.score, time: Math.round(g.time - (this.startTime || 0)) },
+        () => this.start('gate'), () => this.toMenu());
+    }, 4200);
+  }
+
+  _gateFailed() {
+    const g = this.g, p = g.player;
+    if (g.mode !== 'gate' || this.gateDone) return;
+    this.gateDone = true;
+    g.hud?.message?.('EREN IS DOWN. THE BOULDER HAS FALLEN', 3.5, 'big');
+    g.audio?.setMusic?.(0.1);
+    const run = this.run;
+    setTimeout(() => {
+      if (this.run !== run) return;
+      g.input.unlock?.();
+      g.hud?.showDeath?.({ cause: 'TROST IS LOST', kills: p.stats.kills, score: this.score, time: Math.round(g.time - (this.startTime || 0)) },
+        () => this.start('gate'), () => this.toMenu());
+    }, 3800);
   }
 
   _stopTraining() {
@@ -182,10 +284,12 @@ export class Game {
     g.audio?.setMusic?.(Math.min(1, 0.55 + this.wave * 0.12));
   }
 
-  _spawnSome(area, count, sizes, abnormals, box = null) {
+  _spawnSome(area, count, sizes, abnormals, box = null, avoid = null) {
     const g = this.g;
     if (!g.titans?.spawn || count <= 0) return;
-    const zones = (g.world?.titanSpawns || []).filter((z) => z.area === area);
+    let zones = (g.world?.titanSpawns || []).filter((z) => z.area === area);
+    // not right on top of what you're protecting (or of you)
+    if (avoid) zones = zones.filter((z) => Math.hypot(z.center.x - avoid.x, z.center.z - avoid.z) > 45 && z.center.distanceTo(g.player.pos) > 30);
     const fallback = { field: { center: new THREE.Vector3(0, 0, 100), radius: 70 }, forest: { center: new THREE.Vector3(0, 0, 260), radius: 120 }, town: { center: new THREE.Vector3(0, 0, -80), radius: 40 } }[area];
     for (let i = 0; i < count; i++) {
       const z = zones.length ? zones[(Math.random() * zones.length) | 0] : fallback;
@@ -261,9 +365,9 @@ export class Game {
     const g = this.g;
     const t = e.titan;
     const size = t?.kind === 'colossal' ? 'the Colossal Titan' : `a ${Math.round(t?.height || 8)} m ${t?.kind === 'abnormal' ? 'abnormal' : 'titan'}`;
-    if (e.by) { g.hud?.feed?.(`${e.by.name} took down ${size}`, 'kill'); if (g.mode === 'expedition') this.score += 150; return; }
+    if (e.by) { g.hud?.feed?.(`${e.by.name} took down ${size}`, 'kill'); if (SCORED.has(g.mode)) this.score += 150; return; }
     g.hud?.feed?.(`You took down ${size}`, 'kill');
-    if (g.mode !== 'expedition') return;
+    if (!SCORED.has(g.mode)) return;
     const p = g.player;
     if (this.comboT > 0) this.combo = Math.min(9, this.combo + 1); else this.combo = 1;
     this.comboT = 7;
@@ -310,6 +414,8 @@ export class Game {
 
   _onDeath(e) {
     const g = this.g;
+    if (g.mode === 'gate' && this.gateDone) return;   // the result screen is already on its way
+    if (g.mode === 'gate') this.gateDone = true;
     const p = g.player;
     const cause = { eaten: 'YOU WERE EATEN', struck: 'CRUSHED BY A TITAN', fell: 'YOU FELL' }[e.cause] || 'YOU DIED';
     g.audio?.setMusic?.(0.1);
@@ -353,6 +459,7 @@ export class Game {
         this.waveClear = 4;
       }
     }
+    if (g.mode === 'gate' && g.player.alive) this._gateDirector(dt);
     if (g.mode === 'training' && g.trainingActive && this.trainEnd == null && (g.training?.remaining ?? 1) === 0) this._finishTraining();
   }
 
@@ -392,6 +499,14 @@ export class Game {
     if (g.mode === 'training') {
       const best = parseFloat(store.get('wof.trainingBest'));
       return `TRAINING GROUNDS · cut every dummy's nape${best > 0 ? ` · best ${best.toFixed(1)} s` : ''}`;
+    }
+    if (g.mode === 'gate') {
+      const esc = g.escort;
+      if (!esc) return '';
+      if (esc.phase === 'fallen') return 'PLUG THE GATE · Eren is down';
+      if (esc.phase !== 'walk') return 'PLUG THE GATE · the gate is sealed';
+      const on = (g.titans?.titans || []).filter((t) => t.alive && t.state === 'maul' && t.mauling).length;
+      return `PLUG THE GATE · Eren ${Math.round(esc.hp)}% · ${Math.max(0, Math.round(esc.goalZ - esc.position.z))} m to the gate · ${on ? `${on} titan${on > 1 ? 's' : ''} on him!` : 'keep them off him'}`;
     }
     if (g.mode !== 'expedition') return '';
     const ts = (g.titans?.titans || []).filter((t) => t.alive);

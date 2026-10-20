@@ -50,6 +50,10 @@ up on the nape where it last saw it. The rest is yours:
 
 **Modes:**
 * **Expedition:** waves of titans from the field, the forest and the breached gate, and the Colossal Titan on wave 3.
+* **Plug the Gate:** Eren's titan carries a boulder up Trost's main street to the breached gate. Titans go for him
+  from the town and through the breach. While one mauls him he stops and loses health: cut them off him. He has 131 m
+  to walk. If he gets there, he heaves the boulder into the gate and seals it, and you win. If he goes down, Trost is
+  lost. Cut a titan, or fly in its face, and it turns on you for a few seconds. You can rope onto Eren and his boulder.
 * **Training Grounds:** wooden titan dummies through the forest edge, some sliding on pulleys. Cut every nape
   against the clock; your best time is kept.
 * **Free Flight:** no titans, infinite gas. Start at the forest edge and fly.
