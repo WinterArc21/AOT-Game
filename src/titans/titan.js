@@ -82,6 +82,7 @@ export class Titan {
     // ---- model
     let spec;
     if (this.isColossal) spec = { build: 'colossal', size: 'XL', skin: 'pink', hair: false, expr: 'colossal' };
+    else if (o.spec) spec = { ...o.spec, size: sizeClass(this.height) };
     else {
       const list = this.abnormal ? DESIGNS.abnormal : DESIGNS.normal;
       spec = { ...list[Math.floor(rnd() * list.length)], size: sizeClass(this.height) };
@@ -611,7 +612,7 @@ export class Titan {
   _thinkEscort(dt, canMove) {
     const esc = this.game.escort, st = this.state;
     this.mauling = false;
-    if (this.abnormal || esc.phase !== 'walk' || (st !== 'idle' && st !== 'wander' && st !== 'chase' && st !== 'maul')) {
+    if (this.abnormal || this.lured || !esc.vulnerable || (st !== 'idle' && st !== 'wander' && st !== 'chase' && st !== 'maul')) {
       if (st === 'maul') this._enter('chase');
       return false;
     }
@@ -625,13 +626,13 @@ export class Titan {
     this.gazeTarget = esc._headWorld(this._escGaze || (this._escGaze = new V3()));
     if (dE > reach) {
       this.goal = _g0.copy(esc.position);
-      this.speedTarget = canMove ? this.runSpeed * 0.85 : 0;
+      this.speedTarget = canMove ? this.runSpeed : 0;
     } else {
       this.faceYaw = Math.atan2(ex, ez);
       this.mauling = true;
       if (Math.abs(wrap(this.faceYaw - this.yaw)) < 0.8 && (this.maulT -= dt) <= 0) {
         this.maulT = 1.3 + this.rnd() * 0.6;
-        esc.hurt(0.7 + this.height * 0.15, this);
+        esc.hurt(0.9 + this.height * 0.18, this);
       }
     }
     if (this._tryCounter(dt)) return true;   // it still snatches a wire and shakes off a soldier hanging on it

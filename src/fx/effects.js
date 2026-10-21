@@ -711,8 +711,11 @@ export class Effects {
     }
   }
 
-  /** Titan steam: big white billowing clouds rising for `duration` s. One call = one staggered burst. */
-  steam(position, size = 3, duration = 3) {
+  /**
+   * Titan steam: big white billowing clouds rising for `duration` s. One call = one staggered burst. `colors`
+   * ([start, end] THREE.Color) tints it: smoke from fires, signal-flare smoke.
+   */
+  steam(position, size = 3, duration = 3, colors = null) {
     const P = this.norm;
     size = Math.max(0.3, size);
     // thin out callers that fire every frame at the same spot
@@ -727,13 +730,13 @@ export class Effects {
       const i = P.spawn(position.x + Math.cos(a) * rad, position.y + rr(0, size * 0.25), position.z + Math.sin(a) * rad,
         Math.cos(a) * rr(0.1, 0.6) + rr(-0.3, 0.3), rise * rr(0.6, 1.25), Math.sin(a) * rr(0.1, 0.6) + rr(-0.3, 0.3),
         life, size * rr(0.3, 0.55), size * rr(1.2, 2.0), rnd() < 0.5 ? TILE.CLOUD_A : TILE.CLOUD_B);
-      P.color(i, C.steam, C.steamEnd, rr(0.55, 0.85), 0.3);
+      P.color(i, colors ? colors[0] : C.steam, colors ? colors[1] : C.steamEnd, rr(0.55, 0.85), 0.3);
       P.phys(i, rr(0.55, 0.9), -rr(0.15, 0.45) * (1 + size * 0.02), rr(-0.25, 0.25), 0, F_LIFT);
       P.rot[i] = rr(-0.5, 0.5);
       P.env(i, 0.22, 0.4, rnd() * duration * 0.45);
     }
     // a few small bright wisps that shoot up
-    for (let k = 0; k < Math.min(6, n >> 2); k++) {
+    for (let k = 0; k < (colors ? 0 : Math.min(6, n >> 2)); k++) {
       const i = P.spawn(position.x + rr(-1, 1) * size * 0.3, position.y, position.z + rr(-1, 1) * size * 0.3,
         rr(-0.4, 0.4), rise * rr(1.6, 2.4), rr(-0.4, 0.4), duration * rr(0.5, 0.9), size * 0.15, size * rr(0.5, 0.8), TILE.PUFF);
       P.color(i, C.white, C.steamEnd, 0.5, 0.2); P.phys(i, 0.6, -0.3, 0, 0, 0); P.env(i, 0.15, 0.3, rnd() * duration * 0.3);

@@ -50,10 +50,16 @@ up on the nape where it last saw it. The rest is yours:
 
 **Modes:**
 * **Expedition:** waves of titans from the field, the forest and the breached gate, and the Colossal Titan on wave 3.
-* **Plug the Gate:** Eren's titan carries a boulder up Trost's main street to the breached gate. Titans go for him
-  from the town and through the breach. While one mauls him he stops and loses health: cut them off him. He has 131 m
-  to walk. If he gets there, he heaves the boulder into the gate and seals it, and you win. If he goes down, Trost is
-  lost. Cut a titan, or fly in its face, and it turns on you for a few seconds. You can rope onto Eren and his boulder.
+* **Plug the Gate:** the Struggle for Trost's last act, after the anime (season 1, episodes 11–13) and the manga.
+  You start on a roof by the boulder in Trost's main street with the elite squad (Ian, Mikasa, Rico, Mitabi), while the
+  main force draws most of the titans to the far corner of the wall (you hear their cannons). Eren transforms in a
+  lightning strike, loses control, swings at Mikasa, hits his own face and slumps against the boulder. Rico fires a
+  **red flare**. Hold the titans off him for 40 s until Armin wakes him. Then he lifts the boulder onto his
+  shoulders and carries it, bent double, 118 m to the breach. Titans that maul him stop him and hurt him, and one in
+  his path blocks him. One more comes in through the breach at the end. He slams the boulder into the gate, Rico
+  fires the **yellow flare**, and you hold two more titans off him for 22 s while the squad cuts him out of the nape,
+  until Captain Levi arrives. If Eren goes down, Trost is lost. Cut a titan, or fly in its face, and it turns on you
+  for a few seconds. You can rope onto Eren and the boulder.
 * **Training Grounds:** wooden titan dummies through the forest edge, some sliding on pulleys. Cut every nape
   against the clock; your best time is kept.
 * **Free Flight:** no titans, infinite gas. Start at the forest edge and fly.

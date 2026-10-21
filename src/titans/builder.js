@@ -31,6 +31,8 @@ const EXPR = {
   wide:  { open: 0.12, smile: 0.46, nT: 13, tooth: 0.22, eye: 0.235, iris: 0.34, lid: 0.10, mouthW: 0.94, brow: 0.0 },
   snarl: { open: 0.28, smile: 0.12, nT: 10, tooth: 0.26, eye: 0.245, iris: 0.30, lid: 0.0, mouthW: 0.82, brow: 0.8 },
   colossal: { open: 0.10, smile: 0.16, nT: 15, tooth: 0.24, eye: 0.11, iris: 0.5, lid: 0.0, mouthW: 0.95, brow: 0.9, noLips: 1 },
+  // the Attack Titan: a glare under heavy brows, green eyes, a closed row of bared teeth, long dark hair
+  eren: { open: 0.04, smile: 0.02, nT: 12, tooth: 0.22, eye: 0.17, iris: 0.5, lid: 0.42, mouthW: 0.86, brow: 1.0, irisC: 0x2e9a62, longHair: 1 },
 };
 
 // -------------------------------------------------------------------------------------------------------------
@@ -225,7 +227,7 @@ function buildHead(d, st, skinC, hairC, rnd, withHair) {
     P.add(sphere(1, 14, 10), SCLERA, { pos: ec.toArray(), scl: [eR, eR * 1.04, eR], outline: false, ao: 0.1 });
     const dir = new V3(-s * 0.05, -0.02, 1).normalize();
     const ip = ec.clone().addScaledVector(dir, eR * 0.88);
-    P.add(sphere(1, 12, 8), B.colossal ? 0xe8e0c8 : IRIS, { matrix: orient(ip, dir).scale(new V3(eR * st.iris * 1.2, eR * st.iris * 1.2, eR * st.iris * 0.6)), outline: false, ao: 0 });
+    P.add(sphere(1, 12, 8), B.colossal ? 0xe8e0c8 : st.irisC ?? IRIS, { matrix: orient(ip, dir).scale(new V3(eR * st.iris * 1.2, eR * st.iris * 1.2, eR * st.iris * 0.6)), outline: false, ao: 0 });
     const pp = ec.clone().addScaledVector(dir, eR * 1.0);
     P.add(sphere(1, 8, 6), 0x000000, { matrix: orient(pp, dir).scale(new V3(eR * st.iris * 0.55, eR * st.iris * 0.55, eR * 0.25)), outline: false, ao: 0 });
     if (st.lid > 0.02) {
@@ -263,6 +265,12 @@ function buildHead(d, st, skinC, hairC, rnd, withHair) {
       const a = -0.95 + (i / 8) * 1.9;
       const hx = Math.sin(a) * rx * 0.86, hy = cy + 0.62 * ry - 0.08 * R * Math.abs(a), hz = surf(hx, hy) - 0.03 * R;
       P.add(new THREE.ConeGeometry(0.15 * R, (0.34 + rnd() * 0.16) * R, 5), hairC, { pos: [hx, hy - 0.1 * R, hz], rot: [Math.PI + 0.25, a * 0.5, 0], outline: true, ao: 0.1 });
+    }
+    // shoulder-length locks hanging round the sides and the back of the head
+    if (st.longHair) for (let i = 0; i < 13; i++) {
+      const a = Math.PI * (0.38 + (i / 12) * 1.24);              // from beside one cheek, round the back, to the other
+      const hx = Math.sin(a) * rx * 0.98, hz = cz + Math.cos(a) * rz * 0.98, len = (0.95 + rnd() * 0.3) * R;
+      P.add(new THREE.ConeGeometry(0.2 * R, len, 5), hairC, { pos: [hx, cy + 0.2 * ry - len * 0.45, hz], rot: [Math.PI + Math.cos(a) * 0.12, 0, -Math.sin(a) * 0.12], outline: true, ao: 0.15 });
     }
   }
 
