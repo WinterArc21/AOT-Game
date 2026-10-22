@@ -13,6 +13,10 @@ Headless check: `node tools/shot.mjs aot/dev/<page>.html /path/out.png 6000 1280
 
 ## Units and world layout
 
+The Forest of Giant Trees starts at z ≈ 188 + FS (terrain.js `FS` = 300): a wide plain lies between Wall Rose and
+the trees. Anything placed in the forest adds FS.
+
+
 Metres, seconds, Y up, right-handed (Three.js default). Player is 1.7 m tall.
 
 ```
@@ -57,6 +61,9 @@ game = {
                                    // Female Titan (src/titans/female.js, in titans.titans). A titan with `drawnTo`
                                    // set mauls that target like the escort. world.setAtmosphere('day'|'trost'|'dawn')
                                    // sets the sky per mode; fx.flare(pos, 'red'|'black'|'green'|'yellow') fires smoke
+  cine,                            // a mission's director: { shot: { pos(out), look(out), fov }, focus(out), bars }.
+                                   // Player._cineCamera cuts to `shot` or turns the view to `focus`; bars = letterbox.
+                                   // hud.subtitle(who, text, s) and hud.fade(on) go with it
   training, trainingActive,        // TrainingCourse (src/titans/dummies.js) and whether it is live
   targetList(),                    // every cuttable thing: live titans + (in training) dummies
   hitTest(center, radius),         // merged hit test over titans and dummies: [{ titan, part, point }]

@@ -4,6 +4,7 @@ import { getArchetype, gripGeometry, HAIRS, sizeClass, evapMaterials, skeletonGe
 import { buildRig } from './rig.js';
 import { solveArm } from './ik.js';
 import { CFG } from '../config.js';
+import { FS } from '../world/terrain.js';
 
 // Math.hypot is variadic and boxes its arguments in hot loops (it was the top source of garbage); this doesn't.
 const hypot = (a, b, c = 0) => Math.sqrt(a * a + b * b + c * c);
@@ -652,7 +653,7 @@ export class Titan {
     const r = 15 + this.rnd() * 55, a = this.rnd() * TAU;
     const hx = this.home.x, hz = this.home.z;
     let x = hx + Math.sin(a) * r, z = hz + Math.cos(a) * r;
-    x = clamp(x, -1000, 1000); z = clamp(z, -600, 1000);
+    x = clamp(x, -1000, 1000); z = clamp(z, -600, 1000 + FS);
     // stay on the home side of the wall
     const lim = 6 + this.footR + 4;
     if (hz > 6) z = Math.max(z, lim); else if (hz < -6) z = Math.min(z, -lim);

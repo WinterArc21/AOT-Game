@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { toonMaterial, addOutline } from '../core/style.js';
+import { FS } from '../world/terrain.js';
 
 const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _c = new THREE.Color();
 const COATS = [0x6b4428, 0x3e2a1c, 0x8c5a30, 0x2b2420, 0xa98c6a, 0x5a3a24];
@@ -45,9 +46,46 @@ export function steerToSlot(h, lead, slot) {
   const behind = (sx - h.pos.x) * fx + (sz - h.pos.z) * fz;
   const leadSpeed = lead.speed ?? lead.vel?.length?.() ?? 0;
   const want = Math.max(0, leadSpeed + THREE.MathUtils.clamp(behind * 0.7, -8, 9));
-  h.want.f = want > 0.8 ? 1 : 0;
+  h.want.f = want > 0.8 ? 1 : -1;   // (-1: rein in; a stopped column stops, it doesn't trot on)
   h.speedMul = THREE.MathUtils.clamp(want / SPEED.gallop, 0.05, 1.35);
   return behind;
+}
+
+const sm01 = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
+
+/**
+ * A plain cloaked Survey Corps soldier (one merged mesh plus a right arm that can raise a signal gun), seated as on a
+ * horse. Missions use it for formation riders and for the soldiers they fly through a scene. hood: hood up.
+ * userData: { arm, gun, muzzle }.
+ */
+export function soldierMesh({ hood = false, hair = 0x2a1c12 } = {}) {
+  const cloak = 0x2f5a3a, skin = 0xe8c4a0, trousers = 0xe6e0d0, boots = 0x2a1c12, jacket = 0x8a6a42;
+  const r = new THREE.Group();
+  mesh([
+    piece(new THREE.CylinderGeometry(0.19, 0.22, 0.62, 8), jacket, { p: [0, 0.38, 0], r: [-0.12, 0, 0] }),                      // torso
+    piece(new THREE.SphereGeometry(0.13, 10, 8), skin, { p: [0, 0.83, 0.03] }),                                                     // head
+    hood ? piece(new THREE.SphereGeometry(0.16, 10, 8), cloak, { p: [0, 0.86, -0.01], s: [1, 1.05, 1.08] })
+      : piece(new THREE.SphereGeometry(0.135, 10, 8), hair, { p: [0, 0.88, -0.01], s: [1.02, 0.8, 1.05] }),
+    piece(new THREE.ConeGeometry(0.42, 0.95, 9, 1, true), cloak, { p: [0, 0.32, -0.12], r: [-0.42, 0, 0] }),                     // cloak
+    piece(new THREE.CylinderGeometry(0.075, 0.07, 0.5, 6), trousers, { p: [0.2, 0.0, 0.1], r: [-1.1, 0, -0.35] }),                 // thighs
+    piece(new THREE.CylinderGeometry(0.075, 0.07, 0.5, 6), trousers, { p: [-0.2, 0.0, 0.1], r: [-1.1, 0, 0.35] }),
+    piece(new THREE.CylinderGeometry(0.065, 0.06, 0.5, 6), boots, { p: [0.33, -0.3, 0.2], r: [0.2, 0, -0.12] }),                   // boots
+    piece(new THREE.CylinderGeometry(0.065, 0.06, 0.5, 6), boots, { p: [-0.33, -0.3, 0.2], r: [0.2, 0, 0.12] }),
+    piece(new THREE.CylinderGeometry(0.05, 0.045, 0.5, 6), jacket, { p: [0.17, 0.42, 0.22], r: [-1.2, 0, 0.2] }),                 // left arm on the reins
+    piece(new THREE.BoxGeometry(0.34, 0.16, 0.2), 0x6d727a, { p: [0, 0.12, -0.18] }),                                             // gear box
+  ], r, 0.012);
+  // the right arm, from the shoulder: on the reins (rotation.x -1.2) or raised with the gun (-2.95)
+  const arm = new THREE.Group(); arm.position.set(-0.19, 0.64, 0.02); arm.rotation.x = -1.2; r.add(arm);
+  mesh([piece(new THREE.CylinderGeometry(0.05, 0.045, 0.5, 6), jacket, { p: [0, -0.25, 0] }), piece(new THREE.SphereGeometry(0.05, 6, 5), skin, { p: [0, -0.52, 0] })], arm, 0.012);
+  const gun = new THREE.Group(); gun.position.set(0, -0.52, 0); gun.visible = false; arm.add(gun);
+  mesh([
+    piece(new THREE.CylinderGeometry(0.045, 0.05, 0.32, 8), 0x3a3d42, { p: [0, -0.18, 0.02] }),                                    // the wide barrel
+    piece(new THREE.CylinderGeometry(0.055, 0.055, 0.04, 8), 0xb08a3e, { p: [0, -0.33, 0.02] }),                                   // brass muzzle ring
+    piece(new THREE.BoxGeometry(0.05, 0.14, 0.07), 0x4a2e1a, { p: [0, -0.02, 0.06], r: [0.5, 0, 0] }),                            // grip
+  ], gun, 0.01);
+  const muzzle = new THREE.Group(); muzzle.position.set(0, -0.38, 0.02); gun.add(muzzle);
+  r.userData = { arm, gun, muzzle };
+  return r;
 }
 
 export class Horse {
@@ -152,27 +190,35 @@ export class Horse {
   hit(strength = 1) { this.jolt = 1; this.joltAmp = Math.min(1.4, 0.5 + strength); this.speed *= 1 - 0.15 * Math.min(1, strength); }
   /**
    * A plain cloaked Survey Corps rider in the saddle (missions fill a formation with these: no gear, no AI).
-   * hood: the cloak's hood up. Returns the group; hide it when the rider falls.
+   * hood: the cloak's hood up. Returns the group; hide it when the rider falls. fireFlare() makes them draw the
+   * signal gun, raise it and fire.
    */
   addDummyRider({ hood = false, hair = 0x2a1c12 } = {}) {
-    const cloak = 0x2f5a3a, skin = 0xe8c4a0, trousers = 0xe6e0d0, boots = 0x2a1c12, jacket = 0x8a6a42;
-    const r = new THREE.Group(); r.position.set(0, 0.5, -0.06); this.trunk.add(r);
-    mesh([
-      piece(new THREE.CylinderGeometry(0.19, 0.22, 0.62, 8), jacket, { p: [0, 0.38, 0], r: [-0.12, 0, 0] }),                      // torso
-      piece(new THREE.SphereGeometry(0.13, 10, 8), skin, { p: [0, 0.83, 0.03] }),                                                     // head
-      hood ? piece(new THREE.SphereGeometry(0.16, 10, 8), cloak, { p: [0, 0.86, -0.01], s: [1, 1.05, 1.08] })
-        : piece(new THREE.SphereGeometry(0.135, 10, 8), hair, { p: [0, 0.88, -0.01], s: [1.02, 0.8, 1.05] }),
-      piece(new THREE.ConeGeometry(0.42, 0.95, 9, 1, true), cloak, { p: [0, 0.32, -0.12], r: [-0.42, 0, 0] }),                     // cloak
-      piece(new THREE.CylinderGeometry(0.075, 0.07, 0.5, 6), trousers, { p: [0.2, 0.0, 0.1], r: [-1.1, 0, -0.35] }),                 // thighs
-      piece(new THREE.CylinderGeometry(0.075, 0.07, 0.5, 6), trousers, { p: [-0.2, 0.0, 0.1], r: [-1.1, 0, 0.35] }),
-      piece(new THREE.CylinderGeometry(0.065, 0.06, 0.5, 6), boots, { p: [0.33, -0.3, 0.2], r: [0.2, 0, -0.12] }),                   // boots
-      piece(new THREE.CylinderGeometry(0.065, 0.06, 0.5, 6), boots, { p: [-0.33, -0.3, 0.2], r: [0.2, 0, 0.12] }),
-      piece(new THREE.CylinderGeometry(0.05, 0.045, 0.5, 6), jacket, { p: [0.17, 0.42, 0.22], r: [-1.2, 0, 0.2] }),                 // arms on the reins
-      piece(new THREE.CylinderGeometry(0.05, 0.045, 0.5, 6), jacket, { p: [-0.17, 0.42, 0.22], r: [-1.2, 0, -0.2] }),
-      piece(new THREE.BoxGeometry(0.34, 0.16, 0.2), 0x6d727a, { p: [0, 0.12, -0.18] }),                                             // gear box
-    ], r, 0.012);
+    const r = soldierMesh({ hood, hair });
+    r.position.set(0, 0.5, -0.06); this.trunk.add(r);
     this.dummy = r;
     return r;
+  }
+  /** The dummy rider fires a signal round: colour a key of fx FLARE (or [start, end] colours); dir tilts it. */
+  fireFlare(color, dir = null) { this.flareA = { t: 0, color, dir: dir ? dir.clone() : null, fired: false }; }
+  /** Draw, raise and fire (runs even while the horse is out of sight, so a far wing's smoke still goes up). */
+  _flareTick(dt, seen) {
+    const A = this.flareA, d = this.dummy;
+    if (!A) return;
+    A.t += dt;
+    const up = sm01(A.t / 0.45) * (1 - sm01((A.t - 1.6) / 0.5));
+    if (d?.userData.arm) { d.userData.arm.rotation.x = -1.2 - 1.75 * up; d.userData.gun.visible = up > 0.25; }
+    if (!A.fired && A.t > 0.55) {
+      A.fired = true;
+      const m = d?.userData.muzzle;
+      if (seen && m && d.visible) { m.updateWorldMatrix(true, false); _v.setFromMatrixPosition(m.matrixWorld); } else _v.copy(this.pos).setY(this.pos.y + 3);
+      if (d?.visible !== false) {
+        this.game.fx?.flare?.(_v, A.color, A.dir);
+        this.game.fx?.sparks?.(_v, _w.set(0, 1, 0), 8);
+        this.game.audio?.hookFire?.(1);
+      }
+    }
+    if (A.t > 2.2) this.flareA = null;
   }
 
   /** Whistled for: gallop to the caller and stop beside them. */
@@ -248,7 +294,7 @@ export class Horse {
       this.pos.y = Math.min(this.pos.y, (gF + gH) * 0.5 + 0.02);
     }
     this.pos.x = THREE.MathUtils.clamp(this.pos.x, -1050, 1050);
-    this.pos.z = THREE.MathUtils.clamp(this.pos.z, -620, 1020);
+    this.pos.z = THREE.MathUtils.clamp(this.pos.z, -620, 1020 + FS);
     if (this.pos.z > -7 && this.pos.z < 7 && Math.abs(this.pos.x) > 7) this.pos.z = this.pos.z < 0 ? -7 : 7;   // the wall
     // gait phase and the body's rise and fall (the rider moves with it)
     const s = this.speed;
@@ -403,6 +449,7 @@ export class Herd {
       const vis = h.pos.distanceToSquared(cam) < 450 * 450;
       h.root.visible = vis;
       if (vis) h.update(dt);
+      if (h.flareA) h._flareTick(dt, vis);
     }
   }
 }

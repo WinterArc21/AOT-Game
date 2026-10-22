@@ -8,6 +8,7 @@ import { CollisionWorld } from './core/collision.js';
 import { Player } from './player/player.js';
 import { Game } from './game.js';
 import { toonMaterial } from './core/style.js';
+import { FS } from './world/terrain.js';
 
 const params = new URLSearchParams(location.search);
 
@@ -261,7 +262,7 @@ function step(dt) {
   try { game.fx?.update(simDt); } catch (e) { console.error('fx.update', e); }
   try { game.world?.update?.(simDt, camera.position); } catch (e) { console.error('world.update', e); }
   // the forest breathes: leaves drift down around you under the canopy
-  if (game.fx?.leaves && camera.position.z > 190 && camera.position.y < 110 && Math.random() < simDt * 2.2) {
+  if (game.fx?.leaves && camera.position.z > 190 + FS && camera.position.y < 110 && Math.random() < simDt * 2.2) {
     _n.set(camera.position.x + (Math.random() - 0.5) * 40, camera.position.y + 8 + Math.random() * 14, camera.position.z + (Math.random() - 0.3) * 40);
     game.fx.leaves(_n, 2);
   }
@@ -341,8 +342,8 @@ function hudState(playing) {
     napeMarkers: _markers, hookTargets: _hookTargets, threats: _threats,
     objective: playing ? game.flow.objective() : '', fps: game.fps,
     grabbed: !!p.grabbedBy, struggle: p.struggle, swapping: p.swapT > 0, wave: game.flow.wave,
-    timer: game.flow.timer(), targets: game.flow.trainingTargets(), hint: playing && !game.killCam ? game.flow.hint : null,
-    controlsCard: playing && game.showControls && !game.killCam, cinematic: playing && !!game.killCam,
+    timer: game.flow.timer(), targets: game.flow.trainingTargets(), hint: playing && !game.killCam && !game.cine?.bars ? game.flow.hint : null,
+    controlsCard: playing && game.showControls && !game.killCam, cinematic: playing && (!!game.killCam || !!game.cine?.bars),
   };
 }
 
@@ -351,7 +352,7 @@ function menuCamera(dt) {
   const t = game.time * 0.05;
   const x = Math.sin(t) * 160;
   camera.position.set(x, 64 + Math.sin(t * 1.7) * 6, -18 + Math.cos(t * 0.8) * 8);
-  _n.set(x * 0.4 + Math.sin(t * 0.6) * 60, 30, 260);
+  _n.set(x * 0.4 + Math.sin(t * 0.6) * 60, 26, 300 + FS * 0.6);
   camera.up.set(0, 1, 0);
   camera.lookAt(_n);
   if (Math.abs(camera.fov - 62) > 0.01) { camera.fov = 62; camera.updateProjectionMatrix(); }

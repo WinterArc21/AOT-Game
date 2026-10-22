@@ -8,7 +8,7 @@
 // camera, so the CPU only uploads a small 'press' texture (when something is flattening grass) and a few uniforms.
 import * as THREE from 'three';
 import { toonMaterial } from '../core/style.js';
-import { groundHeight } from './terrain.js';
+import { groundHeight, FS } from './terrain.js';
 import { smoothstep } from './rng.js';
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -21,7 +21,7 @@ float gNoise( vec2 p ) {
   return mix( mix( gHash( i ), gHash( i + vec2( 1.0, 0.0 ) ), u.x ), mix( gHash( i + vec2( 0.0, 1.0 ) ), gHash( i + vec2( 1.0, 1.0 ) ), u.x ), u.y );
 }
 float gForest( vec2 xz ) {
-  return smoothstep( 150.0, 250.0, xz.y ) * ( 1.0 - smoothstep( 700.0, 860.0, abs( xz.x ) ) ) * ( 1.0 - smoothstep( 1050.0, 1250.0, xz.y ) );
+  return smoothstep( ${150 + FS}.0, ${250 + FS}.0, xz.y ) * ( 1.0 - smoothstep( 700.0, 860.0, abs( xz.x ) ) ) * ( 1.0 - smoothstep( ${1050 + FS}.0, ${1250 + FS}.0, xz.y ) );
 }
 // Field albedo (linear): blue-green shade pools, mid green, yellow-green sunlit swells, ochre dry patches.
 // dryOut: how dry the spot is (tufts are a bit taller and paler there).
@@ -81,9 +81,9 @@ export function paintGroundMaterial(m) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Height map matching the ground mesh exactly (terrain.js grid: x = -1100..1100 step 11, z = 30..1100 step 10,
+// Height map matching the ground mesh exactly (terrain.js grid: x = -1100..1100 step 11, z = 30..1100 + FS step 10,
 // quads split along the (x1,z0)-(x0,z1) diagonal), so tufts stand on the rendered surface.
-const HX0 = -1100, HDX = 11, HNX = 201, HZ0 = 30, HDZ = 10, HNZ = 108;
+const HX0 = -1100, HDX = 11, HNX = 201, HZ0 = 30, HDZ = 10, HNZ = 108 + FS / 10;
 function heightTexture() {
   const data = new Float32Array(HNX * HNZ);
   for (let j = 0; j < HNZ; j++) for (let i = 0; i < HNX; i++) data[j * HNX + i] = groundHeight(HX0 + i * HDX, HZ0 + j * HDZ);

@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { CFG } from '../config.js';
 import { OdmGear } from './odm.js';
 import { steerToSlot } from './horse.js';
+import { flareStep } from './model.js';
 
 // Math.hypot is variadic and boxes its arguments in hot loops (it was the top source of garbage); this doesn't.
 const hypot = (a, b, c = 0) => Math.sqrt(a * a + b * b + c * c);
@@ -57,6 +58,7 @@ export class Ally {
     if (this.model?.root) this.model.root.visible = true;
   }
   partner() { const o = this.game.allies?.[this.idx ^ 1]; return o && o !== this && o.alive && !o.grabbedBy ? o : null; }
+  fireFlare(color, dir = null) { this.flareA = { t: 0, color, dir: dir ? dir.clone() : null, fired: false }; }
   radio(text) {
     const g = this.game;
     if ((g.time || 0) - (g._radioAt ?? -9) < 1.4) return;
@@ -453,6 +455,7 @@ export class Ally {
 
   update(dt, alpha) {
     if (!this.alive) return;
+    this._wf = flareStep(this, dt);
     this.render.lerpVectors(this.prev, this.pos, alpha);
     const sp = this.vel.length();
     const gy = this.game.collision.groundHeight(this.render.x, this.render.z);
@@ -489,7 +492,7 @@ export class Ally {
         crouch: resting ? this.rest.crouch : 0,
         position: this._mp.copy(this.render).addScaledVector(this.up, 0.4), velocity: this.vel, forward: this.forward, up: this.up, grounded: !!this.horse || resting, running: 0,
         hooks: this.odm.hooks.map((h) => ({ attached: h.attached, anchor: h.attached ? h.anchor : null, state: h.state })),
-        boosting: this.boost > 0 ? 1 : 0, slash: -1, spin: false, grabbed: !!this.grabbedBy, blades: !this.horse, speed: sp, alive: true,
+        boosting: this.boost > 0 ? 1 : 0, slash: -1, spin: false, grabbed: !!this.grabbedBy, blades: !this.horse, speed: sp, alive: true, flare: this._wf,
       });
     }
     this.launcher(0, this._origins[0]); this.launcher(1, this._origins[1]);

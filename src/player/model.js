@@ -522,6 +522,25 @@ function footQuatLocal(kn, fd, pitch, up, out) {
   return out.premultiply(kn.getWorldQuaternion(_lq2).invert());
 }
 
+/**
+ * A soldier (the player or a comrade) fires a signal round: draw, raise the arm, fire at 0.45 s, lower it. o.flareA is
+ * set by fireFlare(); call each frame and pass the result as the model's `flare` weight.
+ */
+export function flareStep(o, dt) {
+  const A = o.flareA;
+  if (!A) return 0;
+  A.t += dt;
+  if (!A.fired && A.t > 0.45) {
+    A.fired = true;
+    const g = o.game, m = o.model?.flareMuzzlePos && o.model.root?.visible ? o.model.flareMuzzlePos(new THREE.Vector3()) : (o.render || o.pos).clone().setY((o.render || o.pos).y + 2);
+    g.fx?.flare?.(m, A.color, A.dir);
+    g.fx?.sparks?.(m, new THREE.Vector3(0, 1, 0), 10);
+    g.audio?.hookFire?.(1);
+  }
+  if (A.t > 2) o.flareA = null;
+  return A.t < 1.5 ? 1 : Math.max(0, 1 - (A.t - 1.5) / 0.4);
+}
+
 export class PlayerModel {
   constructor(game) {
     this.game = game;
@@ -697,6 +716,12 @@ export class PlayerModel {
       return { sh, el, wr, blade, handle };
     };
     J.armL = arm(0); J.armR = arm(1);
+    // the signal gun (a wide-barrelled flare pistol), in the right hand only while a smoke round is fired
+    const gun = this.flareGun = group(J.armR.wr, 0, -0.02, 0.01); gun.visible = false;
+    mesh(new THREE.CylinderGeometry(0.03, 0.033, 0.21, 10), M.steelDark, gun, 0, -0.13, 0, 0.004);
+    mesh(new THREE.CylinderGeometry(0.037, 0.037, 0.028, 10), M.brass, gun, 0, -0.24, 0, 0.003);
+    mesh(new THREE.BoxGeometry(0.032, 0.09, 0.05), M.grip, gun, 0, -0.02, 0.035, 0.003);
+    this.flareMuzzle = group(gun, 0, -0.27, 0);
 
     // ── legs
     const leg = (side) => {
@@ -1119,6 +1144,9 @@ export class PlayerModel {
     }
   }
 
+  /** World position of the signal gun's muzzle. */
+  flareMuzzlePos(out) { this.flareMuzzle.updateWorldMatrix(true, false); return out.setFromMatrixPosition(this.flareMuzzle.matrixWorld); }
+
   hookOrigin(side, out) {
     const tip = side === 0 ? this.launcherL : this.launcherR;
     tip.updateWorldMatrix(true, false);
@@ -1419,6 +1447,13 @@ export class PlayerModel {
     }
     for (let i = 0; i < NCH; i++) TC[i] = lerp(TC[i], TS[i], this.wSlash);
     for (let i = 0; i < NCH; i++) TC[i] = lerp(TC[i], TR[i], this.wGrab);
+    // a smoke round: the right arm comes straight up over the head with the signal gun
+    this.wFlare = (this.wFlare || 0) + (clamp(finite(s.flare), 0, 1) - (this.wFlare || 0)) * (first ? 1 : k(12));
+    if (this.wFlare > 0.001) {
+      const wf = this.wFlare * (1 - this.wGrab), th = this.theta + TC[SPX];
+      TC[RSX] = lerp(TC[RSX], -2.8 - th, wf); TC[RSZ] = lerp(TC[RSZ], 0.22, wf); TC[RSY] = lerp(TC[RSY], 0, wf);
+      TC[REX] = lerp(TC[REX], 0.12, wf); TC[RWX] = lerp(TC[RWX], 0.1, wf); TC[HDX] -= 0.35 * wf;
+    }
     // blade swap: the blades just vanished (player.swapT running) → both hands drop to the box mouths, lock the hilts
     // onto fresh blades, and draw them forward; only for the first moments, so bladeless soldiers aren't stuck there
     this.noBladeT = hasBlades ? 0 : (this.noBladeT || 0) + dt;
@@ -1469,6 +1504,8 @@ export class PlayerModel {
     // blades only when drawn; at rest and running they splay out from the body (tips out wide, not down the legs)
     const splay = 0.38 * (1 - this.wSlash) * (1 - this.wSpin) * (1 - this.wGrab) * (1 - this.wAir * L);
     for (let i = 0; i < 2; i++) { jt.blades[i].visible = hasBlades; jt.blades[i].rotation.z = (i ? -1 : 1) * splay; }
+    this.flareGun.visible = this.wFlare > 0.3;
+    if (this.flareGun.visible) jt.blades[1].visible = false;
     // blade shine: flash through the sweep
     const flashT = slashing ? Math.sin(clamp(this.slashP, 0, 1) * Math.PI) : 0;
     this.bladeFlash += (Math.max(flashT, this.wSpin) - this.bladeFlash) * k(30);

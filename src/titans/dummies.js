@@ -16,6 +16,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { toonMaterial, addOutline } from '../core/style.js';
+import { FS } from '../world/terrain.js';
 
 // Math.hypot is variadic and boxes its arguments in hot loops (it was the top source of garbage); this doesn't.
 const hypot = (a, b, c = 0) => Math.sqrt(a * a + b * b + c * c);
@@ -513,7 +514,7 @@ function boxDist(p, b, out) {
 const N_DUMMIES = 10;
 const PULLEY_SLOTS = [2, 5, 8];
 const POST_HEIGHTS = [7.5, 9, 12, 8, 10.5, 6.5, 11];
-const route = (t, out) => out.set(-12 + 78 * Math.sin(t * Math.PI * 1.9 + 0.35), 0, 212 + 258 * t);
+const route = (t, out) => out.set(-12 + 78 * Math.sin(t * Math.PI * 1.9 + 0.35), 0, 212 + FS + 258 * t);
 
 function gatherTrees(col) {
   const map = new Map();
@@ -541,7 +542,7 @@ function segDist2D(px, pz, ax, az, bx, bz) {
 }
 
 function planCourse(col) {
-  const trees = gatherTrees(col).filter((t) => Math.abs(t.x) < 260 && t.z > 120 && t.z < 560);
+  const trees = gatherTrees(col).filter((t) => Math.abs(t.x) < 260 && t.z > 120 + FS && t.z < 560 + FS);
   const clearOf = (x, z) => { let m = Infinity; for (const t of trees) m = Math.min(m, hypot(t.x - x, t.z - z) - t.r); return m; };
   const blocked = (p, r, ignore) => col.querySphere(p, r, { dynamic: false }).some((c) => !ignore || !ignore.has(c));
   const stations = [];
@@ -558,7 +559,7 @@ function planCourse(col) {
       const A = near[a], B = near[b], D = hypot(A.x - B.x, A.z - B.z);
       if (D < 28 || D > 62) continue;
       const mx = (A.x + B.x) / 2, mz = (A.z + B.z) / 2, md = hypot(mx - S.x, mz - S.z);
-      if (md > 30 || Math.abs(mx) > 150 || mz < 200 || mz > 470) continue;
+      if (md > 30 || Math.abs(mx) > 150 || mz < 200 + FS || mz > 470 + FS) continue;
       if (trees.some((t) => t !== A && t !== B && segDist2D(t.x, t.z, A.x, A.z, B.x, B.z) < t.r + 5)) continue;
       if (spans.some((sp) => segDist2D(mx, mz, sp.A.x, sp.A.z, sp.B.x, sp.B.z) < 30)) continue;
       pairs.push({ A, B, D, score: md + Math.abs(D - 42) * 0.4 });
@@ -602,7 +603,7 @@ function planCourse(col) {
   const placed = [];
   const isClearPost = (x, z, H, e) => {
     const s = H / H0;
-    if (Math.abs(x) > 158 || z < 192 || z > 478) return false;
+    if (Math.abs(x) > 158 || z < 192 + FS || z > 478 + FS) return false;
     if (clearOf(x, z) < 2.9 * s + 4.2) return false;
     for (const p of placed) if (hypot(p.x - x, p.z - z) < 24) return false;
     for (const sp of spans) if (segDist2D(x, z, sp.a.x, sp.a.z, sp.b.x, sp.b.z) < 10) return false;

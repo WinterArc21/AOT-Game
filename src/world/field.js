@@ -1,8 +1,9 @@
-// OPEN FIELD (z in [6,180]): lone trees, rocks, a broken cart, a small stone ruin, titan spawn zones.
+// OPEN PLAIN (z in [6, 480]) between Wall Rose and the Forest of Giant Trees: lone trees and small copses, rocks, a
+// broken cart, a small stone ruin, titan spawn zones. The 57th Expedition's formation rides out across it.
 import * as THREE from 'three';
 import { Builder } from './geo.js';
 import { Rng } from './rng.js';
-import { groundHeight, roadX } from './terrain.js';
+import { groundHeight, roadX, FS } from './terrain.js';
 import { TreeBatch, addTree, finishBatch } from './trees.js';
 import { addRock } from './props.js';
 
@@ -13,6 +14,13 @@ export function buildField(ctx) {
   // lone trees (normal 15-25 m)
   const tb = new TreeBatch();
   const spots = [[-140, 60], [-70, 120], [95, 80], [150, 140], [-210, 150], [40, 160], [250, 90], [-300, 70], [-30, 170], [190, 40]];
+  // further out on the plain: lone trees and a few copses, far apart (somewhere to put a rope, nothing to hide in)
+  for (let i = 0; i < 46; i++) {
+    const x = rng.range(-950, 950), z = rng.range(185, 160 + FS);
+    if (Math.abs(x - roadX(z)) < 25) continue;
+    spots.push([x, z]);
+    if (i % 6 === 0) for (let k = 0; k < 3; k++) spots.push([x + rng.range(-16, 16), z + rng.range(-16, 16)]);
+  }
   for (const [x, z] of spots) {
     if (Math.abs(x - roadX(z)) < 12) continue;
     const H = rng.range(15, 25);
@@ -22,8 +30,8 @@ export function buildField(ctx) {
 
   // rocks
   const RB = new Builder();
-  for (let i = 0; i < 34; i++) {
-    const x = rng.range(-420, 420), z = rng.range(30, 175);
+  for (let i = 0; i < 90; i++) {
+    const x = rng.range(-900, 900), z = rng.range(30, 160 + FS);
     if (Math.abs(x - roadX(z)) < 8) continue;
     const r = rng.range(0.8, i % 7 === 0 ? 3.6 : 2.2), gy = groundHeight(x, z), squash = 0.78;
     addRock(RB, x, gy + r * 0.1, z, r, rng, { squash });
@@ -67,6 +75,6 @@ export function buildField(ctx) {
   addMesh(RB, ctx.mat.plain, 'fieldRocks'); addMesh(WD, ctx.mat.planks, 'fieldCart'); addMesh(ST, ctx.mat.stone, 'fieldRuin');
 
   // titan spawn zones
-  for (const [x, z, r] of [[-150, 55, 25], [0, 70, 25], [140, 60, 25], [-80, 130, 25], [90, 140, 25], [-220, 110, 25], [230, 120, 25], [20, 170, 20]])
+  for (const [x, z, r] of [[-150, 55, 25], [0, 70, 25], [140, 60, 25], [-80, 130, 25], [90, 140, 25], [-220, 110, 25], [230, 120, 25], [20, 170, 20], [-400, 300, 30], [380, 260, 30], [-150, 400, 30], [600, 420, 30]])
     ctx.titanSpawns.push({ center: new V3(x, groundHeight(x, z), z), radius: r, area: 'field' });
 }

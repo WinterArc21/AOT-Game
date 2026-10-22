@@ -1,10 +1,10 @@
-// FOREST OF GIANT TREES (x in [-700,700], z in [180,1000]): ~300 colossal trees, light shafts, green under-canopy haze,
+// FOREST OF GIANT TREES (x in [-700,700], z in [180,1000] + FS, beyond the wide plain): ~300 colossal trees, light shafts, green under-canopy haze,
 // and a Survey Corps supply platform built around one tree near the edge.
 import * as THREE from 'three';
 import { Builder } from './geo.js';
 import { Rng, clamp, lerp, smoothstep } from './rng.js';
 import { SUN_DIR } from './common.js';
-import { groundHeight, roadX, ROAD_END } from './terrain.js';
+import { groundHeight, roadX, ROAD_END, FS } from './terrain.js';
 import { TreeBatch, addTree, finishBatch } from './trees.js';
 import { makeDepot } from './props.js';
 
@@ -12,7 +12,7 @@ const V3 = THREE.Vector3;
 
 export function buildForest(ctx) {
   const rng = new Rng(3003);
-  const X0 = -700, X1 = 700, Z0 = 188, Z1 = 1010;
+  const X0 = -700, X1 = 700, Z0 = 188 + FS, Z1 = 1010 + FS;
   const NX = 4, NZ = 3;
   const batches = [];
   for (let i = 0; i < NX * NZ; i++) batches.push(new TreeBatch());
@@ -22,7 +22,7 @@ export function buildForest(ctx) {
   const placed = [];
   const cell = 80, grid = new Map();
   const key = (x, z) => Math.floor(x / cell) + ',' + Math.floor(z / cell);
-  const minD = (z) => (z < 478 ? 40 : z < 768 ? 54 : 74);
+  const minD = (z) => (z < 478 + FS ? 40 : z < 768 + FS ? 54 : 74);
   const free = (x, z, d) => {
     const cx = Math.floor(x / cell), cz = Math.floor(z / cell);
     for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
@@ -34,7 +34,7 @@ export function buildForest(ctx) {
   const put = (x, z, d, extra = {}) => { const p = { x, z, d, ...extra }; placed.push(p); const k = key(x, z); (grid.get(k) || grid.set(k, []).get(k)).push(p); return p; };
 
   // the platform tree first, close to the forest edge next to the road
-  const PLAT = { x: 46, z: 206 };
+  const PLAT = { x: 46, z: 206 + FS };
   put(PLAT.x, PLAT.z, 40, { platform: true });
   for (let n = 0; n < 90000; n++) {
     const x = rng.range(X0, X1), z = rng.range(Z0, Z1);
@@ -114,7 +114,7 @@ export function buildForest(ctx) {
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion().setFromUnitVectors(new V3(0, 1, 0), SUN_DIR), pp = new V3(), ss = new V3();
   const srng = new Rng(404);
   for (let i = 0; i < NS; i++) {
-    const x = srng.range(-620, 620), z = srng.range(205, 800), h = srng.range(55, 105), gy = groundHeight(x, z), k = srng.range(0.6, 1.4);
+    const x = srng.range(-620, 620), z = srng.range(205 + FS, 800 + FS), h = srng.range(55, 105), gy = groundHeight(x, z), k = srng.range(0.6, 1.4);
     pp.set(x + SUN_DIR.x * h / SUN_DIR.y, gy + h, z + SUN_DIR.z * h / SUN_DIR.y);
     // the cone's local length runs along SUN_DIR, so scale y by the slant length
     ss.set(k, h / SUN_DIR.y, k);
@@ -128,7 +128,7 @@ export function buildForest(ctx) {
   const fog = ctx.scene.fog, A = ctx.atmo, deep = new THREE.Color(0x4f7d62), tmp = new THREE.Color();
   let fk = 0;
   ctx.updaters.push((dt, cam) => {
-    const inF = smoothstep(150, 240, cam.z) * (1 - smoothstep(700, 800, Math.abs(cam.x))) * (1 - smoothstep(1000, 1100, cam.z));
+    const inF = smoothstep(150 + FS, 240 + FS, cam.z) * (1 - smoothstep(700, 800, Math.abs(cam.x))) * (1 - smoothstep(1000 + FS, 1100 + FS, cam.z));
     const low = 1 - smoothstep(60, 115, cam.y - groundHeight(cam.x, cam.z));
     const target = inF * low;
     fk += (target - fk) * Math.min(1, dt * 2.5);
@@ -139,6 +139,6 @@ export function buildForest(ctx) {
 
   // ---- titan spawn zones ----
   for (const [x, z, r] of [[-300, 260, 30], [-60, 300, 30], [180, 280, 30], [330, 380, 30], [-220, 420, 30], [40, 460, 30], [-380, 540, 30], [250, 560, 30], [-60, 590, 30]])
-    ctx.titanSpawns.push({ center: new V3(x, groundHeight(x, z), z), radius: r, area: 'forest' });
+    ctx.titanSpawns.push({ center: new V3(x, groundHeight(x, z + FS), z + FS), radius: r, area: 'forest' });
   return { trees: placed.length };
 }

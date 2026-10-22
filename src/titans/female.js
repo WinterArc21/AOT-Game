@@ -175,6 +175,7 @@ export class FemaleTitan extends Titan {
     this.stateT += dt;
     this.speedTarget = 0; this.goal = null; this.faceYaw = null;
     this.gazeTarget = this.hasPlayer && this.dist3 < 150 ? pl.position : null;
+    if (this.lookAt) this.gazeTarget = this.lookAt;      // the mission makes her look at someone (Armin's face)
     switch (this.state) {
       case 'strike': this._thinkStrike(dt); break;
       case 'bound':
@@ -276,7 +277,8 @@ export class FemaleTitan extends Titan {
   _poseState(dt) {
     const P = this.P, st = this.state, sgn = (i) => (i === 0 ? 1 : -1);
     this.kickW = 0; this.sitting = false;
-    this.jawCap = this.screamT > 0 || this.mouthOpenable || (st === 'strike' && this.act?.kind === 'bite') || BASE.has(st) ? null : 0.03;
+    if (this.carrying) this.jawExtra += 0.16;   // Eren in her mouth
+    this.jawCap = this.carrying || this.screamT > 0 || this.mouthOpenable || (st === 'strike' && this.act?.kind === 'bite') || BASE.has(st) ? null : 0.03;
     if (this.screamT > 0) {
       // head thrown back, jaw wide, arms out: the scream that calls the titans
       const k = sm(Math.min(this.screamT, 0.6) / 0.6);
@@ -295,6 +297,16 @@ export class FemaleTitan extends Titan {
           this._arm(i, _b, this._pole(i, 0.7, -0.8, 0), 12);
         }
         P.thighL[0] -= 0.25; P.shinL[0] += 0.3; P.thighR[0] += 0.15;
+        break;
+      case 'hold':
+        if (this.reachTo) {
+          // stooped low over a soldier on the ground, one hand reaching down to them (lifting Armin's hood)
+          P.spine[0] += 0.55; P.neck[0] += 0.3; P.head[0] += 0.2;
+          P.thighL[0] -= 0.35; P.thighR[0] -= 0.35; P.shinL[0] += 0.6; P.shinR[0] += 0.6; this.hipT.y -= this.d.hipY * 0.12;
+          this._arm(1, this.reachTo, this._pole(1, 0.8, -0.4, -0.3), 5);
+          break;
+        }
+        super._poseState(dt);
         break;
       default:
         if (st === 'run' && this.speed > 8) { P.foreL[0] -= 1.0; P.foreR[0] -= 1.0; P.spine[0] += 0.06; }   // sprinting: elbows bent, arms pumping

@@ -371,7 +371,7 @@ export class Game {
     setTimeout(() => {
       if (this.run !== run) return;
       g.input.unlock?.();
-      g.hud?.showDeath?.({ cause, kills: p.stats.kills, score: this.score, time: Math.round(g.time - (this.startTime || 0)), wave: this.wave, topSpeed: Math.round(p.stats.topSpeed * 3.6), retryLabel: mission ? 'TRY AGAIN' : null },
+      g.hud?.showDeath?.({ cause, kills: p.stats.kills, score: this.score, time: Math.round(g.time - (this.startTime || 0)), wave: this.wave, topSpeed: Math.round(p.stats.topSpeed * 3.6), retryLabel: mode === 'scout' && chapter > 0 ? 'FROM THE CHECKPOINT' : mission ? 'TRY AGAIN' : null },
         () => this.start(mode === 'menu' ? 'expedition' : mode, { chapter }), () => this.toMenu());
     }, e.cause === 'eaten' ? 1400 : 900);
   }

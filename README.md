@@ -60,18 +60,20 @@ up on the nape where it last saw it. The rest is yours:
   fires the **yellow flare**, and you hold two more titans off him for 22 s while the squad cuts him out of the nape,
   until Captain Levi arrives. If Eren goes down, Trost is lost. Cut a titan, or fly in its face, and it turns on you
   for a few seconds. You can rope onto Eren and the boulder.
-* **The 57th Expedition** (season 1, episodes 17–22), in four chapters. Finish one to open the next (MISSIONS on
-  the title screen). The sky is early-morning gold for the ride out.
-  1. **Ride Out:** the Long-Range Scouting Formation leaves the wall in a column and spreads into its wide
-     semicircle. Scouts fire **red** smoke at a titan and **black** at an abnormal; Erwin fires **green** for the new
-     course. Relay each signal with **T**, then kill the abnormal before it reaches the right wing.
-  2. **The Right Flank:** the Female Titan comes out of the trees with a pack of titans and no flare before her. She
-     kills Luke and Ness, throws Armin and lifts his hood. Hood up with Reiner and Jean and cut her legs and arms;
+* **The 57th Expedition** (season 1, episodes 17–22): one cinematic mission in four acts, with a checkpoint at the
+  start of each (die, and you go back to the last one). Set camera shots in letterbox, the view turning to look at a
+  titan while you ride on, subtitles and a narrator tell the story. Let go of the reins and your horse keeps its place
+  in the formation.
+  1. **Ride Out:** at dawn the formation streams out of the gate and spreads into the Long-Range Scouting Formation
+     across the wide plain. Scouts draw the signal gun, raise it and fire **red** smoke at a titan and **black** at an
+     abnormal; Erwin fires **green** for the new course. Relay each signal with **T** (you raise your own gun), then
+     kill the abnormal that comes for the right wing.
+  2. **The Right Flank:** the Female Titan comes out of the trees with no flare before her. She snatches Luke, kicks
+     Ness down, throws Armin and stoops to lift his hood. Hood up with Reiner and Jean and cut her legs and arms;
      Armin's bluff freezes her, she grabs Reiner, who cuts free, and she runs for the centre rear.
   3. **The Forest of Giant Trees:** ride the road with Levi's squad while she kills the soldiers behind you. Levi
      fires a sound grenade and gives no orders. She runs into Erwin's trap: harpoons hold her, her nape hardens and
-     blades shatter on it. She screams; titans come to eat her, and you must keep them off her until she escapes in
-     the steam.
+     blades shatter on it. She screams; titans come to eat her, and you keep them off her until she escapes.
   4. **Squad Levi:** Gunther dies first. She is back: the squad blinds her and cuts her arms, she heals one eye and
      kills Eld, Petra and Oluo. Eren transforms and brawls her, freezes at Annie's stance, and she bites him out of
      his nape. Catch her with Mikasa, and when Levi has crippled her, cut Eren out of her jaw.

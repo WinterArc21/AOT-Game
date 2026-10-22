@@ -3,6 +3,9 @@
 import * as THREE from 'three';
 import { CFG } from '../config.js';
 import { OdmGear } from './odm.js';
+import { flareStep } from './model.js';
+import { steerToSlot } from './horse.js';
+import { FS } from '../world/terrain.js';
 
 // Math.hypot is variadic and boxes its arguments in hot loops (it was the top source of garbage); this doesn't.
 const hypot = (a, b, c = 0) => Math.sqrt(a * a + b * b + c * c);
@@ -95,7 +98,9 @@ export class Player {
     // on horseback: ↑ gallops, ← → steer, Shift leaps off, Z / X fire a rope straight off the running horse
     if (this.riding) {
       const h = this.riding;
-      h.want.f = F - B; h.want.turn = R - L;
+      // a mission's formation: hands off the reins, the horse keeps its place in the column (h.autoSlot)
+      if (h.autoSlot && !F && !B && !L && !R) steerToSlot(h, h.autoSlot.lead, h.autoSlot.slot);
+      else { h.want.f = F - B; h.want.turn = R - L; h.speedMul = 1; }
       this.turn = 0; this.wishF = 0; this.wishR = 0;
       if (this.mounting) return;   // still climbing on: you can already steer, but not leap
       // hold Shift: rise from the saddle and stand on the galloping horse; let go to spring off it
@@ -1083,7 +1088,7 @@ export class Player {
   _bounds() {
     const p = this.pos, v = this.vel;
     const push = (val, lo, hi) => (val < lo ? lo - val : val > hi ? hi - val : 0);
-    const bx = push(p.x, -1100, 1100), bz = push(p.z, -650, 1050);
+    const bx = push(p.x, -1100, 1100), bz = push(p.z, -650, 1050 + FS);
     if (bx) { v.x += bx * 4 * (1 / 60); if (Math.sign(v.x) !== Math.sign(bx)) v.x *= 0.96; }
     if (bz) { v.z += bz * 4 * (1 / 60); if (Math.sign(v.z) !== Math.sign(bz)) v.z *= 0.96; }
     if (p.y > 420) v.y = Math.min(v.y, 0);
@@ -1151,6 +1156,8 @@ export class Player {
     this.game.audio?.eaten?.();
     this.die('eaten');
   }
+  /** Fire a signal round (the arm comes up with the gun; the smoke goes up at 0.45 s). dir tilts it (a green course). */
+  fireFlare(color, dir = null) { if (!this.flareA && !this.grabbedBy) this.flareA = { t: 0, color, dir: dir ? dir.clone() : null, fired: false }; }
   applyImpulse(dv, damage = 0) {
     if (!this.alive || this.grabbedBy) return;
     this.vel.add(dv);
@@ -1288,7 +1295,7 @@ export class Player {
         position: this._modelPos.copy(this.render).addScaledVector(this.bodyUp, CFG.modelLift), velocity: v, forward: mf, up: mu,
         grounded: this.grounded, running: run, hooks, boosting: this.boostLevel, slash,
         spin: this.spin, grabbed: !!this.grabbedBy, blades: this.blade > 0 && this.swapT <= 0 && !(this.riding && this.rideStand < 0.5), speed,
-        alive: this.alive,
+        alive: this.alive, flare: flareStep(this, dt),
       });
       if (this.model.root) this.model.root.visible = this.alive || !!this.grabbedBy;
     }
@@ -1578,6 +1585,7 @@ export class Player {
     const fovT = CFG.cam.fov + (CFG.cam.fovMax - CFG.cam.fov) * THREE.MathUtils.smoothstep(speed, 12, 85) - 8 * (c.punch || 0);
     c.fov += (fovT - c.fov) * damp((c.punch || 0) > 0.05 ? 16 : 4, dt);
     if (Math.abs(cam.fov - c.fov) > 0.01) { cam.fov = c.fov; cam.updateProjectionMatrix(); }
+    this._cineCamera(dt);
     // kill cam: side-on, framing the soldier and the nape, eased in and out (driven by real time in main)
     const kc = this.game.killCam;
     if (kc) {
@@ -1595,6 +1603,43 @@ export class Player {
         cam.quaternion.copy(_q).slerp(_q2, w);
       }
     }
+  }
+
+  /**
+   * A mission's director (game.cine): `shot` cuts to a set camera ({ pos(), look(), fov }), `focus` turns the view to
+   * look at something, the soldier still in the foreground, the way a rider's head turns to a titan while the horse
+   * gallops on (eased in and out). Both are functions, so a shot can follow what it frames.
+   */
+  _cineCamera(dt) {
+    const cam = this.game.camera, c = this.cam, cd = this.game.cine;
+    if (cd?.shot) {
+      cam.position.copy(cd.shot.pos(_e));
+      cam.up.copy(UP);
+      cam.lookAt(cd.shot.look(_f));
+      if (cd.shot.roll) cam.rotateZ(cd.shot.roll);
+      const fov = cd.shot.fov || 50;
+      if (Math.abs(cam.fov - fov) > 0.01) { cam.fov = fov; cam.updateProjectionMatrix(); }
+      c.cw = 0;
+      return;
+    }
+    const want = cd?.focus ? 1 : 0;
+    c.cw = (c.cw || 0) + (want - (c.cw || 0)) * damp(want ? 2.6 : 3.2, dt);
+    if (cd?.focus) (c.cf || (c.cf = new THREE.Vector3())).copy(cd.focus(_e));
+    if (c.cw < 0.002 || !c.cf) return;
+    const w = c.cw * c.cw * (3 - 2 * c.cw);
+    // over the shoulder toward it: behind and beside the soldier, looking at the thing
+    const piv = _a.copy(this.render).addScaledVector(UP, 1.7);
+    const d = _b.subVectors(c.cf, piv); d.y *= 0.25; d.normalize();
+    const side = _c.set(-d.z, 0, d.x);
+    const pos = _d.copy(piv).addScaledVector(d, -6.5).addScaledVector(side, 1.6).addScaledVector(UP, 1.4);
+    _q.copy(cam.quaternion);
+    cam.position.lerp(pos, w);
+    cam.up.copy(UP);
+    cam.lookAt(_f.copy(c.cf).lerp(piv, 0.15));
+    _q2.copy(cam.quaternion);
+    cam.quaternion.copy(_q).slerp(_q2, w);
+    const fov = cam.fov + (54 - cam.fov) * w;
+    if (Math.abs(cam.fov - fov) > 0.01) { cam.fov = fov; cam.updateProjectionMatrix(); }
   }
 
   /**

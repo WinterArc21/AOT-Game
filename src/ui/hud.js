@@ -201,6 +201,16 @@ const CSS = `
 .wof-grab-s{font-family:var(--serif);font-weight:700;font-size:12px;letter-spacing:.3em;color:#ffd0c4;text-shadow:0 1px 2px #000}
 @keyframes wof-shake{0%,100%{transform:translate(-50%,0)}25%{transform:translate(calc(-50% - 6px),0)}75%{transform:translate(calc(-50% + 6px),0)}}
 
+/* subtitles: a speaker's line, or the narrator (italic, no name), above the letterbox bar */
+.wof-sub{position:absolute;left:50%;bottom:12vh;transform:translateX(-50%);width:max-content;max-width:min(860px,88vw);text-align:center;z-index:3;
+  padding:6px 16px;font-size:clamp(14px,1.75vw,21px);line-height:1.4;color:#fff;text-wrap:balance;pointer-events:none;opacity:0;transition:opacity .25s;
+  text-shadow:0 2px 2px #000,0 0 10px rgba(0,0,0,.95),0 0 22px rgba(0,0,0,.7)}
+.wof-sub.on{opacity:1}
+.wof-fade{position:absolute;inset:0;background:#000;opacity:0;transition:opacity .6s;pointer-events:none;z-index:1}
+.wof-fade.on{opacity:1}
+.wof-sub b{color:#ffd98a;margin-right:.45em;font-weight:800}
+.wof-sub.narr span{font-family:var(--serif);font-style:italic;color:#f3e6c6;letter-spacing:.02em}
+
 /* cinematic big message */
 .wof-big{position:absolute;left:0;right:0;top:27%;text-align:center;opacity:0;transition:opacity .7s}
 .wof-big.on{opacity:1}
@@ -489,6 +499,8 @@ const TEMPLATE = `
 
   <div class="wof-dmgs"></div>
   <div class="wof-big"><span></span><i></i></div>
+  <div class="wof-sub"><b></b><span></span></div>
+  <div class="wof-fade"></div>
 </div>
 
 <div class="wof-screen wof-menu">
@@ -747,7 +759,7 @@ export class Hud {
       score: q('[data-k="score"]'),
       obj: q('.wof-obj'),
       toast: q('.wof-toast'), feed: q('.wof-feed'),
-      big: q('.wof-big'),
+      big: q('.wof-big'), sub: q('.wof-sub'), fade: q('.wof-fade'),
       dmgs: q('.wof-dmgs'),
       menu: q('.wof-menu'),
       pause: q('.wof-pause'),
@@ -1031,6 +1043,22 @@ export class Hud {
     requestAnimationFrame(() => d.classList.add('on'));
     setTimeout(() => { d.classList.remove('on'); setTimeout(() => d.remove(), 300); }, kind === 'warn' ? 6000 : 4500);
   }
+
+  /** A subtitle at the bottom of the screen: `who` speaks `text` (no `who`: the narrator). Replaces the last one. */
+  subtitle(who, text, seconds = 3) {
+    const el = this.el.sub;
+    if (!el) return;
+    el.firstChild.textContent = who ? who : '';
+    el.firstChild.hidden = !who;
+    el.lastChild.textContent = String(text);
+    el.classList.toggle('narr', !who);
+    el.classList.add('on');
+    clearTimeout(this._subT);
+    this._subT = setTimeout(() => el.classList.remove('on'), seconds * 1000);
+  }
+  /** Fade the screen to black (a cut between scenes) or back. */
+  fade(on) { this.el.fade?.classList.toggle('on', !!on); }
+  hideSubtitle() { clearTimeout(this._subT); this.el.sub?.classList.remove('on'); }
 
   /** Centre-top toast (info / warn), or a huge cinematic line in the middle of the screen (big). */
   message(text, seconds = 2.5, style = 'info') {
