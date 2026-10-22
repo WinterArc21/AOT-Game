@@ -6,7 +6,7 @@
 // end. He slams it in, Rico fires the yellow flare, and while the cadets cut him out of the nape two titans close in,
 // until Captain Levi arrives. Game (src/game.js) owns one of these per 'gate' run.
 import * as THREE from 'three';
-import { Carrier, Boulder, BOULDER_R } from './titans/carrier.js';
+import { Carrier, Boulder, BOULDER_R } from '../titans/carrier.js';
 
 const V3 = THREE.Vector3;
 const BOULDER_AT = new V3(0, 0, -150);       // where the boulder lies, in Trost's main street (the gate is at z = 0)
@@ -18,7 +18,6 @@ const ARMIN_T = 40;                          // s Eren lies slumped before Armin
 const RESCUE_T = 22;                         // s they need to cut him out of the nape before Levi arrives
 const MAX_HUNTING = 7;                       // titans after Eren (not counting the ones at the decoy)
 const col = (c) => new THREE.Color(c);
-const RED = [col(0xff3b2b), col(0x9a3a30)], YELLOW = [col(0xffe04a), col(0xd2b45a)];
 const SMOKE = [col(0x3d3936), col(0x8d8782)], CANNON = [col(0xd8d4cc), col(0xa9a49c)];
 const FIRES = [[-48, -96], [64, -58], [-122, -172], [128, -232], [-34, -262], [96, -128]];
 
@@ -27,7 +26,6 @@ export class GateMission {
     this.flow = flow; this.g = flow.g;
     this.phase = 'none'; this.t = 0;
     this.done = false;
-    this.flares = [];
   }
 
   // ---------------------------------------------------------------- setup
@@ -45,7 +43,7 @@ export class GateMission {
 
   start() {
     const g = this.g, p = g.player;
-    this.phase = 'brief'; this.t = 0; this.done = false; this.yellow = false; this.flung = false; this.gateTitan = false; this.flares = [];
+    this.phase = 'brief'; this.t = 0; this.done = false; this.yellow = false; this.flung = false; this.gateTitan = false;
     this.boulder = new Boulder(g, new V3(BOULDER_AT.x, g.collision.groundHeight(BOULDER_AT.x, BOULDER_AT.z) + BOULDER_R * 0.88, BOULDER_AT.z));
     this.dirT = 6; this.waves = 0; this.cannonT = 2; this.fireT = 0; this.lines = new Set();
     // the elite squad lands on the roofs round you
@@ -98,12 +96,6 @@ export class GateMission {
     });
   }
   hunting() { return (this.g.titans?.titans || []).filter((t) => t.alive && !t.lured); }
-
-  /** A signal flare: a streak of coloured smoke shooting up from `from`, bursting into a hanging cloud. */
-  flare(from, colors) {
-    this.flares.push({ p: from.clone(), v: new V3((Math.random() - 0.5) * 3, 70, (Math.random() - 0.5) * 3), t: 0, colors });
-    this.g.audio?.hookFire?.(1);
-  }
 
   // ---------------------------------------------------------------- the operation
   update(dt) {
@@ -158,7 +150,8 @@ export class GateMission {
         if (!this.yellow && this.rescueT < RESCUE_T - 1.4) {
           this.yellow = true;
           const rico = (g.allies || []).find((a) => a.name === 'Rico' && a.alive);
-          this.flare(rico ? rico.pos : new V3(10, 52, -2), YELLOW);
+          g.fx?.flare?.(rico ? rico.pos : new V3(10, 52, -2), 'yellow');
+          g.audio?.hookFire?.(1);
           g.hud?.message?.('YELLOW FLARE · THE BREACH IS SEALED', 3.5, 'big');
         }
         if (this.rescueT < RESCUE_T - 3) this._say('Mikasa', 'He\'s fused into the nape! Hold them off while we cut him out!');
@@ -168,13 +161,6 @@ export class GateMission {
         if (this.t - this.leviAt > 4.5) this._win();
         break;
       default: break;
-    }
-    // flares in flight
-    for (let i = this.flares.length - 1; i >= 0; i--) {
-      const f = this.flares[i];
-      f.t += dt; f.v.y -= 30 * dt; f.p.addScaledVector(f.v, dt);
-      if ((f.e = (f.e || 0) - dt) <= 0) { f.e = 0.05; g.fx?.steam?.(f.p, 1.6, 7, f.colors); }
-      if (f.t > 1.8) { g.fx?.steam?.(f.p, 9, 12, f.colors); this.flares.splice(i, 1); }
     }
   }
 
@@ -206,7 +192,8 @@ export class GateMission {
     if (this.phase !== 'transform') return;
     this.phase = 'defend'; this.arminT = ARMIN_T; this.dirT = 4;
     const rico = (g.allies || []).find((a) => a.name === 'Rico' && a.alive);
-    this.flare(rico ? rico.pos : g.player.pos.clone().add(new V3(4, 0, 0)), RED);
+    g.fx?.flare?.(rico ? rico.pos : g.player.pos.clone().add(new V3(4, 0, 0)), 'red');
+    g.audio?.hookFire?.(1);
     g.hud?.message?.('RED FLARE · THE OPERATION HAS FAILED', 3.5, 'big');
     this._say('Rico', 'He\'s lost control! It\'s over, I\'m calling it!');
     // while they argue, the nearest titans in the town are already coming for him, and some of the bait breaks off

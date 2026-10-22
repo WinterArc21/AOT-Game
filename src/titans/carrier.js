@@ -1,4 +1,4 @@
-// The Struggle for Trost: Eren's titan and the boulder. A Titan with Eren's design that the mission (src/gate.js)
+// The Struggle for Trost: Eren's titan and the boulder. A Titan with Eren's design that the mission (src/missions/gate.js)
 // takes through the anime's beats: emerges in a lightning strike, goes berserk (swings at Mikasa, hits his own face),
 // slumps against the boulder, wakes, lifts it onto his shoulders, carries it bent under the weight to the breach,
 // slams it into the gate and collapses, steaming. It is not in TitanManager.titans, so nothing targets, cuts or
@@ -14,7 +14,7 @@ const R = BOULDER_R;
 // in the gate's town mouth (the tunnel is x ∈ ±8, y ∈ 0..20, z ∈ ±6): wedged in, ~19 m across
 const SEAT = new V3(0, 9.2, -4.6), SEAT_SCALE = 1.32;
 const T = { emerge: 1.8, berserk: 4.2, lift: 3.4, heave: 1.9 };
-const ERE = { build: 'muscular', skin: 'tan', hair: 0, expr: 'eren' };
+export const ERE = { build: 'muscular', skin: 'tan', hair: 0, expr: 'eren' };
 const _t = new V3(), _a = new V3(), _b = new V3(), _q = new THREE.Quaternion(), UP = new V3(0, 1, 0);
 const sm = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
 

@@ -160,8 +160,8 @@ const check = (name, ok, info) => { results.push({ name, ok, info }); console.lo
   for (let i = 0; i < 360; i++) p.fixedUpdate(H);
   p.payout = false;
   const L1 = p.odm.hooks[0].length;
-  const keys = new Set(['ArrowLeft']);
-  const input = { held: (k) => keys.has(k), hit: () => false, up: () => false, mouseDX: 0, mouseDY: 0 };
+  // the game asks for actions (keys.js), not keys: hold 'left' only
+  const input = { act: (a) => a === 'left', actHit: () => false, held: () => false, hit: () => false, up: () => false, mouseDX: 0, mouseDY: 0 };
   const g2 = makeGame(); const q = g2.player; q.reset(new THREE.Vector3(0, 1, 40), 0);
   for (let i = 0; i < 10; i++) q.fixedUpdate(H);
   const y0 = q.yaw; for (let i = 0; i < 60; i++) q.handleInput(input, 1 / 60);

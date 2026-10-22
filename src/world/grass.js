@@ -172,7 +172,7 @@ export function buildGrass(ctx, { radius = 34, cell = 0.8 } = {}) {
       // where tufts grow: not on the road, not in the town / gate yard, thin under the giant trees, clumpy
       float forest = gForest( root );
       float roadX = 20.0 * sin( root.y / 62.0 ) * smoothstep( 18.0, 70.0, root.y );
-      float road = root.y > 216.0 ? 1.0 : smoothstep( 5.0, 6.6, abs( root.x - roadX ) );
+      float road = root.y > 940.0 ? 1.0 : smoothstep( 5.0, 6.6, abs( root.x - roadX ) );
       float clump = gNoise( root * ( 1.0 / 7.0 ) + 3.0 );
       float dens = mix( 0.72 + 0.5 * clump, 0.2 * clump, forest );
       float grow = step( hd, dens ) * road * smoothstep( 9.0, 12.0, root.y ) * step( abs( root.x ), 1090.0 );

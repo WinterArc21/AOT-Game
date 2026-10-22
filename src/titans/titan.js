@@ -544,7 +544,7 @@ export class Titan {
       this.clingT = hk >= 0 && slow && this.dist3 < this.height * 0.9 ? this.clingT + dt : Math.max(0, this.clingT - dt * 2);
     }
     if ((this.state === 'idle' || this.state === 'wander' || this.state === 'chase' || this.state === 'maul') && this._tryGuard(dt)) return;
-    if (this.game.escort && this._thinkEscort(dt, canMove)) return;
+    if ((this.drawnTo || this.game.escort) && this._thinkEscort(dt, canMove)) return;
     switch (this.state) {
       case 'guard': this._thinkGuard(dt); break;
       case 'idle':
@@ -610,7 +610,7 @@ export class Titan {
    * soldier who cuts one, or flies right in its face, gets its attention instead for a few seconds.
    */
   _thinkEscort(dt, canMove) {
-    const esc = this.game.escort, st = this.state;
+    const esc = this.drawnTo || this.game.escort, st = this.state;   // (drawnTo: a mission's target, e.g. the bound Female Titan)
     this.mauling = false;
     if (this.abnormal || this.lured || !esc.vulnerable || (st !== 'idle' && st !== 'wander' && st !== 'chase' && st !== 'maul')) {
       if (st === 'maul') this._enter('chase');
@@ -1474,6 +1474,7 @@ export class Titan {
     // ---- jaw
     let jawT = this.arch.jawRest + this.jawExtra;
     if (!this.isColossal && this.gazeTarget && this.state !== 'bite' && this.state !== 'grab') jawT += 0.05 * Math.sin(t * 2.1) + 0.05;
+    if (this.jawCap != null) jawT = Math.min(jawT, this.jawCap);   // a shifter keeps its mouth shut unless it means to open it
     P.jaw[0] = jawT;
   }
 
@@ -1797,7 +1798,7 @@ export class Titan {
       case 'shake': if (a) this._poseShake(); break;
       case 'guard': if (a) this._poseGuard(); break;
       case 'charge': if (a && a.t < a.W) this._poseChargeWindup(); break;
-      case 'maul': if (this.mauling && this.game.escort) this._poseMaul(); break;
+      case 'maul': if (this.mauling && (this.drawnTo || this.game.escort)) this._poseMaul(); break;
       case 'chew': {
         const t = this.stateT;
         this.jawExtra += 0.22 + 0.22 * Math.sin(t * 11);
@@ -1816,7 +1817,7 @@ export class Titan {
 
   /** Clawing and pounding at Eren's chest and arms, the hands in turn. */
   _poseMaul() {
-    const P = this.P, esc = this.game.escort, t = this.stateT;
+    const P = this.P, esc = this.drawnTo || this.game.escort, t = this.stateT;
     const c = esc._jpos('spine', _t13);
     for (let i = 0; i < 2; i++) {
       const ph = Math.sin(t * 4.5 + i * Math.PI), out = 0.5 + 0.5 * ph;

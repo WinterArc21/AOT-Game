@@ -104,14 +104,17 @@ export function buildSky(ctx) {
   scene.fog = new THREE.Fog(FOG_COLOR, 120, 1400);
 
   const sky = new THREE.Group(); sky.name = 'sky'; scene.add(sky);
+  // world.setAtmosphere() tints the mountains and clouds (smoke haze, dawn light) through this one shared uniform
+  const tint = { value: new THREE.Color(1, 1, 1) };
   const dome = new THREE.Mesh(new THREE.SphereGeometry(1000, 32, 20), domeMaterial());
   dome.renderOrder = -1000; dome.frustumCulled = false; sky.add(dome);
 
   // mountains: three faceted rings, hazier with distance
   const mkMat = () => new THREE.ShaderMaterial({
     vertexColors: true, side: THREE.DoubleSide, depthWrite: false, depthTest: true, fog: false,
+    uniforms: { uTint: tint },
     vertexShader: 'varying vec3 vC;\n' + FAR_VS().replace('VARYINGS', 'vC = color;'),
-    fragmentShader: 'varying vec3 vC;\nvoid main() {\n gl_FragColor = vec4( vC, 1.0 );\n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n}',
+    fragmentShader: 'varying vec3 vC;\nuniform vec3 uTint;\nvoid main() {\n gl_FragColor = vec4( vC * uTint, 1.0 );\n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n}',
   });
   const rings = [
     mountainRing(1800, -250, 380, 0xb4d0e8, 0x9fbddb, 7, 120),
@@ -124,9 +127,9 @@ export function buildSky(ctx) {
   const clouds = new THREE.Group(); clouds.name = 'clouds'; scene.add(clouds);
   const rng = new Rng(77);
   const cmat = (tex) => new THREE.ShaderMaterial({
-    transparent: true, side: THREE.DoubleSide, depthWrite: false, depthTest: true, fog: false, uniforms: { map: { value: tex } },
+    transparent: true, side: THREE.DoubleSide, depthWrite: false, depthTest: true, fog: false, uniforms: { map: { value: tex }, uTint: tint },
     vertexShader: 'varying vec2 vUv;\n' + FAR_VS().replace('VARYINGS', 'vUv = uv;'),
-    fragmentShader: 'varying vec2 vUv;\nuniform sampler2D map;\nvoid main() {\n vec4 t = texture2D( map, vUv );\n if ( t.a < 0.02 ) discard;\n gl_FragColor = vec4( t.rgb, t.a );\n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n}',
+    fragmentShader: 'varying vec2 vUv;\nuniform sampler2D map;\nuniform vec3 uTint;\nvoid main() {\n vec4 t = texture2D( map, vUv );\n if ( t.a < 0.02 ) discard;\n gl_FragColor = vec4( t.rgb * uTint, t.a );\n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n}',
   });
   const plane = new THREE.PlaneGeometry(1, 0.39);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
@@ -142,5 +145,5 @@ export function buildSky(ctx) {
     im.renderOrder = -800 + k; im.frustumCulled = false; clouds.add(im);
   }
   ctx.updaters.push((dt) => { clouds.rotation.y += dt * 0.0035; });
-  return { sky, clouds };
+  return { sky, clouds, dome: dome.material.uniforms, tint: tint.value };
 }

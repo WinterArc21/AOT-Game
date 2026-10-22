@@ -15,6 +15,7 @@ export const ACTIONS = [
   { id: 'cut', name: 'Cut / spin', group: 'CUT', keys: ['Space'] },
   { id: 'blades', name: 'Swap blades', group: 'CUT', keys: ['R'] },
   { id: 'whistle', name: 'Whistle horse', group: 'OTHER', keys: ['F'] },
+  { id: 'flare', name: 'Fire a signal flare', group: 'OTHER', keys: ['T'] },
   { id: 'pause', name: 'Pause', group: 'OTHER', keys: ['P'] },
   { id: 'mute', name: 'Mute', group: 'OTHER', keys: ['M'] },
   { id: 'card', name: 'Controls card', group: 'OTHER', keys: ['H'] },

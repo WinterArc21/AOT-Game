@@ -332,6 +332,21 @@ const CSS = `
 .wof-death-btns .wof-btn{min-width:200px}
 .wof-death-btns .wof-btn[hidden]{display:none}
 
+/* missions */
+.wof-missions{background:rgba(6,8,5,.82);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px)}
+.wof-missions-card{width:min(760px,100%);max-height:92vh;overflow:auto}
+.wof-missions-card .wof-note{margin:8px 0 14px}
+.wof-mlist{width:100%;display:flex;flex-direction:column;gap:16px}
+.wof-mission{display:flex;flex-direction:column;gap:6px}
+.wof-mission-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;border-bottom:1px solid rgba(201,162,90,.28);padding-bottom:4px}
+.wof-mission-h b{font-family:var(--serif);font-weight:900;font-size:17px;letter-spacing:.14em;text-transform:uppercase;color:var(--parch)}
+.wof-mission-h span{font-family:var(--serif);font-style:italic;font-size:12px;letter-spacing:.06em;color:var(--brass)}
+.wof-root .wof-ch{display:grid;grid-template-columns:30px 1fr;grid-template-rows:auto auto;column-gap:10px;text-align:left;padding:8px 14px 7px;min-width:0;width:100%}
+.wof-root .wof-ch i{grid-row:1/3;align-self:center;font-family:var(--serif);font-style:normal;font-weight:900;font-size:22px;color:var(--brass);text-align:center}
+.wof-root .wof-ch b{font-size:15px;letter-spacing:.1em}
+.wof-root .wof-ch small{grid-column:2;margin-top:2px}
+.wof-root .wof-ch.locked{opacity:.42;cursor:default;filter:grayscale(.6)}
+
 /* training results */
 .wof-result-card{width:min(640px,100%);align-items:center;padding:24px 24px 26px}
 .wof-result-h{margin:0;text-align:center;font-family:var(--serif);font-weight:900;font-size:clamp(24px,4.2vw,44px);letter-spacing:.16em;padding-left:.16em;
@@ -483,7 +498,7 @@ const TEMPLATE = `
     <div class="wof-divider"></div>
     <div class="wof-menu-btns">
       <button class="wof-btn" data-mode="expedition"><b>EXPEDITION</b><small>Fight the titans</small></button>
-      <button class="wof-btn" data-mode="gate"><b>PLUG THE GATE</b><small>Get Eren and the boulder to the gate</small></button>
+      <button class="wof-btn" data-act="missions"><b>MISSIONS</b><small>The story, as in the anime</small></button>
       <button class="wof-btn" data-mode="training"><b>TRAINING</b><small>Training Grounds: cut the dummies against the clock</small></button>
       <button class="wof-btn" data-mode="free"><b>FREE FLIGHT</b><small>No titans, infinite gas</small></button>
     </div>
@@ -543,6 +558,19 @@ const TEMPLATE = `
   </div>
 </div>
 
+<div class="wof-screen wof-missions">
+  <div class="wof-screen-in">
+    <div class="wof-card wof-panel wof-missions-card">
+      <h2 class="wof-h2">Missions</h2>
+      <p class="wof-note">In story order. Finish a chapter to open the next one.</p>
+      <div class="wof-mlist"></div>
+      <div class="wof-menu-btns wof-death-btns">
+        <button class="wof-btn alt" data-act="missions-back"><b>BACK</b></button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="wof-screen wof-death">
   <div class="wof-screen-in">
     <div class="wof-card wof-panel wof-death-card">
@@ -553,6 +581,7 @@ const TEMPLATE = `
         <div><span>TIME</span><b data-d="time">0:00</b></div>
       </div>
       <div class="wof-menu-btns wof-death-btns">
+        <button class="wof-btn wof-death-next" hidden><b>NEXT CHAPTER</b></button>
         <button class="wof-btn wof-retry"><b>RETURN TO THE WALL</b></button>
         <button class="wof-btn alt wof-death-menu" hidden><b>MENU</b></button>
       </div>
@@ -586,7 +615,7 @@ const CONTROL_ROWS = `
   </div>
 </div>
 <div class="wof-ctl-more">
-  <span><kbd>Esc</kbd><kbd data-k="pause"></kbd> pause</span><span><kbd data-k="whistle"></kbd> whistle for horse</span><span><kbd data-k="mute"></kbd> mute</span><span><kbd data-k="card"></kbd> controls card</span>
+  <span><kbd>Esc</kbd><kbd data-k="pause"></kbd> pause</span><span><kbd data-k="whistle"></kbd> whistle for horse</span><span><kbd data-k="flare"></kbd> signal flare</span><span><kbd data-k="mute"></kbd> mute</span><span><kbd data-k="card"></kbd> controls card</span>
   <span><kbd data-k="blades"></kbd> blades (auto when dull)</span><span data-alt><kbd data-k="forward" data-s="1"></kbd><kbd data-k="left" data-s="1"></kbd><kbd data-k="back" data-s="1"></kbd><kbd data-k="right" data-s="1"></kbd> = <kbd data-k="forward"></kbd><kbd data-k="left"></kbd><kbd data-k="back"></kbd><kbd data-k="right"></kbd></span>
 </div>
 <p class="wof-note"><b>Mouse optional:</b> click the game to look with the mouse</p>`;
@@ -728,6 +757,9 @@ export class Hud {
       deathScore: q('[data-d="score"]'),
       deathTime: q('[data-d="time"]'),
       deathMenu: q('.wof-death-menu'),
+      deathNext: q('.wof-death-next'),
+      missions: q('.wof-missions'),
+      mlist: q('.wof-mlist'),
       result: q('.wof-result'),
       resultCard: q('.wof-result-card'),
       resultTitle: q('.wof-result-h'),
@@ -767,6 +799,16 @@ export class Hud {
     press(q('.wof-resume'), () => { this.hidePause(); if (this._onResume) this._onResume(); });
     press(q('.wof-retry'), () => { this.hideDeath(); if (this._onRetry) this._onRetry(); });
     press(this.el.deathMenu, () => { this.hideDeath(); if (this._onMenu) this._onMenu(); });
+    press(this.el.deathNext, () => { this.hideDeath(); if (this._onNext) this._onNext(); });
+    press(q('[data-act="missions"]'), () => this.showMissions());
+    press(q('[data-act="missions-back"]'), () => this.hideMissions());
+    this.el.mlist.addEventListener('click', (e) => {
+      const b = e.target.closest && e.target.closest('[data-mission]');
+      if (!b || b.disabled) return;
+      b.blur();
+      this.hideMissions(); this.hideMenu();
+      if (this._onStart) this._onStart(b.getAttribute('data-mission'), { chapter: +b.getAttribute('data-ch') });
+    });
     press(q('[data-act="again"]'), () => { this.hideTrainingResult(); if (this._onAgain) this._onAgain(); });
     press(q('[data-act="menu"]'), () => { this.hideTrainingResult(); if (this._onResultMenu) this._onResultMenu(); });
     for (const b of all('.wof-keys-btn')) press(b, () => this.showKeys());
@@ -1022,10 +1064,47 @@ export class Hud {
     el.classList.remove('on');
   }
 
-  /** Title screen. onStart(mode) is called with 'expedition', 'gate', 'training' or 'free'. */
-  showMenu(onStart) {
+  /**
+   * Title screen. onStart(mode, opts) is called with 'expedition', 'training' or 'free', or with a mission's id and
+   * { chapter } from the MISSIONS screen. missions: [{ id, title, eps, place, chapters: [{ title, eps, desc, locked }] }].
+   */
+  showMenu(onStart, missions) {
     this._onStart = onStart || null;
+    if (missions) this._missions = missions;
     this.el.menu.classList.add('on');
+    this._sel = 0;
+    this._syncHud();
+  }
+
+  /** The MISSIONS screen: each mission's chapters in story order, the locked ones greyed out. */
+  showMissions() {
+    const box = this.el.mlist;
+    box.textContent = '';
+    for (const m of this._missions || []) {
+      const sec = document.createElement('div'); sec.className = 'wof-mission';
+      const h = document.createElement('div'); h.className = 'wof-mission-h';
+      h.innerHTML = '<b></b><span></span>';
+      h.firstChild.textContent = m.title; h.lastChild.textContent = [m.place, m.eps].filter(Boolean).join(' · ');
+      sec.appendChild(h);
+      m.chapters.forEach((c, i) => {
+        const b = document.createElement('button');
+        b.className = 'wof-btn wof-ch' + (c.locked ? ' locked' : '');
+        b.setAttribute('data-mission', m.id); b.setAttribute('data-ch', String(i));
+        b.disabled = !!c.locked;
+        b.innerHTML = '<i></i><b></b><small></small>';
+        b.children[0].textContent = m.chapters.length > 1 ? String(i + 1) : '';
+        b.children[1].textContent = c.title;
+        b.children[2].textContent = c.locked ? 'Finish the chapter before it' : [c.eps, c.desc].filter(Boolean).join(' · ');
+        sec.appendChild(b);
+      });
+      box.appendChild(sec);
+    }
+    this.el.missions.classList.add('on');
+    this._sel = 0;
+    this._syncHud();
+  }
+  hideMissions() {
+    this.el.missions.classList.remove('on');
     this._sel = 0;
     this._syncHud();
   }
@@ -1035,17 +1114,19 @@ export class Hud {
     this._syncHud();
   }
 
-  /** Death screen. stats: { cause, kills, score, time (seconds) }. onRetry() after "RETURN TO THE WALL";
-   *  onMenu() after MENU (the button is only shown when onMenu is given). */
-  showDeath(stats, onRetry, onMenu) {
+  /** Death (or mission result) screen. stats: { cause, kills, score, time (seconds), win, retryLabel }. onRetry()
+   *  after "RETURN TO THE WALL"; onMenu() after MENU and onNext() after NEXT CHAPTER (each shown only when given). */
+  showDeath(stats, onRetry, onMenu, onNext) {
     const st = stats || {};
     this._onRetry = onRetry || null;
     this._onMenu = typeof onMenu === 'function' ? onMenu : null;
+    this._onNext = typeof onNext === 'function' ? onNext : null;
     this.el.deathMenu.hidden = !this._onMenu;
+    this.el.deathNext.hidden = !this._onNext;
     this._sel = 0;
     this.el.deathTitle.textContent = st.cause ? String(st.cause) : 'YOU WERE EATEN';
     this.el.death.classList.toggle('win', !!st.win);
-    this.el.death.querySelector('.wof-retry b').textContent = st.win ? 'PLAY AGAIN' : 'RETURN TO THE WALL';
+    this.el.death.querySelector('.wof-retry b').textContent = st.retryLabel || (st.win ? 'PLAY AGAIN' : 'RETURN TO THE WALL');
     this.el.deathKills.textContent = Math.max(0, Math.floor(Number(st.kills) || 0));
     this.el.deathScore.textContent = Math.max(0, Math.round(Number(st.score) || 0)).toLocaleString('en-US');
     this.el.deathTime.textContent = fmtTime(st.time);
@@ -1155,12 +1236,12 @@ export class Hud {
   /** The full screen currently shown (topmost first), or null. */
   _screen() {
     const el = this.el;
-    for (const n of [el.keys, el.death, el.result, el.pause, el.menu]) if (n.classList.contains('on')) return n;
+    for (const n of [el.keys, el.death, el.result, el.pause, el.missions, el.menu]) if (n.classList.contains('on')) return n;
     return null;
   }
 
   _buttons(screen) {
-    return Array.from(screen.querySelectorAll('.wof-btn, .wof-kb-r button')).filter((b) => !b.hidden);
+    return Array.from(screen.querySelectorAll('.wof-btn, .wof-kb-r button')).filter((b) => !b.hidden && !b.disabled);
   }
 
   _markSel() {

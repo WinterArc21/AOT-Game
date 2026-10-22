@@ -60,6 +60,23 @@ up on the nape where it last saw it. The rest is yours:
   fires the **yellow flare**, and you hold two more titans off him for 22 s while the squad cuts him out of the nape,
   until Captain Levi arrives. If Eren goes down, Trost is lost. Cut a titan, or fly in its face, and it turns on you
   for a few seconds. You can rope onto Eren and the boulder.
+* **The 57th Expedition** (season 1, episodes 17–22), in four chapters. Finish one to open the next (MISSIONS on
+  the title screen). The sky is early-morning gold for the ride out.
+  1. **Ride Out:** the Long-Range Scouting Formation leaves the wall in a column and spreads into its wide
+     semicircle. Scouts fire **red** smoke at a titan and **black** at an abnormal; Erwin fires **green** for the new
+     course. Relay each signal with **T**, then kill the abnormal before it reaches the right wing.
+  2. **The Right Flank:** the Female Titan comes out of the trees with a pack of titans and no flare before her. She
+     kills Luke and Ness, throws Armin and lifts his hood. Hood up with Reiner and Jean and cut her legs and arms;
+     Armin's bluff freezes her, she grabs Reiner, who cuts free, and she runs for the centre rear.
+  3. **The Forest of Giant Trees:** ride the road with Levi's squad while she kills the soldiers behind you. Levi
+     fires a sound grenade and gives no orders. She runs into Erwin's trap: harpoons hold her, her nape hardens and
+     blades shatter on it. She screams; titans come to eat her, and you must keep them off her until she escapes in
+     the steam.
+  4. **Squad Levi:** Gunther dies first. She is back: the squad blinds her and cuts her arms, she heals one eye and
+     kills Eld, Petra and Oluo. Eren transforms and brawls her, freezes at Annie's stance, and she bites him out of
+     his nape. Catch her with Mikasa, and when Levi has crippled her, cut Eren out of her jaw.
+  The Female Titan (14 m, blonde, exposed muscle) sprints as fast as a horse, kicks, hardens her nape and fists
+  (your blades break on them), sits back covering her nape when blinded, and her cut arms hang limp for a while.
 * **Training Grounds:** wooden titan dummies through the forest edge, some sliding on pulleys. Cut every nape
   against the clock; your best time is kept.
 * **Free Flight:** no titans, infinite gas. Start at the forest edge and fly.
@@ -168,11 +185,12 @@ tree and harass titans, which you can watch behind the title screen too.
 
 ```
 src/main.js            renderer, fixed-step loop, module loading, title flyover
-src/game.js            modes, waves, the Colossal, score and combos
+src/game.js            modes, waves, the Colossal, score and combos, chapters
+src/missions/          the MISSIONS list and progress (index.js), Plug the Gate (gate.js), the 57th Expedition (scout.js)
 src/config.js          every tunable of the gear
 src/core/collision.js  collision world (broadphase grid, raycasts, sphere contacts, dynamic shapes)
 src/player/            ODM gear, player physics and camera, the Survey Corps soldier model with a cloth cape
-src/titans/            procedural titans, their AI, grabs, nape hitboxes, the Colossal Titan
+src/titans/            procedural titans, their AI, grabs, nape hitboxes, the Colossal, Eren (carrier.js), the Female Titan (female.js)
 src/world/             Wall Rose, Trost District, the field, the Forest of Giant Trees, sky
 src/fx/                particles (gas, steam, blood, sparks, leaves, lightning), slash arcs, anime speed lines
 src/audio/             Web Audio synthesis: gear, blades, titans, wind, a procedural battle score

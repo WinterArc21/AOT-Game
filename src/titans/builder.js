@@ -12,7 +12,7 @@ const UPV = new V3(0, 1, 0);
 export const SKINS = {
   pink: 0xe9b9a8, beige: 0xdfbd99, tan: 0xcba27a, pale: 0xeadccb, ruddy: 0xdba48e, grey: 0xc9b9a6,
 };
-export const HAIRS = [0x1a120d, 0x2a1c12, 0x3b2a18, 0x0e0e12, 0x4a3a22];
+export const HAIRS = [0x1a120d, 0x2a1c12, 0x3b2a18, 0x0e0e12, 0x4a3a22, 0xe2c477];   // (5: the Female Titan's blonde)
 const TEETH = 0xece4c9, GUM = 0xa23d3e, MOUTH = 0x24090b, TONGUE = 0xb24c55, SCLERA = 0xf1ead8, IRIS = 0x1d1815;
 
 /** Body proportions per build (multipliers on the base dims). */
@@ -22,6 +22,9 @@ export const BUILDS = {
   potbelly: { legs: 0.84, arms: 0.95, torsoW: 1.18, torsoH: 0.95, belly: 1.0,  limb: 1.12, head: 1.05, shoulder: 0.95, neckW: 1.2, faceW: 1.08, faceH: 0.95 },
   muscular: { legs: 0.96, arms: 1.06, torsoW: 1.30, torsoH: 1.02, belly: 0.0,  limb: 1.32, head: 0.92, shoulder: 1.22, neckW: 1.35, faceW: 1.0, faceH: 1.0, muscle: 1 },
   gaunt:    { legs: 1.12, arms: 1.22, torsoW: 0.72, torsoH: 1.08, belly: 0.0,  limb: 0.62, head: 1.0, shoulder: 0.9, neckW: 0.75, faceW: 0.9, faceH: 1.12, ribs: 1 },
+  // the Female Titan: tall, long-legged and lean, an athlete's build; bare muscle shows through on the shoulders, arms,
+  // flanks and thighs (B.female picks the muscle colour and the chest)
+  female:   { legs: 1.16, arms: 1.08, torsoW: 0.8,  torsoH: 1.0,  belly: 0.0,  limb: 0.86, head: 0.86, shoulder: 0.95, neckW: 0.82, faceW: 0.84, faceH: 1.06, muscle: 1, female: 1 },
   colossal: { legs: 1.78, arms: 1.5, torsoW: 1.25, torsoH: 0.9, belly: 0.0,  limb: 1.2, head: 0.82, shoulder: 1.15, neckW: 1.15, faceW: 0.9, faceH: 1.22, muscle: 1, colossal: 1 },
 };
 
@@ -32,6 +35,9 @@ const EXPR = {
   snarl: { open: 0.28, smile: 0.12, nT: 10, tooth: 0.26, eye: 0.245, iris: 0.30, lid: 0.0, mouthW: 0.82, brow: 0.8 },
   colossal: { open: 0.10, smile: 0.16, nT: 15, tooth: 0.24, eye: 0.11, iris: 0.5, lid: 0.0, mouthW: 0.95, brow: 0.9, noLips: 1 },
   // the Attack Titan: a glare under heavy brows, green eyes, a closed row of bared teeth, long dark hair
+  // the Female Titan: Annie's cold, level stare: steady blue eyes, a small closed mouth, short blonde hair with a
+  // fringe, a bun at the back and two locks by the cheeks
+  annie: { open: 0.0, smile: 0.0, nT: 10, tooth: 0.1, eye: 0.15, iris: 0.52, lid: 0.42, mouthW: 0.4, brow: 0.3, irisC: 0x4f8fd6, bun: 1, sideLocks: 1, calm: 1 },
   eren: { open: 0.04, smile: 0.02, nT: 12, tooth: 0.22, eye: 0.17, iris: 0.5, lid: 0.42, mouthW: 0.86, brow: 1.0, irisC: 0x2e9a62, longHair: 1 },
 };
 
@@ -159,7 +165,14 @@ function buildSpine(d, skin, muscleCol) {
   ell(P, skin, [0, 1.5 * th, 0], [1.2 * tw, 1.45 * th, 0.86], { ws: 18, hs: 12 });             // rib cage
   for (const s of [-1, 1]) ell(P, skin, [s * d.shoulderX, d.shoulderY, 0], [0.5 * d.limb * B.shoulder + 0.1, 0.55 * d.limb * B.shoulder + 0.05, 0.5 * d.limb * B.shoulder + 0.05]);
   ell(P, skin, [0, d.neckY - 0.45, -0.12], [0.95 * tw, 0.42, 0.58]);                                // traps
-  if (B.muscle) {
+  if (B.female) {
+    // bare muscle down the flanks and over the shoulders; skin over the chest
+    for (const s of [-1, 1]) {
+      ell(P, muscleCol, [s * 0.95 * tw, 1.4 * th, 0.1], [0.32 * tw, 0.95 * th, 0.6], { ao: 0.35 });
+      ell(P, muscleCol, [s * d.shoulderX * 0.95, d.shoulderY + 0.05, 0], [0.42 * d.limb + 0.08, 0.4 * d.limb + 0.05, 0.42 * d.limb + 0.05], { ao: 0.3 });
+      ell(P, skin, [s * 0.42 * tw, 1.95 * th, 0.56], [0.38 * tw, 0.32, 0.32], { ao: 0.3 });
+    }
+  } else if (B.muscle) {
     for (const s of [-1, 1]) {
       ell(P, muscleCol || skin, [s * 0.5 * tw, 2.0 * th, 0.42], [0.56 * tw, 0.48, 0.42], { ao: 0.3 });
       ell(P, muscleCol || skin, [s * 0.62 * tw, 1.1 * th, 0.55], [0.5 * tw, 0.34, 0.3], { ao: 0.4 });
@@ -212,6 +225,20 @@ function buildHead(d, st, skinC, hairC, rnd, withHair) {
     fix: (g) => { const p = g.attributes.position; for (let i = 0; i < p.count; i++) { p.setXYZ(i, p.getX(i) - jawP.x, Math.min(p.getY(i), yL + smile(p.getX(i))) - jawP.y, p.getZ(i) - jawP.z); } },
   });
 
+  // ---- a closed mouth (Annie): skin and lips over the gap between the cranium and the jaw, so the teeth and the dark
+  // mouth show only when the jaw really opens (the upper lip stays with the head, the lower one goes with the jaw)
+  if (st.calm) {
+    const th = (y) => Math.acos(THREE.MathUtils.clamp((y - cy) / ry, -1, 1));
+    const tU = th(yU + 0.02 * R), tM = th(yU - toothH), tL = th(yL - 0.02 * R), al = Math.asin(Math.min(0.95, (mw + 0.04 * R) / rx));
+    const band = (t0, t1, p0, pl, col, jaw) => (jaw ? PJ : P).add(new THREE.SphereGeometry(1, 28, 3, p0, pl, t0, t1 - t0), col, {
+      pos: jaw ? new V3(0, cy, cz).sub(jawP).toArray() : [0, cy, cz], scl: [rx * 1.01, ry * 1.01, rz * 1.01], outline: false, ao: 0.2 });
+    const LIP = new THREE.Color(skin).lerp(new THREE.Color(0xb86a62), 0.35).getHex();
+    band(tU, tL, Math.PI / 2 + al, Math.PI * 2 - 2 * al, skin, false);        // the cheeks round to the back
+    band(tU, tM, Math.PI / 2 - al, 2 * al, LIP, false);                       // upper lip
+    band(tM, tL, Math.PI / 2 - al, 2 * al, LIP, true);                        // lower lip, on the jaw
+    capsule(P, 0x5a2e2a, [-mw * 0.9, yU - toothH, surf(0, yU - toothH) * 1.0 + 0.02 * R], [mw * 0.9, yU - toothH, surf(0, yU - toothH) + 0.02 * R], 0.012 * R, { outline: false, ao: 0 });
+  }
+
   // ---- mouth interior (dark, recessed ellipsoid) + tongue
   P.add(sphere(1, 18, 12), MOUTH, { pos: [0, cy - 0.1 * R, cz], scl: [rx * 0.93, ry * 0.9, rz * 0.9], outline: false, ao: 0 });
   PJ.add(sphere(1, 12, 8), TONGUE, { pos: new V3(0, yL + 0.04 * R, cz + 0.32 * R).sub(jawP).toArray(), scl: [0.5 * R, 0.1 * R, 0.4 * R], outline: false, ao: 0.1 });
@@ -242,10 +269,10 @@ function buildHead(d, st, skinC, hairC, rnd, withHair) {
     }
     // cheek bulge under the eye, pushed up by the grin + smile crease
     const cxm = s * (mw * 0.95), cyy = yU + smile(mw) + 0.12 * R;
-    if (!B.colossal) ell(P, skin, [cxm, cyy, surf(cxm, cyy) - 0.04 * R], [0.3 * R, 0.2 * R, 0.22 * R], { ao: 0.35 });
+    if (!B.colossal && !st.calm) ell(P, skin, [cxm, cyy, surf(cxm, cyy) - 0.04 * R], [0.3 * R, 0.2 * R, 0.22 * R], { ao: 0.35 });
     const c0 = new V3(s * (mw + 0.02 * R), (yU + yL) / 2 + smile(mw), 0), c1 = new V3(s * (mw + 0.12 * R), (yU + yL) / 2 + smile(mw) + 0.34 * R, 0);
     c0.z = surf(c0.x, c0.y) + 0.02 * R; c1.z = surf(c1.x, c1.y) + 0.04 * R;
-    if (!B.colossal) capsule(P, 0x6a342f, c0.toArray(), c1.toArray(), 0.03 * R, { outline: false, ao: 0 });
+    if (!B.colossal && !st.calm) capsule(P, 0x6a342f, c0.toArray(), c1.toArray(), 0.03 * R, { outline: false, ao: 0 });
   }
   // ---- nose
   if (!B.colossal) {
@@ -261,10 +288,20 @@ function buildHead(d, st, skinC, hairC, rnd, withHair) {
   if (withHair) {
     P.add(new THREE.SphereGeometry(1, 22, 10, 0, Math.PI * 2, 0, 62 * Math.PI / 180), hairC, { pos: [0, cy + 0.03 * R, cz - 0.08 * R], scl: [rx * 1.06, ry * 1.07, rz * 1.08], ao: 0.15, rot: [-0.15, 0, 0] });
     P.add(new THREE.SphereGeometry(1, 22, 10, 0, Math.PI * 2, 0, 80 * Math.PI / 180), hairC, { pos: [0, cy - 0.05 * R, cz - 0.07 * R], scl: [rx * 1.06, ry * 1.05, rz * 1.07], ao: 0.15, rot: [-Math.PI / 2 - 0.2, 0, 0] });
-    for (let i = 0; i < 9; i++) {                              // fringe: spiky tufts along the hairline
+    // Annie: a soft fringe swept to one side (flat locks, not spikes) over a smooth crown
+    if (st.calm) for (let i = 0; i < 7; i++) {
+      const a = -0.85 + (i / 6) * 1.7;
+      const hx = Math.sin(a) * rx * 0.86, hy = cy + 0.6 * ry - 0.1 * R * Math.abs(a), hz = surf(hx, hy) - 0.02 * R;
+      P.add(sphere(1, 10, 7), hairC, { pos: [hx + 0.06 * R, hy - 0.08 * R, hz], scl: [0.2 * R, 0.34 * R, 0.08 * R], rot: [-0.25, a * 0.4, 0.35], ao: 0.1 });
+    }
+    else for (let i = 0; i < 9; i++) {                         // fringe: spiky tufts along the hairline
       const a = -0.95 + (i / 8) * 1.9;
       const hx = Math.sin(a) * rx * 0.86, hy = cy + 0.62 * ry - 0.08 * R * Math.abs(a), hz = surf(hx, hy) - 0.03 * R;
       P.add(new THREE.ConeGeometry(0.15 * R, (0.34 + rnd() * 0.16) * R, 5), hairC, { pos: [hx, hy - 0.1 * R, hz], rot: [Math.PI + 0.25, a * 0.5, 0], outline: true, ao: 0.1 });
+    }
+    if (st.bun) P.add(sphere(1, 12, 9), hairC, { pos: [0, cy + 0.42 * ry, cz - 1.0 * rz], scl: [0.42 * R, 0.36 * R, 0.36 * R], ao: 0.2 });
+    if (st.sideLocks) for (const s of [-1, 1]) {
+      P.add(new THREE.ConeGeometry(0.17 * R, 0.95 * R, 5), hairC, { pos: [s * rx * 0.92, cy - 0.05 * ry, cz + 0.25 * rz], rot: [Math.PI - 0.12, 0, s * 0.1], outline: true, ao: 0.1 });
     }
     // shoulder-length locks hanging round the sides and the back of the head
     if (st.longHair) for (let i = 0; i < 13; i++) {
@@ -283,14 +320,14 @@ function buildHead(d, st, skinC, hairC, rnd, withHair) {
       const hh = toothH * (1 - 0.3 * Math.abs(t) ** 1.6) * (0.88 + rnd() * 0.24);
       const yEdge = (upper ? yU : yL) + smile(x);                       // rim line at this x
       const yc = upper ? yEdge - hh / 2 + 0.02 * R : yEdge + hh / 2 - 0.02 * R;
-      const z = surf(x, yc);
+      const z = surf(x, yc) - (st.calm ? 0.13 * R : 0);   // (a closed mouth: the teeth sit behind the lips)
       const n = normalAt(x, yc, z);
       const tilt = (rnd() - 0.5) * 0.12;
       let mat = orient(new V3(x, yc, z), n).scale(new V3(w * 0.5, hh * 0.5, 0.075 * R * (B.colossal ? 1.3 : 1)));
       mat.multiply(new M4().makeRotationZ(tilt));
       const gc = B.colossal ? 0x7a2220 : GUM;
       const gy = upper ? yEdge + 0.02 * R : yEdge - 0.02 * R;
-      const gp = new V3(x, gy, surf(x, gy) - 0.01 * R);
+      const gp = new V3(x, gy, surf(x, gy) - (st.calm ? 0.14 : 0.01) * R);
       if (upper) {
         P.add(new THREE.BoxGeometry(2, 2, 2), TEETH, { matrix: mat, outline: false, ao: 0.25 });
         P.add(sphere(1, 6, 5), gc, { pos: gp.toArray(), scl: [w * 0.6, 0.06 * R, 0.07 * R], outline: false, ao: 0.2 });
@@ -395,10 +432,10 @@ function buildFore(d, skin, side, fist) {
   handParts(P, d, skin, side, fist);
   return P.build();
 }
-function buildThigh(d, skin) {
+function buildThigh(d, skin, mus) {
   const P = new Parts(d.B.colossal), lm = d.limb;
   P.add(limbGeo(d.thighLen, 0.64 * lm, 0.46 * lm, 0.14, 0.3, 14), skin, { ao: 0.3 });
-  if (d.B.muscle) ell(P, skin, [0, -d.thighLen * 0.4, 0.15 * lm], [0.6 * lm, 0.8 * lm, 0.58 * lm], { ao: 0.4 });
+  if (d.B.muscle) ell(P, mus || skin, [0, -d.thighLen * 0.4, 0.15 * lm], [0.6 * lm, 0.8 * lm, 0.58 * lm], { ao: 0.4 });
   return P.build();
 }
 function buildShin(d, skin) {
@@ -478,7 +515,7 @@ export function getArchetype(spec) {
   const skin = colossal ? 0xffffff : (SKINS[spec.skin] ?? SKINS.beige);
   const hairIdx = typeof spec.hair === 'number' ? spec.hair : 0;
   const hairC = HAIRS[hairIdx % HAIRS.length];
-  const muscleCol = colossal ? 0xe8d8c8 : null;
+  const muscleCol = colossal ? 0xe8d8c8 : d.B.female ? 0xc9705f : null;
   const { head, jaw } = buildHead(d, st, skin, hairC, rnd, spec.hair !== false && !colossal);
   const geo = {
     pelvis: buildPelvis(d, skin),
@@ -487,7 +524,7 @@ export function getArchetype(spec) {
     arm: buildArm(d, skin, muscleCol),
     foreL: buildFore(d, skin, 1, false), foreR: buildFore(d, skin, -1, false),
     foreLFist: buildFore(d, skin, 1, true), foreRFist: buildFore(d, skin, -1, true),
-    thigh: buildThigh(d, skin), shin: buildShin(d, skin), foot: buildFoot(d, skin),
+    thigh: buildThigh(d, skin, d.B.female ? muscleCol : null), shin: buildShin(d, skin), foot: buildFoot(d, skin),
   };
   const arch = { key, dims: d, st, geo, material: bodyMaterial(colossal), colossal, jawRest: st.open, skin };
   _cache.set(key, arch);

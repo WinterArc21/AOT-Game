@@ -3,8 +3,12 @@
 // Free Flight, score and combos, and the in-game tutorial.
 import * as THREE from 'three';
 import * as keys from './keys.js';
-import { GateMission } from './gate.js';
-const SCORED = new Set(['expedition', 'gate']);
+import { GateMission } from './missions/gate.js';
+import { ScoutMission } from './missions/scout.js';
+import { MISSIONS, missionList, unlock } from './missions/index.js';
+const SCORED = new Set(['expedition', 'gate', 'scout']);
+// each mode's sky and light (world.setAtmosphere); a mission can pick its own per chapter
+const ATMOSPHERE = { gate: 'trost' };
 
 const WAVES = [
   { msg: 'WAVE 1 — TITANS IN THE FIELD', field: 4, forest: 0, town: 0, abnormal: 0, sizes: [4, 9] },
@@ -38,6 +42,8 @@ export class Game {
     this._spawnQ = []; this._spawnT = 0;
     this.g = game;
     this.gate = new GateMission(this);
+    this.scout = new ScoutMission(this);
+    this.chapter = 0;
     this.wave = 0; this.score = 0; this.combo = 1; this.comboT = 0;
     this.waveClear = 0; this.run = 0;
     this.hint = null;
@@ -72,7 +78,7 @@ export class Game {
     ev.on('player:trampled', () => game.hud?.message?.('THROWN FROM THE SADDLE!', 1.6, 'warn'));
     ev.on('titan:windup', (e) => { if (e.kind === 'charge' && game.player?.riding) game.hud?.message?.('ABNORMAL CHARGING — BREAK AWAY!', 1.8, 'warn'); });
     ev.on('player:bladeBroken', () => game.hud?.message?.(game.player.spares > 0 ? 'Blades dull: swapping to a fresh pair' : 'NO BLADES LEFT: find a supply depot (crates under a flag)', game.player.spares > 0 ? 1.1 : 2.5, 'warn'));
-    // Plug the Gate (src/gate.js)
+    // Plug the Gate (src/missions/gate.js)
     let lastHurt = -9;
     ev.on('carrier:hurt', (e) => {
       const c = e.carrier;
@@ -98,7 +104,8 @@ export class Game {
     g.mode = 'menu';
     g.paused = false;
     this._stopTraining();
-    this.gate.dispose();
+    this.gate.dispose(); this.scout.dispose();
+    g.world?.setAtmosphere?.('day');
     g.hud?.hideDeath?.(); g.hud?.hidePause?.(); g.hud?.hideTrainingResult?.();
     g.input.unlock?.();
     g.titans?.clear?.();
@@ -106,12 +113,14 @@ export class Game {
     // a few titans wandering the field behind the menu for atmosphere
     this._spawnSome('field', 3, [5, 12], 0);
     g.audio?.setMusic?.(0.15);
-    g.hud?.showMenu?.((mode) => this.start(mode));
+    g.hud?.showMenu?.((mode, opts) => this.start(mode, opts), missionList());
   }
 
-  start(mode) {
+  /** Start a mode. opts.chapter: which chapter of a mission (MISSIONS in missions/index.js). */
+  start(mode, opts = {}) {
     const g = this.g;
     if (mode === 'training' && !g.training) mode = 'free';
+    this.chapter = opts.chapter ?? 0;
     this.run++;
     g.hud?.hideMenu?.(); g.hud?.hideDeath?.(); g.hud?.hidePause?.(); g.hud?.hideTrainingResult?.();
     g.audio?.init?.();
@@ -120,7 +129,8 @@ export class Game {
     g.titans?.clear?.();
     for (const a of g.allies || []) a.revive?.();
     this._stopTraining();
-    this.gate.dispose();
+    this.gate.dispose(); this.scout.dispose();
+    g.world?.setAtmosphere?.(mode === 'scout' ? this.scout.atmosphere(this.chapter) : ATMOSPHERE[mode] || 'day');
     this.wave = 0; this.score = 0; this.combo = 1; this.comboT = 0; this.colossal = false; this.colossalSpawned = false; this.waveClear = 0;
     this.startTime = g.time;
     this._spawnQ = []; this._spawnT = 0;
@@ -133,6 +143,7 @@ export class Game {
       if (d) sp = { position: d.position.clone(), yaw: 0 };
     }
     if (mode === 'gate') sp = this.gate.spawn();   // on a roof by the boulder, with the elite squad
+    if (mode === 'scout') sp = this.scout.spawn(this.chapter);
     if (mode === 'training') {
       g.training.start();
       g.trainingActive = true;
@@ -167,6 +178,8 @@ export class Game {
       g.audio?.setMusic?.(0.5);
     } else if (mode === 'gate') {
       this.gate.start();
+    } else if (mode === 'scout') {
+      this.scout.start(this.chapter);
     } else if (mode === 'training') {
       g.hud?.message?.('TRAINING GROUNDS: cut every dummy\'s nape. The clock is running.', 3.5, 'info');
       g.audio?.setMusic?.(0.4);
@@ -174,6 +187,24 @@ export class Game {
       g.hud?.message?.('FREE FLIGHT: the forest is yours. Infinite gas.', 3.5, 'info');
       g.audio?.setMusic?.(0.25);
     }
+  }
+
+  /**
+   * A mission chapter is done: save the next chapter as open and show the result, with NEXT CHAPTER when there
+   * is one. r: { title, win (false: the story goes on, it's not a defeat), delay (ms) }.
+   */
+  chapterDone(mode, r = {}) {
+    const g = this.g, p = g.player, ch = this.chapter;
+    const m = MISSIONS.find((x) => x.id === mode);
+    const hasNext = m && ch + 1 < m.chapters.length;
+    if (hasNext) unlock(mode, ch + 1);
+    const run = this.run;
+    setTimeout(() => {
+      if (this.run !== run) return;
+      g.input.unlock?.();
+      g.hud?.showDeath?.({ cause: r.title || 'CHAPTER COMPLETE', win: true, kills: p.stats.kills, score: this.score, time: Math.round(g.time - (this.startTime || 0)), retryLabel: 'PLAY AGAIN' },
+        () => this.start(mode, { chapter: ch }), () => this.toMenu(), hasNext ? () => this.start(mode, { chapter: ch + 1 }) : null);
+    }, r.delay ?? 2500);
   }
 
   _stopTraining() {
@@ -330,17 +361,18 @@ export class Game {
 
   _onDeath(e) {
     const g = this.g;
-    if (g.mode === 'gate' && this.gate.done) return;   // the result screen is already on its way
-    if (g.mode === 'gate') this.gate.done = true;
+    const mission = { gate: this.gate, scout: this.scout }[g.mode];
+    if (mission?.done) return;   // the result screen is already on its way
+    if (mission) mission.done = true;
     const p = g.player;
     const cause = { eaten: 'YOU WERE EATEN', struck: 'CRUSHED BY A TITAN', fell: 'YOU FELL' }[e.cause] || 'YOU DIED';
     g.audio?.setMusic?.(0.1);
-    const run = this.run, mode = g.mode;
+    const run = this.run, mode = g.mode, chapter = this.chapter;
     setTimeout(() => {
       if (this.run !== run) return;
       g.input.unlock?.();
-      g.hud?.showDeath?.({ cause, kills: p.stats.kills, score: this.score, time: Math.round(g.time - (this.startTime || 0)), wave: this.wave, topSpeed: Math.round(p.stats.topSpeed * 3.6) },
-        () => this.start(mode === 'menu' ? 'expedition' : mode), () => this.toMenu());
+      g.hud?.showDeath?.({ cause, kills: p.stats.kills, score: this.score, time: Math.round(g.time - (this.startTime || 0)), wave: this.wave, topSpeed: Math.round(p.stats.topSpeed * 3.6), retryLabel: mission ? 'TRY AGAIN' : null },
+        () => this.start(mode === 'menu' ? 'expedition' : mode, { chapter }), () => this.toMenu());
     }, e.cause === 'eaten' ? 1400 : 900);
   }
 
@@ -358,7 +390,7 @@ export class Game {
     this.comboT -= dt;
     if (this.comboT <= 0) this.combo = 1;
     this._tutorial(dt);
-    this._spotting();
+    if (g.mode !== 'scout') this._spotting();   // (the 57th has its own radio)
     if (this._spawnQ?.length && (this._spawnT -= dt) <= 0) {
       this._spawnT = 0.05;
       try { const q = this._spawnQ.shift(); const t = g.titans?.spawn(q); q.then?.(t); } catch (err) { console.warn('spawn failed', err); }
@@ -376,6 +408,7 @@ export class Game {
       }
     }
     if (g.mode === 'gate' && g.player.alive) this.gate.update(dt);
+    if (g.mode === 'scout' && g.player.alive) this.scout.update(dt);
     if (g.mode === 'training' && g.trainingActive && this.trainEnd == null && (g.training?.remaining ?? 1) === 0) this._finishTraining();
   }
 
@@ -417,6 +450,7 @@ export class Game {
       return `TRAINING GROUNDS · cut every dummy's nape${best > 0 ? ` · best ${best.toFixed(1)} s` : ''}`;
     }
     if (g.mode === 'gate') return this.gate.objective();
+    if (g.mode === 'scout') return this.scout.objective();
     if (g.mode !== 'expedition') return '';
     const ts = (g.titans?.titans || []).filter((t) => t.alive);
     if (this.waveClear > 0 && this.wave > 0) return `Wave ${this.wave} cleared · next wave incoming`;

@@ -49,10 +49,14 @@ game = {
   world,                           // result of buildWorld(game) (src/world/world.js)
   events,                          // { on(name, fn), off(name, fn), emit(name, payload) }
   time,                            // seconds since start (game time)
-  mode,                            // 'menu' | 'expedition' | 'gate' | 'training' | 'free'
+  mode,                            // 'menu' | 'expedition' | 'gate' | 'scout' | 'training' | 'free'
   escort, gateSealed,              // Plug the Gate: Eren's titan (src/titans/carrier.js, not in titans.titans; titans
                                    // in state 'maul' go for it) and whether the boulder now blocks the gate. The
-                                   // mission script (phases, flares, squad radio, spawns) is src/gate.js
+                                   // mission script (phases, flares, squad radio, spawns) is src/missions/gate.js.
+                                   // The 57th Expedition ('scout', chapters) is src/missions/scout.js; it spawns the
+                                   // Female Titan (src/titans/female.js, in titans.titans). A titan with `drawnTo`
+                                   // set mauls that target like the escort. world.setAtmosphere('day'|'trost'|'dawn')
+                                   // sets the sky per mode; fx.flare(pos, 'red'|'black'|'green'|'yellow') fires smoke
   training, trainingActive,        // TrainingCourse (src/titans/dummies.js) and whether it is live
   targetList(),                    // every cuttable thing: live titans + (in training) dummies
   hitTest(center, radius),         // merged hit test over titans and dummies: [{ titan, part, point }]

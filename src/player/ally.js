@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { CFG } from '../config.js';
 import { OdmGear } from './odm.js';
+import { steerToSlot } from './horse.js';
 
 // Math.hypot is variadic and boxes its arguments in hot loops (it was the top source of garbage); this doesn't.
 const hypot = (a, b, c = 0) => Math.sqrt(a * a + b * b + c * c);
@@ -363,20 +364,10 @@ export class Ally {
   }
   _ride(dt) {
     const h = this.horse, g = this.game, p = g.player;
-    const lead = p.riding || p;
-    const ly = p.riding ? p.riding.yaw : p.yaw;
-    const fx = Math.sin(ly), fz = Math.cos(ly), rx = -fz, rz = fx;
-    const lp = p.riding ? p.riding.pos : p.pos;
-    // aim a little ahead of the slot so the column flows; gallop to catch up, ease off when ahead
-    const sx = lp.x + rx * this.slot.x + fx * this.slot.z, sz = lp.z + rz * this.slot.x + fz * this.slot.z;
-    const tx = sx + fx * 10 - h.pos.x, tz = sz + fz * 10 - h.pos.z;
-    let d = Math.atan2(tx, tz) - h.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
-    h.want.turn = Math.max(-1, Math.min(1, -d * 2.5));
-    const behind = (sx - h.pos.x) * fx + (sz - h.pos.z) * fz;
-    const leadSpeed = (lead.speed ?? lead.vel?.length?.() ?? 0);
-    h.want.f = behind > -1 || leadSpeed > 8 ? 1 : 0;
-    h.speedMul = behind > 6 ? 1.3 : behind > 1.5 ? 1.12 : behind < -2 ? 0.88 : 1;
+    // in the slot beside the player (on horseback or not), or in a mission's column (slot.lead)
+    steerToSlot(h, this.slot.lead || p.riding || p, this.slot);
     h.saddle(this.pos); this.vel.copy(h.vel);
+    if (this.slot.stay) return;   // a mission keeps them in the saddle
     // leave the saddle when the leader takes to the air, or when a titan comes close (staggered, not all at once)
     if (this.dismountT < 0) {
       let titanNear = false;

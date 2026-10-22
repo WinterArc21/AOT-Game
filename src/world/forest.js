@@ -3,8 +3,8 @@
 import * as THREE from 'three';
 import { Builder } from './geo.js';
 import { Rng, clamp, lerp, smoothstep } from './rng.js';
-import { SUN_DIR, FOG_COLOR } from './common.js';
-import { groundHeight } from './terrain.js';
+import { SUN_DIR } from './common.js';
+import { groundHeight, roadX, ROAD_END } from './terrain.js';
 import { TreeBatch, addTree, finishBatch } from './trees.js';
 import { makeDepot } from './props.js';
 
@@ -42,6 +42,7 @@ export function buildForest(ctx) {
     const edge = Math.min(smoothstep(0, 60, z - Z0) + 0.15, 1) * Math.min(smoothstep(0, 50, Math.min(x - X0, X1 - x)) + 0.2, 1);
     if (rng.next() > edge) continue;
     const d = minD(z) * rng.range(0.92, 1.1);
+    if (z < ROAD_END + 20 && Math.abs(x - roadX(z)) < 13 + d * 0.15) continue;   // the wagon road stays clear
     if (free(x, z, d)) put(x, z, d);
   }
 
@@ -123,15 +124,16 @@ export function buildForest(ctx) {
   ctx.scene.add(shafts);
 
   // ---- fog goes darker and greener under the canopy ----
-  const fog = ctx.scene.fog, base = new THREE.Color(FOG_COLOR), deep = new THREE.Color(0x4f7d62), tmp = new THREE.Color();
+  // blends from the current atmosphere (ctx.atmo, set by world.setAtmosphere) to the green haze under the canopy
+  const fog = ctx.scene.fog, A = ctx.atmo, deep = new THREE.Color(0x4f7d62), tmp = new THREE.Color();
   let fk = 0;
   ctx.updaters.push((dt, cam) => {
     const inF = smoothstep(150, 240, cam.z) * (1 - smoothstep(700, 800, Math.abs(cam.x))) * (1 - smoothstep(1000, 1100, cam.z));
     const low = 1 - smoothstep(60, 115, cam.y - groundHeight(cam.x, cam.z));
     const target = inF * low;
     fk += (target - fk) * Math.min(1, dt * 2.5);
-    fog.color.copy(base).lerp(tmp.copy(deep), fk * 0.8);
-    fog.near = lerp(120, 25, fk); fog.far = lerp(1400, 620, fk);
+    fog.color.copy(A.fog).lerp(tmp.copy(deep).multiply(A.canopy), fk * 0.8);
+    fog.near = lerp(A.near, 25, fk); fog.far = lerp(A.far, 620, fk);
     ctx.scene.background.copy(fog.color);
   });
 

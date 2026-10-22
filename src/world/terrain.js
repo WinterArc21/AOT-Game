@@ -12,6 +12,8 @@ export function groundHeight(x, z) {
   return h * t;
 }
 
+/** The road runs from the gate to here (z) through the forest. */
+export const ROAD_END = 940;
 export const roadX = (z) => 20 * Math.sin(z / 62) * smoothstep(18, 70, z);
 
 const cB = new THREE.Color();
@@ -61,10 +63,11 @@ export function buildGround(ctx) {
   const ground = new THREE.Mesh(g, ctx.mat.grass);
   ground.name = 'ground'; ctx.add(ground, false, true);
 
-  // dirt road from the gate across the field to the forest
+  // dirt road from the gate across the field and on through the Forest of Giant Trees (the wagon road the
+  // Survey Corps' centre column took in the 57th Expedition)
   const b = new Builder();
   const rc = new THREE.Color(1, 1, 1);
-  for (let z0 = 6; z0 < 215; z0 += 3) {
+  for (let z0 = 6; z0 < ROAD_END; z0 += 3) {
     const z1 = z0 + 3, x0 = roadX(z0), x1 = roadX(z1);
     const w0 = 4.6 + noise2(z0 * 0.1, 1) * 0.6, w1 = 4.6 + noise2(z1 * 0.1, 1) * 0.6;
     const y = (x, z) => groundHeight(x, z) + 0.07;

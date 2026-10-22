@@ -52,6 +52,12 @@ const F_SPLAT = 32;        // leaves a ground splat where it lands (titan blood)
 const F_STEAMY = 64;       // gives off little steam wisps in flight (titan blood evaporates)
 
 const col = (hex) => new THREE.Color(hex);
+/** Signal-flare smoke: [start, end] colours. Red: a titan; black: an abnormal; green: the new course; yellow: done. */
+export const FLARE = {
+  red: [col(0xff3b2b), col(0x9a3a30)], black: [col(0x1c1a19), col(0x4a4644)], green: [col(0x46d66a), col(0x3f8a52)],
+  yellow: [col(0xffe04a), col(0xd2b45a)], purple: [col(0xa25ae0), col(0x6c4a8a)],
+};
+const _flareD = new THREE.Vector3();
 const C = {
   white: col(0xffffff), steam: col(0xf4f8ff), steamEnd: col(0xc9d6e8), gas: col(0xffffff), gasEnd: col(0xdfe9f7),
   bloodA: col(0x7a0509), bloodB: col(0x3d0206), mistA: col(0xa3181c), mistB: col(0xffe6e6),
@@ -743,6 +749,28 @@ export class Effects {
     }
   }
 
+  /**
+   * A signal flare (the Survey Corps' smoke rounds): a streak of coloured smoke shot up from `from` (tilted along
+   * `dir` when given: a green round points the new course), bursting into a cloud that hangs in the sky.
+   * color: a key of FLARE ('red', 'black', 'green', 'yellow', 'purple') or [start, end] colours.
+   */
+  flare(from, color = 'red', dir = null) {
+    const colors = typeof color === 'string' ? FLARE[color] || FLARE.red : color;
+    const v = new THREE.Vector3((Math.random() - 0.5) * 3, 70, (Math.random() - 0.5) * 3);
+    if (dir) v.addScaledVector(_flareD.copy(dir).setY(0).normalize(), 32);
+    (this._flares || (this._flares = [])).push({ p: from.clone(), v, t: 0, e: 0, colors });
+  }
+  _updateFlares(dt) {
+    const F = this._flares;
+    if (!F) return;
+    for (let i = F.length - 1; i >= 0; i--) {
+      const f = F[i];
+      f.t += dt; f.v.y -= 30 * dt; f.p.addScaledVector(f.v, dt);
+      if ((f.e -= dt) <= 0) { f.e = 0.04; this.steam(f.p, 2.6, 9, f.colors); }
+      if (f.t > 1.8) { for (let k = 0; k < 3; k++) this.steam(_flareD.set((Math.random() - 0.5) * 6, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 6).add(f.p), 11, 14, f.colors); F.splice(i, 1); }
+    }
+  }
+
   /** Titan blood: dark red droplets that fall, burst into red mist and fade into faint steam. */
   blood(position, direction, size = 1) {
     direction = direction || UP;
@@ -1281,6 +1309,7 @@ export class Effects {
       un.uHead.value = head * 1.02; un.uTail.value = tail; un.uAlpha.value = 1 - smooth(0.1, 0.2, a);
     }
     this._updateLightning(dt);
+    this._updateFlares(dt);
   }
 
   /** drop everything (scene change / restart). */
@@ -1289,6 +1318,7 @@ export class Effects {
     for (const s of this.strikes) { s.active = false; s.bolt.mesh.visible = false; }
     for (const m of this.slashes) m.visible = false;
     for (const r of this.rings) r.visible = false;
+    if (this._flares) this._flares.length = 0;
     this.decals.clear(); this.smear.reset();
     this.game.impactFrame?.cancel?.();
     this.pillar.visible = false; this.flash.visible = false; this.light.intensity = 0;

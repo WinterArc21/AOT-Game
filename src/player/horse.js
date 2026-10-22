@@ -31,6 +31,25 @@ function mesh(parts, parent, outline = 0) {
   return m;
 }
 
+/**
+ * Rein a horse into its slot in a moving column. lead: { pos, yaw, speed } (a horse, the player, a formation);
+ * slot: { x: metres to the lead's right, z: metres ahead of it }. It aims a little ahead of the slot so the column
+ * flows, and matches the lead's speed, galloping harder to catch up and easing off when ahead.
+ */
+export function steerToSlot(h, lead, slot) {
+  const ly = lead.yaw, fx = Math.sin(ly), fz = Math.cos(ly), rx = -fz, rz = fx;
+  const sx = lead.pos.x + rx * slot.x + fx * slot.z, sz = lead.pos.z + rz * slot.x + fz * slot.z;
+  const tx = sx + fx * 10 - h.pos.x, tz = sz + fz * 10 - h.pos.z;
+  let d = Math.atan2(tx, tz) - h.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+  h.want.turn = THREE.MathUtils.clamp(-d * 2.5, -1, 1);
+  const behind = (sx - h.pos.x) * fx + (sz - h.pos.z) * fz;
+  const leadSpeed = lead.speed ?? lead.vel?.length?.() ?? 0;
+  const want = Math.max(0, leadSpeed + THREE.MathUtils.clamp(behind * 0.7, -8, 9));
+  h.want.f = want > 0.8 ? 1 : 0;
+  h.speedMul = THREE.MathUtils.clamp(want / SPEED.gallop, 0.05, 1.35);
+  return behind;
+}
+
 export class Horse {
   constructor(game, pos, yaw, seed) {
     this.game = game;
@@ -131,6 +150,31 @@ export class Horse {
   _dip() { const j = this.jolt || 0; return j > 0 ? Math.sin(j * Math.PI) * 0.16 * (this.joltAmp || 1) : 0; }
   /** A rider landed on it: the back gives, it stumbles a step and loses a little speed. */
   hit(strength = 1) { this.jolt = 1; this.joltAmp = Math.min(1.4, 0.5 + strength); this.speed *= 1 - 0.15 * Math.min(1, strength); }
+  /**
+   * A plain cloaked Survey Corps rider in the saddle (missions fill a formation with these: no gear, no AI).
+   * hood: the cloak's hood up. Returns the group; hide it when the rider falls.
+   */
+  addDummyRider({ hood = false, hair = 0x2a1c12 } = {}) {
+    const cloak = 0x2f5a3a, skin = 0xe8c4a0, trousers = 0xe6e0d0, boots = 0x2a1c12, jacket = 0x8a6a42;
+    const r = new THREE.Group(); r.position.set(0, 0.5, -0.06); this.trunk.add(r);
+    mesh([
+      piece(new THREE.CylinderGeometry(0.19, 0.22, 0.62, 8), jacket, { p: [0, 0.38, 0], r: [-0.12, 0, 0] }),                      // torso
+      piece(new THREE.SphereGeometry(0.13, 10, 8), skin, { p: [0, 0.83, 0.03] }),                                                     // head
+      hood ? piece(new THREE.SphereGeometry(0.16, 10, 8), cloak, { p: [0, 0.86, -0.01], s: [1, 1.05, 1.08] })
+        : piece(new THREE.SphereGeometry(0.135, 10, 8), hair, { p: [0, 0.88, -0.01], s: [1.02, 0.8, 1.05] }),
+      piece(new THREE.ConeGeometry(0.42, 0.95, 9, 1, true), cloak, { p: [0, 0.32, -0.12], r: [-0.42, 0, 0] }),                     // cloak
+      piece(new THREE.CylinderGeometry(0.075, 0.07, 0.5, 6), trousers, { p: [0.2, 0.0, 0.1], r: [-1.1, 0, -0.35] }),                 // thighs
+      piece(new THREE.CylinderGeometry(0.075, 0.07, 0.5, 6), trousers, { p: [-0.2, 0.0, 0.1], r: [-1.1, 0, 0.35] }),
+      piece(new THREE.CylinderGeometry(0.065, 0.06, 0.5, 6), boots, { p: [0.33, -0.3, 0.2], r: [0.2, 0, -0.12] }),                   // boots
+      piece(new THREE.CylinderGeometry(0.065, 0.06, 0.5, 6), boots, { p: [-0.33, -0.3, 0.2], r: [0.2, 0, 0.12] }),
+      piece(new THREE.CylinderGeometry(0.05, 0.045, 0.5, 6), jacket, { p: [0.17, 0.42, 0.22], r: [-1.2, 0, 0.2] }),                 // arms on the reins
+      piece(new THREE.CylinderGeometry(0.05, 0.045, 0.5, 6), jacket, { p: [-0.17, 0.42, 0.22], r: [-1.2, 0, -0.2] }),
+      piece(new THREE.BoxGeometry(0.34, 0.16, 0.2), 0x6d727a, { p: [0, 0.12, -0.18] }),                                             // gear box
+    ], r, 0.012);
+    this.dummy = r;
+    return r;
+  }
+
   /** Whistled for: gallop to the caller and stop beside them. */
   call(who) { this.caller = who; this.callT = 25; this.state = 'walk'; }
 
@@ -142,7 +186,9 @@ export class Horse {
     this.t += dt; this.mountCd -= dt;
     if (this.jolt > 0) this.jolt = Math.max(0, this.jolt - dt * 3.2);
     let target = 0, turn = 0;
-    if (this.rider) {
+    // a riderless horse kept in a column (a mission's formation riders): it reins itself into its slot
+    if (!this.rider && this.follow) steerToSlot(this, this.follow.lead, this.follow.slot);
+    if (this.rider || this.follow) {
       target = this.want.f > 0 ? SPEED.gallop * (this.speedMul || 1) : this.want.f < 0 ? 0 : Math.max(this.speed - 3 * dt, Math.min(this.speed, SPEED.trot));
       turn = this.want.turn;
     } else if (this.caller && (this.callT -= dt) > 0) {

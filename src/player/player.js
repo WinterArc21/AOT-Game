@@ -1411,6 +1411,7 @@ export class Player {
       const res = hit.titan.applyHit({ part: hit.part, damage, point: hit.point.clone(), dir: dir.clone() }) || {};
       res.angle = angle; res.speed = rel; res.timing = q;
       this.blade = Math.max(0, this.blade - CFG.combat.wear * (hit.part === 'nape' ? 1 : 0.35));
+      if (res.shatter) this.blade = 0;   // hardened skin: the blades break on it
       this.game.audio?.slash?.(true);
       if (hit.titan.kind !== 'dummy') this.game.fx?.blood?.(hit.point, dir, res.killed ? 2 : 1);
       this.game.events.emit('player:hit', { titan: hit.titan, part: hit.part, damage, result: res, point: hit.point.clone() });
