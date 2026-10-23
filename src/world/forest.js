@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { Builder } from './geo.js';
 import { Rng, clamp, lerp, smoothstep } from './rng.js';
 import { SUN_DIR } from './common.js';
-import { groundHeight, roadX, ROAD_END, FS } from './terrain.js';
+import { groundHeight, roadX, ROAD_END, FS, FX1 } from './terrain.js';
 import { TreeBatch, addTree, finishBatch } from './trees.js';
 import { makeDepot } from './props.js';
 
@@ -12,7 +12,7 @@ const V3 = THREE.Vector3;
 
 export function buildForest(ctx) {
   const rng = new Rng(3003);
-  const X0 = -700, X1 = 700, Z0 = 188 + FS, Z1 = 1010 + FS;
+  const X0 = -700, X1 = FX1, Z0 = 188 + FS, Z1 = 1010 + FS;
   const NX = 4, NZ = 3;
   const batches = [];
   for (let i = 0; i < NX * NZ; i++) batches.push(new TreeBatch());
@@ -114,7 +114,7 @@ export function buildForest(ctx) {
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion().setFromUnitVectors(new V3(0, 1, 0), SUN_DIR), pp = new V3(), ss = new V3();
   const srng = new Rng(404);
   for (let i = 0; i < NS; i++) {
-    const x = srng.range(-620, 620), z = srng.range(205 + FS, 800 + FS), h = srng.range(55, 105), gy = groundHeight(x, z), k = srng.range(0.6, 1.4);
+    const x = srng.range(-620, FX1 - 70), z = srng.range(205 + FS, 800 + FS), h = srng.range(55, 105), gy = groundHeight(x, z), k = srng.range(0.6, 1.4);
     pp.set(x + SUN_DIR.x * h / SUN_DIR.y, gy + h, z + SUN_DIR.z * h / SUN_DIR.y);
     // the cone's local length runs along SUN_DIR, so scale y by the slant length
     ss.set(k, h / SUN_DIR.y, k);
@@ -128,7 +128,7 @@ export function buildForest(ctx) {
   const fog = ctx.scene.fog, A = ctx.atmo, deep = new THREE.Color(0x4f7d62), tmp = new THREE.Color();
   let fk = 0;
   ctx.updaters.push((dt, cam) => {
-    const inF = smoothstep(150 + FS, 240 + FS, cam.z) * (1 - smoothstep(700, 800, Math.abs(cam.x))) * (1 - smoothstep(1000 + FS, 1100 + FS, cam.z));
+    const inF = smoothstep(150 + FS, 240 + FS, cam.z) * (1 - smoothstep(700, 800, -cam.x)) * (1 - smoothstep(FX1, FX1 + 100, cam.x)) * (1 - smoothstep(1000 + FS, 1100 + FS, cam.z));
     const low = 1 - smoothstep(60, 115, cam.y - groundHeight(cam.x, cam.z));
     const target = inF * low;
     fk += (target - fk) * Math.min(1, dt * 2.5);

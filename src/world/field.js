@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { Builder } from './geo.js';
 import { Rng } from './rng.js';
-import { groundHeight, roadX, FS } from './terrain.js';
+import { groundHeight, roadX, FS, FX1 } from './terrain.js';
 import { TreeBatch, addTree, finishBatch } from './trees.js';
 import { addRock } from './props.js';
 
@@ -21,6 +21,12 @@ export function buildField(ctx) {
     spots.push([x, z]);
     if (i % 6 === 0) for (let k = 0; k < 3; k++) spots.push([x + rng.range(-16, 16), z + rng.range(-16, 16)]);
   }
+  // and the open land east of the forest, all the way north (the formation's route)
+  for (let i = 0; i < 30; i++) {
+    const x = rng.range(FX1 + 90, 1060), z = rng.range(460, 1320);
+    spots.push([x, z]);
+    if (i % 5 === 0) for (let k = 0; k < 2; k++) spots.push([x + rng.range(-14, 14), z + rng.range(-14, 14)]);
+  }
   for (const [x, z] of spots) {
     if (Math.abs(x - roadX(z)) < 12) continue;
     const H = rng.range(15, 25);
@@ -31,7 +37,7 @@ export function buildField(ctx) {
   // rocks
   const RB = new Builder();
   for (let i = 0; i < 90; i++) {
-    const x = rng.range(-900, 900), z = rng.range(30, 160 + FS);
+    const east = i % 3 === 0, x = east ? rng.range(FX1 + 60, 1050) : rng.range(-900, 900), z = east ? rng.range(460, 1320) : rng.range(30, 160 + FS);
     if (Math.abs(x - roadX(z)) < 8) continue;
     const r = rng.range(0.8, i % 7 === 0 ? 3.6 : 2.2), gy = groundHeight(x, z), squash = 0.78;
     addRock(RB, x, gy + r * 0.1, z, r, rng, { squash });
@@ -71,10 +77,49 @@ export function buildField(ctx) {
     ctx.col.cyl(x, z, g - 0.3, g + ph, 0.87, 'stone');
   }
 
+  // ---- the ruined village outside the gate (abandoned when Wall Maria fell): roofless stone houses along the road,
+  // a few still with a sagging plank roof. The formation rides out through it. And lone farmhouses out on the plain.
+  const RV = new Builder(), RW = new Builder();
+  const house = (cx, cz, yaw, W, D, H, roofed) => {
+    const g = groundHeight(cx, cz), q = new Q().setFromAxisAngle(UP, yaw);
+    const F = new THREE.Matrix4().compose(new V3(cx, g, cz), q, new V3(1, 1, 1));
+    const wall = (lx, lz, w, d, h) => {
+      RV.setTransform(F);
+      RV.box(lx, h / 2 - 0.3, lz, w, h, d, { color: 0xd9cfbd, uTile: 4, vTile: 4, vBase: -0.3, grad: [0.72, 1], faces: 'xXzZy' });
+      const c = new V3(lx, h / 2 - 0.3, lz).applyMatrix4(F);
+      ctx.col.box(c.x, c.y, c.z, w / 2, h / 2, d / 2, 'stone', q);
+    };
+    const T = 0.6;
+    // front and back walls; a ruin has a gap or a broken top; the side walls run full height
+    const hb = roofed ? H : H * rng.range(0.45, 0.85);
+    wall(0, D / 2, W, T, H); wall(-W * 0.3, -D / 2, W * 0.4, T, hb); wall(W * 0.32, -D / 2, W * 0.36, T, roofed ? H : hb * 0.6);
+    wall(-W / 2, 0, T, D, roofed ? H : H * rng.range(0.6, 1)); wall(W / 2, 0, T, D, H);
+    if (!roofed) return;
+    // a gable roof of weathered planks, ridge along x
+    const R = D * 0.38;
+    for (const sd of [-1, 1]) {
+      const ang = Math.atan2(R, D / 2), len = Math.hypot(R, D / 2) + 0.6;
+      const M = F.clone().multiply(new THREE.Matrix4().compose(new V3(0, H + R / 2 - 0.3, sd * D / 4), new Q().setFromAxisAngle(new V3(1, 0, 0), sd * ang), new V3(1, 1, 1)));
+      RW.setTransform(M);
+      RW.box(0, 0, 0, W + 1, 0.25, len, { color: 0x8a5a34, uTile: 3, vTile: 3, faces: 'xXzZyY' });
+      const c = new V3().applyMatrix4(M);
+      ctx.col.box(c.x, c.y, c.z, (W + 1) / 2, 0.15, len / 2, 'wood', new Q().setFromRotationMatrix(M));
+    }
+  };
+  for (let z = 92; z < 232; z += rng.range(13, 20)) for (const sd of [-1, 1]) {
+    if (rng.next() < 0.2) continue;
+    const off = rng.range(24, 52), x = roadX(z) + sd * off;
+    house(x, z, rng.range(-0.25, 0.25) + (rng.next() < 0.5 ? 0 : Math.PI / 2), rng.range(7, 11), rng.range(6, 9), rng.range(4.5, 7.5), rng.next() < 0.3);
+  }
+  for (const [x, z] of [[-40, 300], [160, 360], [520, 420], [780, 560], [640, 760], [900, 920], [700, 1080], [-520, 260], [300, 250]])
+    house(x, z, rng.range(0, Math.PI), rng.range(8, 11), rng.range(6, 8), rng.range(5, 7), rng.next() < 0.6);
+  RV.setTransform(null); RW.setTransform(null);
+
   const addMesh = (B, mat, name) => { const m = new THREE.Mesh(B.toGeometry(), mat); m.name = name; ctx.add(m); };
   addMesh(RB, ctx.mat.plain, 'fieldRocks'); addMesh(WD, ctx.mat.planks, 'fieldCart'); addMesh(ST, ctx.mat.stone, 'fieldRuin');
+  addMesh(RV, ctx.mat.stone, 'villageWalls'); addMesh(RW, ctx.mat.planks, 'villageRoofs');
 
   // titan spawn zones
-  for (const [x, z, r] of [[-150, 55, 25], [0, 70, 25], [140, 60, 25], [-80, 130, 25], [90, 140, 25], [-220, 110, 25], [230, 120, 25], [20, 170, 20], [-400, 300, 30], [380, 260, 30], [-150, 400, 30], [600, 420, 30]])
+  for (const [x, z, r] of [[-150, 55, 25], [0, 70, 25], [140, 60, 25], [-120, 140, 25], [130, 150, 25], [-220, 110, 25], [230, 120, 25], [20, 170, 20], [-400, 300, 30], [380, 260, 30], [-150, 400, 30], [600, 420, 30]])
     ctx.titanSpawns.push({ center: new V3(x, groundHeight(x, z), z), radius: r, area: 'field' });
 }

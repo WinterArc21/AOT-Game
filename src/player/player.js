@@ -99,7 +99,8 @@ export class Player {
     if (this.riding) {
       const h = this.riding;
       // a mission's formation: hands off the reins, the horse keeps its place in the column (h.autoSlot)
-      if (h.autoSlot && !F && !B && !L && !R) steerToSlot(h, h.autoSlot.lead, h.autoSlot.slot);
+      h.handsOff = !!h.autoSlot && !F && !B && !L && !R;
+      if (h.handsOff) steerToSlot(h, h.autoSlot.lead, h.autoSlot.slot);
       else { h.want.f = F - B; h.want.turn = R - L; h.speedMul = 1; }
       this.turn = 0; this.wishF = 0; this.wishR = 0;
       if (this.mounting) return;   // still climbing on: you can already steer, but not leap

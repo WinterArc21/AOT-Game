@@ -64,8 +64,9 @@ up on the nape where it last saw it. The rest is yours:
   start of each (die, and you go back to the last one). Set camera shots in letterbox, the view turning to look at a
   titan while you ride on, subtitles and a narrator tell the story. Let go of the reins and your horse keeps its place
   in the formation.
-  1. **Ride Out:** at dawn the formation streams out of the gate and spreads into the Long-Range Scouting Formation
-     across the wide plain. Scouts draw the signal gun, raise it and fire **red** smoke at a titan and **black** at an
+  1. **Ride Out:** at dawn the formation streams out of the gate, up the road through the ruined village, and spreads
+     into the Long-Range Scouting Formation on the plain, riding north up the open land past the forest (the trees on
+     its right). Scouts draw the signal gun, raise it and fire **red** smoke at a titan and **black** at an
      abnormal; Erwin fires **green** for the new course. Relay each signal with **T** (you raise your own gun), then
      kill the abnormal that comes for the right wing.
   2. **The Right Flank:** the Female Titan comes out of the trees with no flare before her. She snatches Luke, kicks
@@ -77,6 +78,8 @@ up on the nape where it last saw it. The rest is yours:
   4. **Squad Levi:** Gunther dies first. She is back: the squad blinds her and cuts her arms, she heals one eye and
      kills Eld, Petra and Oluo. Eren transforms and brawls her, freezes at Annie's stance, and she bites him out of
      his nape. Catch her with Mikasa, and when Levi has crippled her, cut Eren out of her jaw.
+  Each act can be lost: the abnormal breaks the right wing, she reaches the centre rear, the titans eat her before
+  she escapes, she gets away with Eren, or she recovers before you cut him out.
   The Female Titan (14 m, blonde, exposed muscle) sprints as fast as a horse, kicks, hardens her nape and fists
   (your blades break on them), sits back covering her nape when blinded, and her cut arms hang limp for a while.
 * **Training Grounds:** wooden titan dummies through the forest edge, some sliding on pulleys. Cut every nape

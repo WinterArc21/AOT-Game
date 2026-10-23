@@ -57,7 +57,7 @@ export class ScoutMission {
   /** Where the player starts an act (Game resets them there; the act puts them in the saddle). */
   spawn(ch) {
     const y = (x, z) => this.g.collision.groundHeight(x, z);
-    const at = [[-9, 59, 0], [140, 375, Math.PI / 2], [roadX(505), 505, 0], [roadX(TRAP_Z + 30) + 3, TRAP_Z + 30, Math.PI]][ch] || [-9, 59, 0];
+    const at = [[-9, 59, 0], [735, 550, 0], [roadX(505), 505, 0], [roadX(TRAP_Z + 30) + 3, TRAP_Z + 30, Math.PI]][ch] || [-9, 59, 0];
     return { position: new V3(at[0], y(at[0], at[1]), at[1]), yaw: at[2] };
   }
 
@@ -356,17 +356,18 @@ export class ScoutMission {
   /** 0: a tight column out of the gate; 1: the full Long-Range Scouting Formation. */
   _spread(k) {
     const e = k * k * (3 - 2 * k);
-    for (const r of this.riders) { r.slot.x = THREE.MathUtils.lerp(r.base.x * 0.12, r.base.x, e); r.slot.z = THREE.MathUtils.lerp(r.base.z * 0.5 - 6, r.base.z, e); }
-    for (const a of this.g.allies || []) if (a.slot?.base) { a.slot.x = THREE.MathUtils.lerp(a.slot.base[0] * 0.2, a.slot.base[0], e); }
+    for (const r of this.riders) { r.slot.x = THREE.MathUtils.lerp(r.base.x * 0.07, r.base.x, e); r.slot.z = THREE.MathUtils.lerp(r.base.z * 0.5 - 6, r.base.z, e); }
+    for (const a of this.g.allies || []) if (a.slot?.base) { a.slot.x = THREE.MathUtils.lerp(a.slot.base[0] * 0.14, a.slot.base[0], e); }
     const ph = this.g.player.riding?.autoSlot?.slot;
-    if (ph) ph.x = THREE.MathUtils.lerp(9, 45, e);
+    if (ph) ph.x = THREE.MathUtils.lerp(6, 45, e);
   }
   _ride0(fresh) {
     const g = this.g;
-    this.phase = 'gate'; this.waitForYou = true;
+    this.phase = 'gate'; this.waitForYou = true; this.spreadAt = 99;
     if (fresh) {
-      // out of the gate, north-west across the plain
-      this._makeLead(new V3(0, 0, 70), 0, [[roadX(120), 120], [-120, 210], [-260, 280]], 14);
+      // out of the gate, north up the road through the ruined village, then north-east across the plain toward
+      // the open land past the forest's east edge (the trees on the right)
+      this._makeLead(new V3(0, 0, 70), 0, [[roadX(150), 150], [roadX(235), 235], [480, 380], [600, 470]], 11);
       this._formation(0);
       for (const a of g.allies || []) if (a.slot) a.slot.base = [a.slot.x, a.slot.z];
       this._spread(0);
@@ -386,14 +387,16 @@ export class ScoutMission {
     this._script(t, [
       [1.6, 'Erwin', 'Advance! The 57th Exterior Scouting Mission begins!'],
       [4.8, null, 'Their orders: open a route to Shiganshina. Their true aim, known to a few: to draw out the titan inside the walls.'],
-      [9.5, 'Erwin', 'Long-Range Scouting Formation: spread out!'],
-      [12, 'Armin', 'Red smoke means a titan, black an abnormal. Green is the new course. Every signal gets passed on.'],
+      [this.spreadAt + 0.3, 'Erwin', 'Long-Range Scouting Formation: spread out!'],
+      [this.spreadAt + 3, 'Armin', 'Red smoke means a titan, black an abnormal. Green is the new course. Every signal gets passed on.'],
     ]);
     if (t > 5 && this.support?.alive) { const s = this.support; s.killedBy = { name: 'The support team' }; s.applyHit({ part: 'nape', damage: 1e5, point: s.napeWorld().center }); }
-    if (t > 9.5 && t < 18) this._spread(clamp((t - 9.5) / 8, 0, 1));
+    if (this.spreadAt === 99 && L.pos.z > 245) this.spreadAt = t;
+    if (t > this.spreadAt && t < this.spreadAt + 9) this._spread(clamp((t - this.spreadAt) / 8, 0, 1));
+    const T0 = this.spreadAt - 9.5;   // (the signals keep their places after the spread)
     this._relayTimeout(dt);
     const ev = this.ev0 || (this.ev0 = {});
-    if (t > 17 && !ev.red) {
+    if (t > T0 + 17 && !ev.red) {
       ev.red = 1; this.phase = 'ride';
       const s = this._riderNamed('scout R1');
       this._signal(s, 'red');
@@ -401,15 +404,15 @@ export class ScoutMission {
       const at = L.pos.clone().addScaledVector(fwd(L.yaw, _a), 200).addScaledVector(rgt(L.yaw, _b), 80);
       this._spawn(at, 11, { yaw: L.yaw + Math.PI });
     }
-    if (t > 26 && !ev.green) {
+    if (t > T0 + 26 && !ev.green) {
       ev.green = 1;
-      // Erwin turns the formation away from it: east, along the forest
-      const dir = new V3(1, 0, 0.1).normalize();
-      L.path = [L.pos.clone().addScaledVector(dir, 140).setZ(Math.max(L.pos.z + 30, 300)), new V3(1050, 0, 335)]; L.i = 0; L.want = 11;
+      // Erwin bears the formation left, away from it, and on north past the forest
+      const dir = fwd(L.yaw + 0.4, new V3());
+      L.path = [L.pos.clone().addScaledVector(dir, 120), new V3(780, 0, 560), new V3(780, 0, 1290)]; L.i = 0;
       this._signal(this._riderNamed('Erwin'), 'green', dir);
       this._say('Jean', 'Green smoke from the command! We change course!');
     }
-    if (t > 38 && !ev.black) {
+    if (t > T0 + 38 && !ev.black) {
       ev.black = 1;
       this._signal(this._riderNamed('scout R3'), 'black');
       this._say('Reiner', 'Black smoke! An abnormal on the right wing, and it\'s coming straight for them!');
@@ -428,7 +431,7 @@ export class ScoutMission {
         // it goes for the right wing if you leave it to them
         const r = this._riderNamed('scout R3');
         if (r?.alive && r.h.pos.distanceTo(a.position) < a.footR + a.armLen) this._killRider(r, 'Fritz was caught by the abnormal.');
-        if (this.pt > 32) { a.killedBy = { name: 'The right wing' }; a.applyHit({ part: 'nape', damage: 1e5, point: a.napeWorld().center }); }
+        if (this.pt > 50) this._fail('THE ABNORMAL BROKE THE RIGHT WING');
       }
     }
     if (this.phase === 'rejoin' && (this.pt += dt) > 4) this._enterAct(1, false);
@@ -436,9 +439,9 @@ export class ScoutMission {
 
   // ================================================================ act 1: The Right Flank
   _flank1(fresh) {
-    this.phase = 'ride'; this.waitForYou = false;
+    this.phase = 'ride'; this.waitForYou = true;   // (the formation can't lose a relay; whistle ({whistle}) if you lose your horse)
     if (fresh) {
-      this._makeLead(new V3(150, 0, 330), Math.PI / 2, [[1050, 335]], 11);
+      this._makeLead(new V3(780, 0, 560), 0, [[780, 1290]], 10);
       this._formation(1);
     }
     const r = this.riders.filter((x) => x.alive && x.name.startsWith('scout R'));
@@ -513,8 +516,11 @@ export class ScoutMission {
     }
     if (ph === 'harass') {
       f.runTo.copy(L.pos).addScaledVector(fwd(L.yaw, _b), -20);
+      // gaining a little on the formation all the time (about half a minute to reach the centre rear unless cut)
+      f.paceMul = clamp((L.speed * 0.92 + 0.5) / f.runSpeed, 0.2, 1.2);
+      if (f.position.distanceTo(f.runTo) < 14) { this._fail('SHE REACHED THE CENTRE REAR'); return; }
       if (this.pt > 6 && this.pt < 9) this._focus(0.2, () => f._headWorld(new V3()));
-      if (this.hits >= 3 || this.pt > 32) {
+      if (this.hits >= 3) {
         this.phase = 'bluff'; this.pt = 0;
         f.setMode('hold'); f.faceTo = armin?.pos || g.player.pos;
         this._shotAt(3.6, () => f._headWorld(new V3()), { from: () => (armin?.pos || g.player.pos).clone(), dist: 16, h: -3, fov: 45 });
@@ -608,6 +614,7 @@ export class ScoutMission {
         g.hud?.message?.('LEVI FIRES A SOUND GRENADE', 2, 'info');
       }
       if (!p.riding && f.position.distanceTo(p.pos) < 90) this._say('Levi', 'Who told you to leave your horse? Get back on.');
+      if (f.position.distanceTo(p.pos) < 14 && f.state !== 'strike') f.strike('hand', () => p.pos, (q) => { if (q.distanceTo(p.pos) < 5) p.hurt(1, 'struck'); }, { run: true });
       if (f.position.z > TRAP_Z) this._trap();
       return;
     }
@@ -645,7 +652,8 @@ export class ScoutMission {
         [8, 'Levi', 'She called them to eat her. Tch.'],
         [20, 'Petra', 'There are too many! They\'re on her!'],
       ]);
-      if (f.eatenHp <= 0 || this.pt > 55) this._escape();
+      if (f.eatenHp <= 0) { this._fail('THEY ATE THE FEMALE TITAN · THE CAPTURE HAS FAILED'); return; }
+      if (this.pt > 42) this._escape();
       return;
     }
     if (this.phase === 'escaped' && this.pt > 4.5) this._enterAct(3, false);
@@ -841,12 +849,13 @@ export class ScoutMission {
         [1.5, 'Mikasa', 'She has Eren in her mouth! I\'m going after her!'],
         [5, 'Levi', 'Mikasa. Don\'t do anything stupid. We bring him back. We don\'t kill her.'],
       ]);
-      if ((this.pt > 8 && f.position.distanceTo(p.pos) < 50) || this.pt > 30) this._levi();
+      if (this.pt > 8 && f.position.distanceTo(p.pos) < 50) this._levi();
+      else if (f.position.z > 1235 || f.position.distanceTo(p.pos) > 280) this._fail('SHE GOT AWAY WITH EREN');
       return;
     }
     if (ph === 'mouth') {
       this._script(this.pt, [[3, 'Levi', 'Now. Cut him out of her jaw while she can\'t move.']]);
-      if (this.pt > 40) this._freeEren(true);
+      if (this.pt > 45) this._fail('SHE RECOVERED AND GOT AWAY WITH EREN');
       return;
     }
     if (ph === 'freed' && this.pt > 3.5) this._complete('WE GOT EREN BACK');
@@ -901,6 +910,20 @@ export class ScoutMission {
   }
 
   // ---------------------------------------------------------------- flow
+  /** The act is lost: the result screen offers the act's checkpoint again. */
+  _fail(cause) {
+    if (this.done) return;
+    this.done = true; this.phase = 'lost'; this.title = cause;
+    const g = this.g, flow = this.flow, ch = this.ch, run = flow.run;
+    g.hud?.message?.(cause, 3.5, 'big');
+    g.audio?.setMusic?.(0.1);
+    setTimeout(() => {
+      if (flow.run !== run) return;
+      g.input.unlock?.();
+      g.hud?.showDeath?.({ cause, kills: g.player.stats.kills, score: flow.score, time: Math.round(g.time - (flow.startTime || 0)), retryLabel: 'FROM THE CHECKPOINT' },
+        () => flow.start('scout', { chapter: ch }), () => flow.toMenu());
+    }, 3000);
+  }
   _complete(title) {
     if (this.done) return;
     this.done = true; this.phase = 'won'; this.title = title;
@@ -917,7 +940,7 @@ export class ScoutMission {
     this._subs(dt);
     this._director(dt);
     this._moveLead(dt);
-    if (this.phase === 'won') return;
+    if (this.phase === 'won' || this.phase === 'lost') return;
     if (this.cut) { this._cutStep(dt); if (this.cut) return; }
     this.t += dt;
     this._flareKey();
@@ -928,7 +951,7 @@ export class ScoutMission {
   // ---------------------------------------------------------------- HUD
   objective() {
     const g = this.g, f = this.female, p = g.player, ph = this.phase;
-    if (ph === 'won') return this.title;
+    if (ph === 'won' || ph === 'lost') return this.title;
     if (ph === 'cut') return '';
     const relay = this.want ? keys.fill(` · RELAY ${this.want.color.toUpperCase()}: {flare}`) : '';
     const dist = (o) => (o ? `${Math.round(o.position.distanceTo(p.pos))} m` : '');
@@ -936,18 +959,18 @@ export class ScoutMission {
     switch (this.ch) {
       case 0:
         if (ph === 'gate') return 'THE 57TH EXPEDITION · ride with the formation (let go of the reins and your horse keeps its place)';
-        if (ph === 'abnormal') return `${act}BLACK SMOKE · kill the abnormal before it reaches the right wing ${this.abnormal?.alive ? dist(this.abnormal) : ''}${relay}`;
+        if (ph === 'abnormal') return `${act}BLACK SMOKE · kill the abnormal before it breaks the right wing ${this.abnormal?.alive ? dist(this.abnormal) + ' · ' + Math.max(0, Math.ceil(50 - this.pt)) + ' s' : ''}${relay}`;
         if (ph === 'rejoin') return `${act}back to your place in the formation`;
         return `${act}LONG-RANGE SCOUTING FORMATION · watch the sky for smoke${relay}`;
       case 1:
         if (ph === 'ride') return `${act}the right wing · something is coming out of the trees${relay}`;
-        if (ph === 'harass') return `${act}SLOW HER DOWN · cut her legs and arms (${this.hits}/3) · she's ${dist(f)} away`;
+        if (ph === 'harass') return `${act}SLOW HER DOWN · cut her legs and arms (${this.hits}/3) · ${f ? Math.round(f.position.distanceTo(f.runTo)) : 0} m from the centre rear`;
         if (ph === 'gone') return `${act}SHE IS RUNNING FOR THE CENTRE REAR`;
         return `${act}THE FEMALE TITAN · ${dist(f)} · stay alive`;
       case 2:
-        if (ph === 'ride') return `${act}RIDE · Levi's order: do not fight · she's ${f ? Math.max(0, Math.round(this.lead.pos.z - f.position.z)) + ' m behind' : 'coming'}`;
+        if (ph === 'ride') return `${act}RIDE · stay on your horse, Levi's order: do not fight · she's ${f ? Math.max(0, Math.round(this.lead.pos.z - f.position.z)) + ' m behind' : 'coming'}`;
         if (ph === 'trap') return `${act}SHE IS RESTRAINED · try her nape yourself`;
-        if (ph === 'defend') return `${act}DEFEND THE FEMALE TITAN · kill the titans eating her · ${Math.max(0, Math.round((f?.eatenHp || 0) / 1.6))}% left`;
+        if (ph === 'defend') return `${act}DEFEND THE FEMALE TITAN · kill the titans eating her · ${Math.max(0, Math.round((f?.eatenHp || 0) / 1.6))}% of her left · hold ${Math.max(0, Math.ceil(42 - this.pt))} s`;
         return `${act}SHE ESCAPED`;
       default:
         if (ph === 'regroup') return `${act}head for the horses`;
@@ -955,7 +978,7 @@ export class ScoutMission {
         if (ph === 'kills') return `${act}SHE CAN SEE AGAIN`;
         if (ph === 'eren') return `${act}EREN FIGHTS HER · cut her ankles and arms to help him`;
         if (ph === 'chase') return `${act}CATCH HER · she has Eren in her mouth · ${dist(f)}`;
-        if (ph === 'mouth') return `${act}CUT EREN OUT OF HER MOUTH · strike her jaw`;
+        if (ph === 'mouth') return `${act}CUT EREN OUT OF HER MOUTH · strike her jaw · ${Math.max(0, Math.ceil(45 - this.pt))} s before she recovers`;
         return 'EREN IS SAFE';
     }
   }

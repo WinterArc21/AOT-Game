@@ -281,7 +281,7 @@ export class Horse {
       if (c.collider.type === 'ground' || c.depth <= 0) continue;
       this.pos.x += c.normal.x * c.depth; this.pos.z += c.normal.z * c.depth;
       const head = -(c.normal.x * Math.sin(this.yaw) + c.normal.z * Math.cos(this.yaw));
-      if (this.rider && head > 0.7 && this.speed > 12) this.crashed = this.speed;
+      if (this.rider && !this.handsOff && head > 0.7 && this.speed > 12) this.crashed = this.speed;   // (a formation horse finds its own way round)
       if (this.speed > 6) this.speed *= head > 0.7 ? 0.3 : 0.9;
     }
     this.pos.y = col.groundHeight(this.pos.x, this.pos.z);

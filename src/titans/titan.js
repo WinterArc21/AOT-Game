@@ -1219,7 +1219,7 @@ export class Titan {
     this.vy -= LEAP_G * dt; pos.y += this.vy * dt;
     this._collide();
     this._wallClamp(px, pz);
-    pos.x = clamp(pos.x, -1100, 1100); pos.z = clamp(pos.z, -650, 1050);
+    pos.x = clamp(pos.x, -1100, 1100); pos.z = clamp(pos.z, -650, 1050 + FS);
     const gy = this._ground(pos.x, pos.z);
     if (this.vy < 0 && pos.y <= gy) { pos.y = gy; this._land(); }
     this._lastPos.copy(pos);
@@ -1294,7 +1294,7 @@ export class Titan {
     }
     this._collide();
     this._wallClamp(px, pz);
-    pos.x = clamp(pos.x, -1100, 1100); pos.z = clamp(pos.z, -650, 1050);
+    pos.x = clamp(pos.x, -1100, 1100); pos.z = clamp(pos.z, -650, 1050 + FS);
     // stuck detection (chasing but not getting anywhere)
     if (goalDirValid && this.speedTarget > 1) {
       const moved = hypot(pos.x - this._lastPos.x, pos.z - this._lastPos.z);

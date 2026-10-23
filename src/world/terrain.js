@@ -15,6 +15,9 @@ export function groundHeight(x, z) {
 /** The Forest of Giant Trees starts this far beyond the field it once bordered (z ≈ 188 + FS): a wide plain lies
  * between Wall Rose and the trees, for the 57th Expedition's ride out. Everything placed in the forest is shifted by it. */
 export const FS = 300;
+/** The forest's east edge (x): east of it open land runs north past the forest (the 57th Expedition's route; riding
+ * north, the trees are on the formation's right, which is -x). */
+export const FX1 = 420;
 /** The road runs from the gate to here (z) through the forest. */
 export const ROAD_END = 940 + FS;
 export const roadX = (z) => 20 * Math.sin((z - FS) / 62) * smoothstep(18, 70, z);
@@ -23,7 +26,7 @@ const cB = new THREE.Color();
 const FIELD = new THREE.Color(0xe8ffd0), FIELD_DRY = new THREE.Color(0xfff2b0), FOREST = new THREE.Color(0x4d9a5a), FOREST_DARK = new THREE.Color(0x2f7a4a), TOWNOUT = new THREE.Color(0xdff5b8);
 export function groundTint(x, z, out = new THREE.Color()) {
   const n = noise2(x * 0.02 + 3, z * 0.02 - 4), n2 = noise2(x * 0.06, z * 0.06);
-  const forest = smoothstep(150 + FS, 250 + FS, z) * (1 - smoothstep(700, 860, Math.abs(x))) * (1 - smoothstep(1050 + FS, 1250 + FS, z));
+  const forest = smoothstep(150 + FS, 250 + FS, z) * (1 - smoothstep(700, 860, -x)) * (1 - smoothstep(FX1, FX1 + 160, x)) * (1 - smoothstep(1050 + FS, 1250 + FS, z));
   if (z < 0) out.copy(TOWNOUT).multiplyScalar(0.92 + n * 0.1);
   else {
     out.copy(FIELD).lerp(FIELD_DRY, clamp(n * 0.9 + 0.1, 0, 1) * 0.55);
